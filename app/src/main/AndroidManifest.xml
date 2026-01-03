@@ -3,6 +3,9 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!-- 摄像头权限 -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
     <uses-permission android:name="android.permission.CAMERA" />
 
     <!-- 存储权限：适配 Android 13+ (API 33+) -->
@@ -20,9 +23,12 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.RoomXXX0102">
+        
+        <!-- 🔥 MainActivity: 强制横屏 -->
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.activities.MainActivity"
             android:exported="true"
+            android:screenOrientation="landscape"
             android:label="@string/app_name"
             android:theme="@style/Theme.RoomXXX0102">
             <intent-filter>
@@ -31,6 +37,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 🔥 SettingsActivity: 强制横屏 -->
+        <activity
+            android:name=".ui.activities.SettingsActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:label="区域规划与设置"
+            android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar" />
+
+        <!-- 🔥 LivingRoomSetupActivity: 强制横屏 -->
+        <activity
+            android:name=".ui.activities.LivingRoomSetupActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar" />
+            
     </application>
 
 </manifest>

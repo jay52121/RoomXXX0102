@@ -17,6 +17,12 @@ composeMaterialIconsExtended = "1.7.8" # Compose Material Icons Extended
 accompanistPermissions = "0.37.3" # Accompanist Permissions
 tensorflowLiteSupport = "0.5.0"
 
+# Add new versions
+appcompat = "1.7.0"
+material = "1.12.0"
+constraintlayout = "2.1.4"
+fragmentKtx = "1.8.6"
+
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -47,6 +53,12 @@ composeIconsExtended = { group = "androidx.compose.material", name = "material-i
 # Accompanist Permissions (Simplified alias for access as libs.accompanistPermissions)
 accompanistPermissions = { group = "com.google.accompanist", name = "accompanist-permissions", version.ref = "accompanistPermissions" }
 tensorflow-lite-support = { module = "org.tensorflow:tensorflow-lite-support", version.ref = "tensorflowLiteSupport" }
+
+# Add new libraries
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
+androidx-fragment-ktx = { group = "androidx.fragment", name = "fragment-ktx", version.ref = "fragmentKtx" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

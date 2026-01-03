@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F5F5F5"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- 调试开关卡片 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="2dp"
+            app:cardBackgroundColor="#FFFFFF">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="调试显示设置"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#2196F3"
+                    android:layout_marginBottom="12dp"/>
+
+                <!-- 显式设置 textColor 为深色 #333333 -->
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switch_pose_mode"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="启用姿态识别 (Pose Mode)"
+                    android:textSize="16sp"
+                    android:textColor="#333333" 
+                    android:checked="true"
+                    android:paddingVertical="8dp" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switch_show_box"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="显示检测框 (Debug Box)"
+                    android:textSize="16sp"
+                    android:textColor="#333333"
+                    android:paddingVertical="8dp" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switch_show_point"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="显示中心点 (Center Point)"
+                    android:textSize="16sp"
+                    android:textColor="#333333"
+                    android:checked="true"
+                    android:paddingVertical="8dp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 功能入口卡片 -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_room_setup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="2dp"
+            app:cardBackgroundColor="#FFFFFF"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="20dp">
+
+                <ImageView
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@android:drawable/ic_menu_mapmode"
+                    app:tint="#4CAF50" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="区域规划与设置"
+                        android:textSize="18sp"
+                        android:textStyle="bold"
+                        android:textColor="#333333"/>
+                    
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="配置客厅主区域和各个房间出入口"
+                        android:textSize="12sp"
+                        android:textColor="#999999"/>
+                </LinearLayout>
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:src="@android:drawable/ic_media_play"
+                    app:tint="#CCCCCC"
+                    android:rotation="0" /> 
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 全局操作 -->
+        <!-- 显式设置 textColor 为红色 -->
+        <Button
+            android:id="@+id/btn_reset_trackers"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="重置所有追踪器状态"
+            android:textColor="#FF5722"
+            android:backgroundTint="#FFFFFF"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            app:strokeColor="#FF5722" />
+
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>
