@@ -97,22 +97,22 @@ class LivingRoomSetupActivity : AppCompatActivity() {
 
         // 加载历史数据 (Living Room ID 固定为 "living_room")
         val room = RoomRepository.getAllRooms().find { it.id == "living_room" }
-        if (room != null && room.boundaryPoints.isNotEmpty()) {
-            editorView.setHistoryPoints(room.boundaryPoints)
+        if (room != null && room.boundaryVertices.isNotEmpty()) {
+            editorView.setHistoryVertices(room.boundaryVertices)
             Toast.makeText(this, "已加载历史区域配置", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun saveAndFinish() {
-        val resultPoints = editorView.getResult()
+        val resultVertices = editorView.getResult()
         
-        if (resultPoints.size < 3) {
+        if (resultVertices.size < 3) {
             Toast.makeText(this, "请至少设置 3 个点以构成有效区域", Toast.LENGTH_SHORT).show()
             return
         }
 
         // 保存到仓库
-        RoomRepository.updateRoomBoundary("living_room", resultPoints)
+        RoomRepository.updateRoomBoundary("living_room", resultVertices)
         
         Toast.makeText(this, "区域设置已保存", Toast.LENGTH_SHORT).show()
         

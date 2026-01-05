@@ -16,7 +16,7 @@ object GeometryUtils {
     /**
      * **计算凸包 (Compute Convex Hull)**
      *
-     * 使用 Monotone Chain 算法计算一组点的凸包。
+     * 使用 Monotone Chain 算法计算一组点的凸包。暂时没用到这个功能.w
      *
      * **物理意义**:
      * 将用户在客厅边缘走动留下的离散“足迹点云 (Footprint Cloud)”，转换为一个包围这些点的最小凸多边形。

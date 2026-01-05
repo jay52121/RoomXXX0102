@@ -3,18 +3,13 @@ package com.example.roomxxx0102.data.repository
 import android.content.Context
 import android.graphics.PointF
 import android.util.Log
+import com.example.roomxxx0102.data.model.BoundaryVertex
 import com.example.roomxxx0102.data.model.RoomConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 
-/**
- * **房间数据仓库 (Room Repository)**
- *
- * 负责管理房间数据的内存缓存与本地文件持久化。
- * 使用 JSON 格式存储。
- */
 object RoomRepository {
 
     private const val TAG = "RoomRepository"
@@ -23,16 +18,10 @@ object RoomRepository {
     private val cachedRooms = CopyOnWriteArrayList<RoomConfig>()
     private var configFile: File? = null
 
-    /**
-     * **初始化仓库**
-     * 必须在应用启动时调用 (如 MainActivity.onCreate)
-     */
     fun init(context: Context) {
         configFile = File(context.filesDir, FILE_NAME)
         loadFromFile()
     }
-
-    // --- 公开查询接口 ---
 
     fun getAllRooms(): List<RoomConfig> {
         return cachedRooms.toList()
@@ -41,8 +30,6 @@ object RoomRepository {
     fun getSubRooms(): List<RoomConfig> {
         return cachedRooms.filter { !it.isSovereignTerritory }
     }
-
-    // --- 增删改查与自动保存 ---
 
     fun addNewRoom(name: String, anchor: PointF? = null) {
         val newRoom = RoomConfig(
@@ -54,7 +41,7 @@ object RoomRepository {
         cachedRooms.add(newRoom)
         saveToFile()
     }
-    
+
     fun updateRoom(room: RoomConfig) {
         val index = cachedRooms.indexOfFirst { it.id == room.id }
         if (index != -1) {
@@ -66,7 +53,7 @@ object RoomRepository {
     fun deleteRoom(roomId: String): Boolean {
         val room = cachedRooms.find { it.id == roomId } ?: return false
         if (room.isSovereignTerritory) return false
-        
+
         cachedRooms.remove(room)
         saveToFile()
         return true
@@ -81,41 +68,52 @@ object RoomRepository {
         }
     }
 
-    /**
-     * **更新房间边界数据并保存**
-     */
-    fun updateRoomBoundary(roomId: String, points: List<PointF>) {
+    fun updateRoomBoundary(roomId: String, vertices: List<BoundaryVertex>) {
         val index = cachedRooms.indexOfFirst { it.id == roomId }
         if (index != -1) {
             val room = cachedRooms[index]
-            val isRecorded = points.size >= 3
+            val isRecorded = vertices.size >= 3
             cachedRooms[index] = room.copy(
-                boundaryPoints = points,
+                boundaryVertices = copyBoundaryVertices(vertices),
                 isRecorded = isRecorded
             )
-            Log.d(TAG, "更新房间 [$roomId] 边界: ${points.size} 个点")
+            Log.d(TAG, "Updated room [$roomId] boundary: ${vertices.size} points")
             saveToFile()
         } else {
-            Log.w(TAG, "未找到房间 ID: $roomId")
+            Log.w(TAG, "Room not found: $roomId")
         }
     }
-    
-    fun saveRoomBoundary(roomId: String, points: List<PointF>) {
-        updateRoomBoundary(roomId, points)
+
+    fun saveRoomBoundary(roomId: String, vertices: List<BoundaryVertex>) {
+        updateRoomBoundary(roomId, vertices)
     }
 
     fun resetAllStatus() {
         // ...
     }
 
-    // --- 内部持久化逻辑 (JSON) ---
+    private fun copyBoundaryVertices(vertices: List<BoundaryVertex>): MutableList<BoundaryVertex> {
+        return vertices.map {
+            BoundaryVertex(it.id, PointF(it.point.x, it.point.y), it.edgeIdToNext)
+        }.toMutableList()
+    }
+
+    private fun buildVerticesFromPoints(points: List<PointF>): MutableList<BoundaryVertex> {
+        val vertices = ArrayList<BoundaryVertex>(points.size)
+        var nextVertexId = 1
+        var nextEdgeId = 1
+        for (p in points) {
+            vertices.add(BoundaryVertex(nextVertexId++, PointF(p.x, p.y), nextEdgeId++))
+        }
+        return vertices
+    }
 
     private fun loadFromFile() {
         cachedRooms.clear()
         val file = configFile ?: return
 
         if (!file.exists()) {
-            Log.i(TAG, "配置文件不存在，创建默认配置")
+            Log.i(TAG, "Config file missing, creating defaults")
             createDefaultRoom()
             return
         }
@@ -127,20 +125,32 @@ object RoomRepository {
 
             for (i in 0 until jsonArray.length()) {
                 val roomObj = jsonArray.getJSONObject(i)
-                
-                // 解析边界点
-                val boundaryList = ArrayList<PointF>()
-                val boundaryArray = roomObj.optJSONArray("boundary")
-                if (boundaryArray != null) {
-                    for (j in 0 until boundaryArray.length()) {
-                        val pObj = boundaryArray.getJSONObject(j)
-                        val x = pObj.optDouble("x", 0.0).toFloat()
-                        val y = pObj.optDouble("y", 0.0).toFloat()
-                        boundaryList.add(PointF(x, y))
+
+                val boundaryVertices = ArrayList<BoundaryVertex>()
+                val boundaryVerticesArray = roomObj.optJSONArray("boundaryVertices")
+                if (boundaryVerticesArray != null) {
+                    for (j in 0 until boundaryVerticesArray.length()) {
+                        val vObj = boundaryVerticesArray.getJSONObject(j)
+                        val id = vObj.optInt("id", j + 1)
+                        val x = vObj.optDouble("x", 0.0).toFloat()
+                        val y = vObj.optDouble("y", 0.0).toFloat()
+                        val edgeId = vObj.optInt("edgeIdToNext", j + 1)
+                        boundaryVertices.add(BoundaryVertex(id, PointF(x, y), edgeId))
                     }
+                } else {
+                    val boundaryList = ArrayList<PointF>()
+                    val boundaryArray = roomObj.optJSONArray("boundary")
+                    if (boundaryArray != null) {
+                        for (j in 0 until boundaryArray.length()) {
+                            val pObj = boundaryArray.getJSONObject(j)
+                            val x = pObj.optDouble("x", 0.0).toFloat()
+                            val y = pObj.optDouble("y", 0.0).toFloat()
+                            boundaryList.add(PointF(x, y))
+                        }
+                    }
+                    boundaryVertices.addAll(buildVerticesFromPoints(boundaryList))
                 }
-                
-                // 解析锚点
+
                 var anchor: PointF? = null
                 val anchorObj = roomObj.optJSONObject("anchor")
                 if (anchorObj != null) {
@@ -149,21 +159,30 @@ object RoomRepository {
                     anchor = PointF(x, y)
                 }
 
+                val occupiedWallIds = ArrayList<Int>()
+                val occupiedArray = roomObj.optJSONArray("occupiedWallIds")
+                if (occupiedArray != null) {
+                    for (j in 0 until occupiedArray.length()) {
+                        occupiedWallIds.add(occupiedArray.optInt(j))
+                    }
+                }
+
                 val room = RoomConfig(
                     id = roomObj.getString("id"),
                     name = roomObj.getString("name"),
                     isSovereignTerritory = roomObj.optBoolean("isSovereign", false),
                     isRecorded = roomObj.optBoolean("isRecorded", false),
-                    boundaryPoints = boundaryList,
+                    boundaryVertices = boundaryVertices,
+                    occupiedWallIds = occupiedWallIds,
                     anchorPoint = anchor
                 )
                 cachedRooms.add(room)
             }
-            Log.i(TAG, "成功加载 ${cachedRooms.size} 个房间配置")
+            Log.i(TAG, "Loaded ${cachedRooms.size} rooms")
 
         } catch (e: Exception) {
-            Log.e(TAG, "加载配置文件失败", e)
-            createDefaultRoom() 
+            Log.e(TAG, "Failed to load room config", e)
+            createDefaultRoom()
         }
     }
 
@@ -193,17 +212,23 @@ object RoomRepository {
                 roomObj.put("isSovereign", room.isSovereignTerritory)
                 roomObj.put("isRecorded", room.isRecorded)
 
-                // 序列化边界点
                 val boundaryArray = JSONArray()
-                for (p in room.boundaryPoints) {
-                    val pObj = JSONObject()
-                    pObj.put("x", p.x.toDouble())
-                    pObj.put("y", p.y.toDouble())
-                    boundaryArray.put(pObj)
+                for (v in room.boundaryVertices) {
+                    val vObj = JSONObject()
+                    vObj.put("id", v.id)
+                    vObj.put("x", v.point.x.toDouble())
+                    vObj.put("y", v.point.y.toDouble())
+                    vObj.put("edgeIdToNext", v.edgeIdToNext)
+                    boundaryArray.put(vObj)
                 }
-                roomObj.put("boundary", boundaryArray)
-                
-                // 序列化锚点
+                roomObj.put("boundaryVertices", boundaryArray)
+
+                val occupiedArray = JSONArray()
+                for (wallId in room.occupiedWallIds) {
+                    occupiedArray.put(wallId)
+                }
+                roomObj.put("occupiedWallIds", occupiedArray)
+
                 room.anchorPoint?.let { p ->
                     val anchorObj = JSONObject()
                     anchorObj.put("x", p.x.toDouble())
@@ -216,10 +241,10 @@ object RoomRepository {
 
             rootObj.put("rooms", jsonArray)
             file.writeText(rootObj.toString(2))
-            Log.d(TAG, "配置已保存至: ${file.absolutePath}")
+            Log.d(TAG, "Config saved: ${file.absolutePath}")
 
         } catch (e: Exception) {
-            Log.e(TAG, "保存配置文件失败", e)
+            Log.e(TAG, "Failed to save room config", e)
         }
     }
 }

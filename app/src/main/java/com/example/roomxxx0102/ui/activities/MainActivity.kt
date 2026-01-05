@@ -15,6 +15,7 @@ import android.util.Size
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -60,6 +61,9 @@ class MainActivity : ComponentActivity() {
     private var isVideoMode = true
     private var isPaused = false
     private var currentLivingRoomBoundary: List<PointF> = emptyList()
+
+    private var isAddSubRoomMode = false
+    private var btnAddSubRoom: Button? = null
 
     private val requestPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -116,14 +120,20 @@ class MainActivity : ComponentActivity() {
 
         findViewById<Button>(R.id.btnSetupRoom).setOnClickListener { enterEditMode() }
 
-        // --- 编辑工具栏逻辑 ---
+        // --- ??????? ---
         findViewById<Button>(R.id.btnModeSwitcher).setOnClickListener { toggleRoomMode(it as Button) }
         findViewById<Button>(R.id.btnUndo).setOnClickListener { editorView.undo() }
         findViewById<Button>(R.id.btnClear).setOnClickListener { editorView.clear() }
-        findViewById<Button>(R.id.btnCancel).setOnClickListener { exitEditMode(save = false) }
+        findViewById<Button>(R.id.btnCancel).setOnClickListener {
+            if (isAddSubRoomMode) {
+                setAddSubRoomMode(false)
+            } else {
+                exitEditMode(save = false)
+            }
+        }
         findViewById<Button>(R.id.btnFinish).setOnClickListener { exitEditMode(save = true) }
 
-        // 🔥 新增操作逻辑
+        // ?? ??????
         findViewById<Button>(R.id.btnRenameRoom).setOnClickListener {
             val roomId = editorView.selectedRoomId
             val room = RoomRepository.getSubRooms().find { it.id == roomId }
@@ -134,9 +144,19 @@ class MainActivity : ComponentActivity() {
             if (roomId != null) {
                 RoomRepository.deleteRoom(roomId)
                 editorView.setSubRooms(RoomRepository.getSubRooms())
-                editorView.clearSelection() // 同时隐藏按钮
+                editorView.clearSelection() // ??????
             }
         }
+
+        val editorControls = llEditorControls as? LinearLayout
+                btnAddSubRoom = Button(this).apply {
+            text = "增加次房间"
+            backgroundTintList = ColorStateList.valueOf(Color.parseColor("#4CAF50"))
+            setTextColor(Color.WHITE)
+            visibility = View.GONE
+            setOnClickListener { enterAddSubRoomMode() }
+        }
+        btnAddSubRoom?.let { editorControls?.addView(it) }
     }
 
     private fun enterEditMode() {
@@ -159,8 +179,38 @@ class MainActivity : ComponentActivity() {
         }
         applyModeSelection(nextMode)
     }
+    private fun enterAddSubRoomMode() {
+        setAddSubRoomMode(true)
+        Toast.makeText(this, "请点击需要增加的位置", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun setAddSubRoomMode(active: Boolean) {
+        isAddSubRoomMode = active
+        editorView.setAddSubRoomArmed(active)
+        if (active) {
+            val btnSwitcher = findViewById<Button>(R.id.btnModeSwitcher)
+            val btnUndo = findViewById<Button>(R.id.btnUndo)
+            val btnClear = findViewById<Button>(R.id.btnClear)
+            val btnRename = findViewById<Button>(R.id.btnRenameRoom)
+            val btnDelete = findViewById<Button>(R.id.btnDeleteRoom)
+            val btnCancel = findViewById<Button>(R.id.btnCancel)
+            val btnFinish = findViewById<Button>(R.id.btnFinish)
+            btnSwitcher.visibility = View.GONE
+            btnUndo.visibility = View.GONE
+            btnClear.visibility = View.GONE
+            btnRename.visibility = View.GONE
+            btnDelete.visibility = View.GONE
+            btnFinish.visibility = View.GONE
+            btnAddSubRoom?.visibility = View.GONE
+            btnCancel.visibility = View.VISIBLE
+        } else {
+            applyModeSelection(editorView.currentMode)
+        }
+    }
 
     private fun applyModeSelection(mode: LivingRoomEditorView.EditorMode) {
+        isAddSubRoomMode = false
+        editorView.setAddSubRoomArmed(false)
         editorView.currentMode = mode
         val btnSwitcher = findViewById<Button>(R.id.btnModeSwitcher)
         val btnUndo = findViewById<Button>(R.id.btnUndo)
@@ -169,7 +219,8 @@ class MainActivity : ComponentActivity() {
         val btnDelete = findViewById<Button>(R.id.btnDeleteRoom)
 
         if (mode == LivingRoomEditorView.EditorMode.LIVING_ROOM_HULL) {
-            btnSwitcher.text = "♟️ 切至次房间"
+            btnAddSubRoom?.visibility = View.GONE
+            btnSwitcher.text = "切至次房间"
             btnSwitcher.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#2196F3"))
             btnUndo.visibility = View.VISIBLE
             btnClear.visibility = View.VISIBLE
@@ -177,22 +228,25 @@ class MainActivity : ComponentActivity() {
             btnDelete.visibility = View.GONE
 
             val livingRoom = RoomRepository.getAllRooms().find { it.isSovereignTerritory }
-            editorView.setHistoryPoints(livingRoom?.boundaryPoints ?: emptyList())
+            editorView.setHistoryVertices(livingRoom?.boundaryVertices ?: emptyList())
         } else {
-            btnSwitcher.text = "📐 切至客厅区域"
+            btnAddSubRoom?.visibility = View.VISIBLE
+            btnSwitcher.text = "切至客厅区域"
             btnSwitcher.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#9C27B0"))
             btnUndo.visibility = View.GONE
             btnClear.visibility = View.GONE
 
-            // 次房间模式初始没选中，隐藏操作按钮
+            // ?????????????????
             btnRename.visibility = View.GONE
             btnDelete.visibility = View.GONE
 
             editorView.setSubRooms(RoomRepository.getSubRooms())
             editorView.setOnSubRoomListener(
-                onAdd = { point -> showAddSubRoomDialog(point) },
+                onAdd = { point ->
+                    setAddSubRoomMode(false)
+                    showAddSubRoomDialog(point)
+                },
                 onSelected = { room ->
-                    // 🔥 根据是否选中显示/隐藏操作按钮
                     val visibility = if (room != null) View.VISIBLE else View.GONE
                     btnRename.visibility = visibility
                     btnDelete.visibility = visibility
@@ -200,7 +254,6 @@ class MainActivity : ComponentActivity() {
             )
         }
     }
-
     private fun showAddSubRoomDialog(point: PointF) {
         val input = EditText(this).apply { hint = "房间名称" }
         AlertDialog.Builder(this).setTitle("新建房间").setView(input)
@@ -226,17 +279,28 @@ class MainActivity : ComponentActivity() {
     private fun exitEditMode(save: Boolean) {
         if (save) {
             if (editorView.currentMode == LivingRoomEditorView.EditorMode.LIVING_ROOM_HULL) {
-                val points = editorView.getResult()
-                if (points.size >= 3) {
-                    RoomRepository.saveRoomBoundary("living_room", points)
+                val vertices = editorView.getResult()
+                if (vertices.size >= 3) {
+                    RoomRepository.saveRoomBoundary("living_room", vertices)
+                    val removedEdges = editorView.consumeRemovedEdgeIds()
+                    unbindRoomsFromRemovedEdges(removedEdges)
                 }
             }
-            // 次房间的拖拽位移需要在完成时统一保存
-            // 虽然目前是内存实时修改，但为了持久化，建议在此处调用保存
-            // RoomRepository.saveToFile() // 如果有这个公开接口
         }
         refreshOverlayDisplay()
         toggleEditModeUI(false)
+    }
+
+    private fun unbindRoomsFromRemovedEdges(removedEdgeIds: Set<Int>) {
+        if (removedEdgeIds.isEmpty()) return
+        val subRooms = RoomRepository.getSubRooms()
+        for (room in subRooms) {
+            val before = room.occupiedWallIds.size
+            room.occupiedWallIds.removeAll(removedEdgeIds)
+            if (room.occupiedWallIds.size != before) {
+                RoomRepository.updateRoom(room)
+            }
+        }
     }
 
     private fun refreshOverlayDisplay() {
@@ -289,6 +353,7 @@ class MainActivity : ComponentActivity() {
         if (isVideoMode) {
             if (isPaused) videoFeeder?.pause() else videoFeeder?.resume()
         } else {
+            btnAddSubRoom?.visibility = View.VISIBLE
             if (isPaused) unbindCamera() else startCameraMode()
         }
     }
