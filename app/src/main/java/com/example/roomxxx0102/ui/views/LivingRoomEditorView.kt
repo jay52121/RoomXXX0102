@@ -10,10 +10,12 @@ import android.graphics.PointF
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.AttributeSet
+import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Toast
+import com.example.roomxxx0102.R
 import com.example.roomxxx0102.data.model.BoundaryVertex
 import com.example.roomxxx0102.data.model.RoomConfig
 import com.example.roomxxx0102.utils.GeometryUtils
@@ -30,6 +32,10 @@ class LivingRoomEditorView @JvmOverloads constructor(
     enum class EditorMode {
         LIVING_ROOM_HULL,
         SUB_ROOM_ANCHOR
+    }
+
+    private companion object {
+        private const val TAG = "LivingRoomEditorView"
     }
 
     var currentMode: EditorMode = EditorMode.LIVING_ROOM_HULL
@@ -50,6 +56,13 @@ class LivingRoomEditorView @JvmOverloads constructor(
     private var onAddSubRoom: ((PointF) -> Unit)? = null
     private var onRoomSelected: ((RoomConfig?) -> Unit)? = null
     private var onRoomUpdated: ((RoomConfig) -> Unit)? = null
+
+    // 🔥 新增：是否绘制背景图
+    var drawBackground: Boolean = true
+        set(value) {
+            field = value
+            invalidate()
+        }
 
     var backgroundBitmap: Bitmap? = null
         set(value) {
@@ -82,15 +95,16 @@ class LivingRoomEditorView @JvmOverloads constructor(
         style = Paint.Style.FILL
         isAntiAlias = true
     }
-    private val pawnSelectedPaint = Paint().apply {
-        color = Color.parseColor("#FFEB3B")
-        style = Paint.Style.FILL
-        isAntiAlias = true
-    }
     private val pawnStrokePaint = Paint().apply {
         color = Color.BLACK
         style = Paint.Style.STROKE
         strokeWidth = 3f
+        isAntiAlias = true
+    }
+    private val pawnSelectedStrokePaint = Paint().apply {
+        color = Color.parseColor("#FFEB3B")
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
         isAntiAlias = true
     }
     private val edgeAvailablePaint = Paint().apply {
@@ -106,9 +120,13 @@ class LivingRoomEditorView @JvmOverloads constructor(
         isAntiAlias = true
     }
     private val edgeSelectedPaint = Paint().apply {
-        color = Color.parseColor("#2196F3")
         style = Paint.Style.STROKE
-        strokeWidth = 8f
+        strokeWidth = 12f
+        isAntiAlias = true
+    }
+    private val edgeThemePaint = Paint().apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 12f
         isAntiAlias = true
     }
     private val textPaint = Paint().apply {
@@ -130,6 +148,8 @@ class LivingRoomEditorView @JvmOverloads constructor(
     private var isAddSubRoomArmed = false
     private var isDoorSelectArmed = false
     private var isRoomAreaEditArmed = false
+    private var pendingDoorEdgeId: Int? = null
+    private var pendingClearDoor = false
 
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDoubleTap(e: MotionEvent): Boolean {
@@ -142,10 +162,13 @@ class LivingRoomEditorView @JvmOverloads constructor(
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             if (currentMode == EditorMode.SUB_ROOM_ANCHOR) {
                 val clickedRoom = findRoomAt(e.x, e.y)
-                selectedRoomId = clickedRoom?.id
-                onRoomSelected?.invoke(clickedRoom)
-                invalidate()
-                return true
+                if (clickedRoom != null) {
+                    selectedRoomId = clickedRoom.id
+                    onRoomSelected?.invoke(clickedRoom)
+                    invalidate()
+                    return true
+                }
+                return false
             }
             return false
         }
@@ -173,10 +196,44 @@ class LivingRoomEditorView @JvmOverloads constructor(
 
     fun setDoorSelectArmed(armed: Boolean) {
         isDoorSelectArmed = armed
+        if (armed) {
+            pendingDoorEdgeId = null
+            pendingClearDoor = false
+        } else {
+            discardPendingDoorSelection()
+        }
     }
 
     fun setRoomAreaEditArmed(armed: Boolean) {
         isRoomAreaEditArmed = armed
+    }
+
+    fun clearPendingDoorSelection() {
+        if (!isDoorSelectArmed) return
+        pendingDoorEdgeId = null
+        pendingClearDoor = true
+        invalidate()
+    }
+
+    fun discardPendingDoorSelection() {
+        pendingDoorEdgeId = null
+        pendingClearDoor = false
+        invalidate()
+    }
+
+    fun commitDoorSelection(): Boolean {
+        if (!isDoorSelectArmed) return false
+        val selectedRoom = subRooms.find { it.id == selectedRoomId } ?: return false
+        if (pendingDoorEdgeId == null && !pendingClearDoor) return false
+        selectedRoom.occupiedWallIds.clear()
+        if (!pendingClearDoor) {
+            pendingDoorEdgeId?.let { selectedRoom.occupiedWallIds.add(it) }
+        }
+        onRoomUpdated?.invoke(selectedRoom)
+        pendingDoorEdgeId = null
+        pendingClearDoor = false
+        invalidate()
+        return true
     }
 
     fun clearSelection() {
@@ -396,7 +453,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
                         val polygon = boundaryVertices.map { it.point }
                         val edgeIndex = GeometryUtils.getClosestEdgeIndex(normP, polygon)
                         if (edgeIndex == -1) {
-                            Toast.makeText(context, "未选择出入口", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.toast_door_not_selected), Toast.LENGTH_SHORT).show()
                             return true
                         }
 
@@ -410,7 +467,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
                         )
                         val dist = pointToSegmentDistance(x, y, p1.x, p1.y, p2.x, p2.y)
                         if (dist > edgeClickRadius) {
-                            Toast.makeText(context, "未选择出入口", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.toast_door_not_selected), Toast.LENGTH_SHORT).show()
                             return true
                         }
 
@@ -420,13 +477,13 @@ class LivingRoomEditorView @JvmOverloads constructor(
                             it.id != selectedRoom.id && it.occupiedWallIds.contains(edgeId)
                         }
                         if (occupiedByOther != null) {
-                            Toast.makeText(context, "这是${occupiedByOther.name}房间的出入口", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.toast_door_occupied_by, occupiedByOther.name), Toast.LENGTH_SHORT).show()
                             return true
                         }
 
-                        selectedRoom.occupiedWallIds.clear()
-                        selectedRoom.occupiedWallIds.add(edgeId)
-                        onRoomUpdated?.invoke(selectedRoom)
+                        pendingDoorEdgeId = edgeId
+                        pendingClearDoor = false
+                        Log.d(TAG, "Door pending set: room=$selectedRoomId edge=$edgeId")
                         invalidate()
                         return true
                     }
@@ -483,7 +540,11 @@ class LivingRoomEditorView @JvmOverloads constructor(
             val top = (h - drawH) / 2
             srcRect.set(0, 0, bmp.width, bmp.height)
             dstRect.set(left, top, left + drawW, top + drawH)
-            canvas.drawBitmap(bmp, srcRect, dstRect, bitmapPaint)
+            
+            // 🔥 修改：仅当 drawBackground 为 true 时绘制，否则仅计算 dstRect
+            if (drawBackground) {
+                canvas.drawBitmap(bmp, srcRect, dstRect, bitmapPaint)
+            }
         } else {
             dstRect.set(0f, 0f, w, h)
         }
@@ -507,16 +568,84 @@ class LivingRoomEditorView @JvmOverloads constructor(
                 val screenP = toScreen(v.point.x, v.point.y)
                 canvas.drawCircle(screenP.x, screenP.y, 15f, vertexPaint)
             }
-        } else {
-            if (boundaryVertices.size >= 2) {
-                val selectedRoom = subRooms.find { it.id == selectedRoomId }
+            if (boundaryVertices.size >= 2 && subRooms.isNotEmpty()) {
                 for (i in boundaryVertices.indices) {
                     val edgeId = boundaryVertices[i].id
                     val owner = subRooms.find { it.occupiedWallIds.contains(edgeId) }
-                    val paint = when {
-                        owner != null && selectedRoom != null && owner.id == selectedRoom.id -> edgeSelectedPaint
-                        owner != null -> edgeOccupiedPaint
-                        else -> edgeAvailablePaint
+                    if (owner != null && owner.occupiedWallIds.isNotEmpty()) {
+                        edgeThemePaint.color = owner.themeColor ?: Color.WHITE
+                        val p1 = toScreen(boundaryVertices[i].point.x, boundaryVertices[i].point.y)
+                        val p2 = toScreen(
+                            boundaryVertices[(i + 1) % boundaryVertices.size].point.x,
+                            boundaryVertices[(i + 1) % boundaryVertices.size].point.y
+                        )
+                        canvas.drawLine(p1.x, p1.y, p2.x, p2.y, edgeThemePaint)
+                    }
+                }
+            }
+            for (room in subRooms) {
+                room.anchorPoint?.let { anchor ->
+                    val screenP = toScreen(anchor.x, anchor.y)
+                    val fillColor =
+                        if (room.occupiedWallIds.isEmpty()) Color.WHITE else (room.themeColor ?: Color.WHITE)
+                    drawPawn(canvas, screenP.x, screenP.y, room.name, false, fillColor)
+                }
+            }
+        } else {
+            val selectedRoom = subRooms.find { it.id == selectedRoomId }
+            val highlightEdgeId = if (selectedRoom == null) {
+                null
+            } else if (pendingClearDoor) {
+                null
+            } else if (isDoorSelectArmed) {
+                pendingDoorEdgeId
+            } else {
+                selectedRoom.occupiedWallIds.firstOrNull()
+            }
+            if (highlightEdgeId != null) {
+                val i = boundaryVertices.indexOfFirst { it.id == highlightEdgeId }
+                if (i != -1) {
+                    val p1 = toScreen(boundaryVertices[i].point.x, boundaryVertices[i].point.y)
+                    val p2 = toScreen(
+                        boundaryVertices[(i + 1) % boundaryVertices.size].point.x,
+                        boundaryVertices[(i + 1) % boundaryVertices.size].point.y
+                    )
+                    val shader = android.graphics.LinearGradient(
+                        p1.x, p1.y, p2.x, p2.y,
+                        intArrayOf(
+                            Color.RED, Color.YELLOW, Color.GREEN,
+                            Color.CYAN, Color.BLUE, Color.MAGENTA
+                        ),
+                        null,
+                        android.graphics.Shader.TileMode.CLAMP
+                    )
+                    edgeSelectedPaint.shader = shader
+                } else {
+                    edgeSelectedPaint.shader = null
+                }
+            } else {
+                edgeSelectedPaint.shader = null
+            }
+            if (boundaryVertices.size >= 2) {
+                val selectedEdgeId = highlightEdgeId
+                for (i in boundaryVertices.indices) {
+                    val edgeId = boundaryVertices[i].id
+                    val owner = subRooms.find { it.occupiedWallIds.contains(edgeId) }
+                    val paint = if (selectedRoom != null && selectedEdgeId != null && edgeId == selectedEdgeId) {
+                        edgeSelectedPaint
+                    } else if (owner != null && owner.occupiedWallIds.isNotEmpty()) {
+                        if (
+                            selectedRoom != null &&
+                            owner.id == selectedRoom.id &&
+                            (pendingClearDoor || (isDoorSelectArmed && pendingDoorEdgeId != null))
+                        ) {
+                            edgeAvailablePaint
+                        } else {
+                            edgeThemePaint.color = owner.themeColor ?: Color.WHITE
+                            edgeThemePaint
+                        }
+                    } else {
+                        edgeAvailablePaint
                     }
                     val p1 = toScreen(boundaryVertices[i].point.x, boundaryVertices[i].point.y)
                     val p2 = toScreen(
@@ -526,23 +655,58 @@ class LivingRoomEditorView @JvmOverloads constructor(
                     canvas.drawLine(p1.x, p1.y, p2.x, p2.y, paint)
                 }
             }
+            for (v in boundaryVertices) {
+                val screenP = toScreen(v.point.x, v.point.y)
+                canvas.drawCircle(screenP.x, screenP.y, 12f, vertexPaint)
+            }
             for (room in subRooms) {
                 room.anchorPoint?.let { anchor ->
                     val screenP = toScreen(anchor.x, anchor.y)
                     val isSelected = room.id == selectedRoomId
-                    drawPawn(canvas, screenP.x, screenP.y, room.name, isSelected)
+                    val fillColor =
+                        if (room.occupiedWallIds.isEmpty()) Color.WHITE else (room.themeColor ?: Color.WHITE)
+                    drawPawn(canvas, screenP.x, screenP.y, room.name, isSelected, fillColor)
                 }
             }
         }
     }
 
-    private fun drawPawn(canvas: Canvas, x: Float, y: Float, name: String, isSelected: Boolean) {
+    private fun drawPawn(
+        canvas: Canvas,
+        x: Float,
+        y: Float,
+        name: String,
+        isSelected: Boolean,
+        fillColor: Int
+    ) {
         val r = 15f
-        val paint = if (isSelected) pawnSelectedPaint else pawnFillPaint
-        canvas.drawCircle(x, y, r, paint)
+        if (isSelected) {
+            val shader = android.graphics.LinearGradient(
+                x - r, y - r, x + r, y + r,
+                intArrayOf(
+                    Color.RED, Color.YELLOW, Color.GREEN,
+                    Color.CYAN, Color.BLUE, Color.MAGENTA
+                ),
+                null,
+                android.graphics.Shader.TileMode.CLAMP
+            )
+            pawnFillPaint.shader = shader
+        } else {
+            pawnFillPaint.shader = null
+            pawnFillPaint.color = fillColor
+        }
+        canvas.drawCircle(x, y, r, pawnFillPaint)
         canvas.drawCircle(x, y, r, pawnStrokePaint)
-        canvas.drawCircle(x, y - r * 1.2f, r * 0.7f, paint)
+        canvas.drawCircle(x, y - r * 1.2f, r * 0.7f, pawnFillPaint)
         canvas.drawCircle(x, y - r * 1.2f, r * 0.7f, pawnStrokePaint)
+        if (isSelected) {
+            canvas.drawCircle(x, y, r + 4f, pawnSelectedStrokePaint)
+        }
+        val oldTextColor = textPaint.color
+        if (isSelected) {
+            textPaint.color = fillColor
+        }
         canvas.drawText(name, x, y - r * 2.5f, textPaint)
+        textPaint.color = oldTextColor
     }
 }

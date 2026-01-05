@@ -14,15 +14,24 @@
         android:padding="16dp">
 
         <!-- 房间图标与名称 -->
+        <View
+            android:id="@+id/view_room_color"
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:layout_marginTop="4dp"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
         <TextView
             android:id="@+id/tv_room_name"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="房间名称"
+            android:text="@string/hint_room_name"
             android:textSize="18sp"
             android:textStyle="bold"
             android:textColor="#333333"
-            app:layout_constraintStart_toStartOf="parent"
+            android:layout_marginStart="8dp"
+            app:layout_constraintStart_toEndOf="@+id/view_room_color"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintEnd_toStartOf="@+id/btn_delete"
             app:layout_constraintBottom_toTopOf="@+id/tv_room_status" />
@@ -32,7 +41,7 @@
             android:id="@+id/tv_room_status"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="未录制"
+            android:text="@string/status_not_recorded"
             android:textSize="12sp"
             android:textColor="#999999"
             android:layout_marginTop="4dp"
@@ -44,7 +53,7 @@
             android:id="@+id/btn_record"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="📐 录制区域"
+            android:text="@string/btn_record_area"
             android:textSize="12sp"
             android:paddingHorizontal="12dp"
             app:layout_constraintEnd_toEndOf="parent"
@@ -59,7 +68,7 @@
             android:layout_height="40dp"
             android:src="@android:drawable/ic_menu_delete"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="删除房间"
+            android:contentDescription="@string/delete"
             app:tint="#F44336"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent" />

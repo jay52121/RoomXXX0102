@@ -38,7 +38,7 @@
             android:id="@+id/tvRoomCount"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="客厅人数: 0"
+            android:text="@string/room_people_count_initial"
             android:textColor="#FFFFFF"
             android:textSize="18sp"
             android:textStyle="bold"
@@ -71,28 +71,28 @@
             android:id="@+id/btnPause"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="⏯️ 暂停"
+            android:text="@string/video_pause"
             android:layout_marginEnd="8dp" />
 
         <Button
             android:id="@+id/btnRewind"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="⏪ -5s"
+            android:text="-5s"
             android:layout_marginEnd="8dp" />
 
         <Button
             android:id="@+id/btnForward"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="⏩ +5s"
+            android:text="+5s"
             android:layout_marginEnd="24dp" />
 
         <Button
             android:id="@+id/btnSetupRoom"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="📐 房间设置"
+            android:text="@string/btn_setup_room"
             android:backgroundTint="#FF9800"
             android:textColor="@android:color/white"
             android:layout_marginEnd="8dp" />
@@ -101,7 +101,7 @@
             android:id="@+id/btnSettings"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="⚙️ 设置" />
+            android:text="@string/btn_settings" />
     </LinearLayout>
 
     <!-- 6. 编辑工具栏 (顶部) -->
@@ -121,7 +121,7 @@
             android:id="@+id/btnModeSwitcher"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="♟️ 切至次房间"
+            android:text="@string/switch_to_sub_room"
             android:backgroundTint="#2196F3"
             android:textColor="@android:color/white"
             android:layout_marginEnd="16dp"/>
@@ -131,14 +131,14 @@
             android:id="@+id/btnUndo"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="↩️ 撤销"
+            android:text="@string/undo"
             android:layout_marginEnd="8dp"/>
 
         <Button
             android:id="@+id/btnClear"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="🗑️ 清空"
+            android:text="@string/clear"
             android:layout_marginEnd="8dp"/>
 
         <!-- 🔥 次房间选中后显示的按键 (默认 GONE) -->
@@ -146,7 +146,7 @@
             android:id="@+id/btnRenameRoom"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="✏️ 改名"
+            android:text="@string/rename"
             android:backgroundTint="#9C27B0"
             android:textColor="@android:color/white"
             android:visibility="gone"
@@ -156,7 +156,7 @@
             android:id="@+id/btnDeleteRoom"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="🗑️ 删除"
+            android:text="@string/delete"
             android:backgroundTint="#F44336"
             android:textColor="@android:color/white"
             android:visibility="gone"
@@ -166,14 +166,14 @@
             android:id="@+id/btnCancel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="取消"
+            android:text="@string/cancel"
             android:layout_marginEnd="8dp"/>
 
         <Button
             android:id="@+id/btnFinish"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="✅ 完成"
+            android:text="@string/finish"
             android:backgroundTint="#4CAF50"
             android:textColor="@android:color/white"/>
 

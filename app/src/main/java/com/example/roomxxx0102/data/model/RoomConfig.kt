@@ -44,7 +44,10 @@ data class RoomConfig(
     var occupiedWallIds: MutableList<Int> = mutableListOf(),
 
     // Anchor point for sub rooms
-    var anchorPoint: PointF? = null
+    var anchorPoint: PointF? = null,
+
+    // Theme color for sub room (null = unassigned / no door).
+    var themeColor: Int? = null
 ) {
     val boundaryPoints: List<PointF>
         get() = boundaryVertices.map { it.point }

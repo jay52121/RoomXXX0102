@@ -5,6 +5,7 @@ import android.graphics.PointF
 import android.util.Log
 import com.example.roomxxx0102.data.model.BoundaryVertex
 import com.example.roomxxx0102.data.model.RoomConfig
+import com.example.roomxxx0102.utils.RoomColorPalette
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -45,6 +46,7 @@ object RoomRepository {
     fun updateRoom(room: RoomConfig) {
         val index = cachedRooms.indexOfFirst { it.id == room.id }
         if (index != -1) {
+            ensureRoomThemeColor(room)
             cachedRooms[index] = room
             saveToFile()
         }
@@ -174,11 +176,15 @@ object RoomRepository {
                     isRecorded = roomObj.optBoolean("isRecorded", false),
                     boundaryVertices = boundaryVertices,
                     occupiedWallIds = occupiedWallIds,
-                    anchorPoint = anchor
+                    anchorPoint = anchor,
+                    themeColor = if (roomObj.has("themeColor")) roomObj.optInt("themeColor") else null
                 )
                 cachedRooms.add(room)
             }
             Log.i(TAG, "Loaded ${cachedRooms.size} rooms")
+            if (ensureMissingThemeColors()) {
+                saveToFile()
+            }
 
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load room config", e)
@@ -235,6 +241,9 @@ object RoomRepository {
                     anchorObj.put("y", p.y.toDouble())
                     roomObj.put("anchor", anchorObj)
                 }
+                room.themeColor?.let { color ->
+                    roomObj.put("themeColor", color)
+                }
 
                 jsonArray.put(roomObj)
             }
@@ -246,5 +255,43 @@ object RoomRepository {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save room config", e)
         }
+    }
+
+    private fun ensureRoomThemeColor(room: RoomConfig) {
+        if (room.isSovereignTerritory) return
+        if (room.occupiedWallIds.isEmpty()) {
+            room.themeColor = null
+            return
+        }
+        if (room.themeColor != null) return
+        val used = cachedRooms
+            .filter { it.id != room.id }
+            .mapNotNull { it.themeColor }
+            .toSet()
+        room.themeColor = RoomColorPalette.nextAvailable(used)
+    }
+
+    private fun ensureMissingThemeColors(): Boolean {
+        var changed = false
+        val used = cachedRooms.mapNotNull { it.themeColor }.toMutableSet()
+        for (room in cachedRooms) {
+            if (room.isSovereignTerritory) continue
+            if (room.occupiedWallIds.isEmpty()) {
+                if (room.themeColor != null) {
+                    room.themeColor = null
+                    changed = true
+                }
+                continue
+            }
+            if (room.themeColor == null) {
+                val next = RoomColorPalette.nextAvailable(used)
+                if (next != null) {
+                    room.themeColor = next
+                    used.add(next)
+                    changed = true
+                }
+            }
+        }
+        return changed
     }
 }

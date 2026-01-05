@@ -25,10 +25,6 @@
     <string name="switch_to_sub_room">切至次房间</string>
     <string name="switch_to_living_room">切至客厅</string>
     
-    <!-- Room Config Item -->
-    <string name="status_not_recorded">未录制</string>
-    <string name="btn_record_area">录制区域</string>
-    
     <!-- Dialogs & Hints -->
     <string name="dialog_title_new_room">新建房间</string>
     <string name="dialog_title_rename">修改名称</string>

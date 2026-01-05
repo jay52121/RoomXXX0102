@@ -4,6 +4,7 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -138,6 +139,20 @@ class RoomListFragment : Fragment() {
                 } else {
                     room.name
                 }
+
+                val color = if (room.isSovereignTerritory) {
+                    Color.parseColor("#FFA500")
+                } else if (room.occupiedWallIds.isEmpty()) {
+                    Color.WHITE
+                } else {
+                    room.themeColor ?: Color.WHITE
+                }
+                val dot = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(color)
+                    setStroke(2, Color.DKGRAY)
+                }
+                binding.viewRoomColor.background = dot
 
                 // 2. 设置状态文本
                 binding.tvRoomStatus.text = if (room.isRecorded) "状态: 已配置" else "状态: 未配置"

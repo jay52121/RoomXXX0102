@@ -12,6 +12,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import com.example.roomxxx0102.data.model.BoundaryVertex
 import com.example.roomxxx0102.data.model.PoseResult
 import com.example.roomxxx0102.data.model.RoomConfig
 import com.example.roomxxx0102.logic.analyzer.TrackedDetection
@@ -29,6 +30,7 @@ class DetectionOverlayView @JvmOverloads constructor(
     
     // 客厅区域数据
     private var livingRoomBoundary: List<PointF> = emptyList()
+    private var livingRoomVertices: List<BoundaryVertex> = emptyList()
     // 🔥 次房间数据 (棋子)
     private var subRooms: List<RoomConfig> = emptyList()
     
@@ -41,6 +43,8 @@ class DetectionOverlayView @JvmOverloads constructor(
     private var showDebugBoxes = false
     private var showCenterPoints = true 
     private var showPose = false
+    // 🔥 新增：是否处于编辑模式
+    private var isEditMode = false
 
     private val debugDrawer = DebugBoxDrawer()
     private val poseDrawer = PoseDrawer()
@@ -74,9 +78,14 @@ class DetectionOverlayView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
     private val regionStrokePaint = Paint().apply {
-        color = Color.parseColor("#AAFFA500") 
+        color = Color.WHITE
         style = Paint.Style.STROKE
         strokeWidth = 4f
+        isAntiAlias = true
+    }
+    private val edgeThemePaint = Paint().apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 12f
         isAntiAlias = true
     }
     
@@ -125,6 +134,11 @@ class DetectionOverlayView @JvmOverloads constructor(
         livingRoomBoundary = points
         postInvalidate()
     }
+
+    fun setLivingRoomVertices(vertices: List<BoundaryVertex>) {
+        livingRoomVertices = vertices
+        postInvalidate()
+    }
     
     // 🔥 更新棋子列表
     fun setSubRooms(rooms: List<RoomConfig>) {
@@ -144,6 +158,12 @@ class DetectionOverlayView @JvmOverloads constructor(
 
     fun setPoseState(show: Boolean) {
         showPose = show
+        postInvalidate()
+    }
+
+    // 🔥 新增：设置编辑模式状态
+    fun setEditMode(isEditing: Boolean) {
+        isEditMode = isEditing
         postInvalidate()
     }
 
@@ -174,28 +194,50 @@ class DetectionOverlayView @JvmOverloads constructor(
             dstRect.set(0f, 0f, w, h)
         }
 
-        // 1. 画客厅区域
-        if (livingRoomBoundary.isNotEmpty()) {
-            val path = Path()
-            val startX = drawLeft + livingRoomBoundary[0].x * drawWidth
-            val startY = drawTop + livingRoomBoundary[0].y * drawHeight
-            path.moveTo(startX, startY)
-            for (i in 1 until livingRoomBoundary.size) {
-                val px = drawLeft + livingRoomBoundary[i].x * drawWidth
-                val py = drawTop + livingRoomBoundary[i].y * drawHeight
-                path.lineTo(px, py)
+        // 🔥 修改：如果是编辑模式，不绘制房间区域和棋子，交由 LivingRoomEditorView 绘制
+        if (!isEditMode) {
+            // 1. 画客厅区域
+            if (livingRoomBoundary.isNotEmpty()) {
+                val path = Path()
+                val startX = drawLeft + livingRoomBoundary[0].x * drawWidth
+                val startY = drawTop + livingRoomBoundary[0].y * drawHeight
+                path.moveTo(startX, startY)
+                for (i in 1 until livingRoomBoundary.size) {
+                    val px = drawLeft + livingRoomBoundary[i].x * drawWidth
+                    val py = drawTop + livingRoomBoundary[i].y * drawHeight
+                    path.lineTo(px, py)
+                }
+                path.close()
+                canvas.drawPath(path, regionFillPaint)
+                canvas.drawPath(path, regionStrokePaint)
             }
-            path.close()
-            canvas.drawPath(path, regionFillPaint)
-            canvas.drawPath(path, regionStrokePaint)
-        }
-        
-        // 2. 🔥 画次房间棋子
-        for (room in subRooms) {
-            room.anchorPoint?.let { anchor ->
-                val px = drawLeft + anchor.x * drawWidth
-                val py = drawTop + anchor.y * drawHeight
-                drawPawn(canvas, px, py, room.name)
+
+            if (livingRoomVertices.size >= 2 && subRooms.isNotEmpty()) {
+                for (i in livingRoomVertices.indices) {
+                    val edgeId = livingRoomVertices[i].id
+                    val owner = subRooms.find { it.occupiedWallIds.contains(edgeId) }
+                    if (owner != null && owner.occupiedWallIds.isNotEmpty()) {
+                        edgeThemePaint.color = owner.themeColor ?: Color.WHITE
+                        val p1 = livingRoomVertices[i].point
+                        val p2 = livingRoomVertices[(i + 1) % livingRoomVertices.size].point
+                        val x1 = drawLeft + p1.x * drawWidth
+                        val y1 = drawTop + p1.y * drawHeight
+                        val x2 = drawLeft + p2.x * drawWidth
+                        val y2 = drawTop + p2.y * drawHeight
+                        canvas.drawLine(x1, y1, x2, y2, edgeThemePaint)
+                    }
+                }
+            }
+            
+            // 2. 🔥 画次房间棋子
+            for (room in subRooms) {
+                room.anchorPoint?.let { anchor ->
+                    val px = drawLeft + anchor.x * drawWidth
+                    val py = drawTop + anchor.y * drawHeight
+                    val fillColor =
+                        if (room.occupiedWallIds.isEmpty()) Color.WHITE else (room.themeColor ?: Color.WHITE)
+                    drawPawn(canvas, px, py, room.name, fillColor)
+                }
             }
         }
 
@@ -220,8 +262,9 @@ class DetectionOverlayView @JvmOverloads constructor(
         }
     }
     
-    private fun drawPawn(canvas: Canvas, x: Float, y: Float, name: String) {
+    private fun drawPawn(canvas: Canvas, x: Float, y: Float, name: String, fillColor: Int) {
         val r = 12f
+        pawnFillPaint.color = fillColor
         canvas.drawCircle(x, y, r, pawnFillPaint)
         canvas.drawCircle(x, y, r, pawnStrokePaint)
         canvas.drawCircle(x, y - r * 1.2f, r * 0.7f, pawnFillPaint)
