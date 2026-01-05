@@ -58,6 +58,9 @@ data class RoomConfig(
     // 🔥 新增：真实人数 (逻辑推算值，不持久化，暂未使用)
     var realPersonCount: Int = 0
 
+    // 持久化人数(逻辑推算值，不持久化)
+    var persistentPersonCount: Int = 0
+
     val boundaryPoints: List<PointF>
         get() = boundaryVertices.map { it.point }
 }

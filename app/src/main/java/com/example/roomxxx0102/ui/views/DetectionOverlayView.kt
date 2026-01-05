@@ -260,7 +260,7 @@ class DetectionOverlayView @JvmOverloads constructor(
                     val py = drawTop + it.y * drawHeight
                     val fillColor =
                         if (room.occupiedWallIds.isEmpty()) Color.WHITE else (room.themeColor ?: Color.WHITE)
-                    drawPawn(canvas, px, py, room.name, fillColor, room.personCount)
+                    drawPawn(canvas, px, py, room.name, fillColor, room.personCount, room.persistentPersonCount)
                 }
             }
         }
@@ -286,7 +286,15 @@ class DetectionOverlayView @JvmOverloads constructor(
         }
     }
     
-    private fun drawPawn(canvas: Canvas, x: Float, y: Float, name: String, fillColor: Int, count: Int) {
+    private fun drawPawn(
+        canvas: Canvas,
+        x: Float,
+        y: Float,
+        name: String,
+        fillColor: Int,
+        count: Int,
+        persistentCount: Int
+    ) {
         val r = 12f
         pawnFillPaint.color = fillColor
         canvas.drawCircle(x, y, r, pawnFillPaint)
@@ -315,6 +323,10 @@ class DetectionOverlayView @JvmOverloads constructor(
         
         // 绘制人数 (稍微调高一点位置以适应更大的字号)
         canvas.drawText(countText, x, y - r * 4.5f, textPaint)
+
+        textPaint.color = Color.YELLOW
+        textPaint.textSize = 30f
+        canvas.drawText("$persistentCount", x, y - r * 6.5f, textPaint)
         
         // 恢复画笔默认状态 (避免影响后续绘制)
         textPaint.color = Color.WHITE

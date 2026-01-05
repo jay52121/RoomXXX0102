@@ -62,6 +62,8 @@ class MainActivity : ComponentActivity() {
     private var isVideoMode = true
     private var isPaused = false
     private var currentLivingRoomBoundary: List<PointF> = emptyList()
+    private val subjectLastRoomId: MutableMap<Int, String?> = mutableMapOf()
+    private val subjectPersistentRoomId: MutableMap<Int, String?> = mutableMapOf()
 
     private var isAddSubRoomMode = false
     private var btnAddSubRoom: Button? = null
@@ -98,27 +100,56 @@ class MainActivity : ComponentActivity() {
 
         yoloAnalyzer = YoloAnalyzer(this, overlayView)
         poseAnalyzer = YoloPoseAnalyzer(this) { results, bitmap, time ->
-            // 获取所有房间引用
             val allRooms = RoomRepository.getAllRooms()
-            
-            // 重置计数
+            val livingRoom = allRooms.find { it.isSovereignTerritory }
+            val livingRoomId = livingRoom?.id
+
+            // 重置即时人数
             allRooms.forEach { it.personCount = 0 }
 
-            // 遍历每个人，判断他在哪个房间
+            val currentIds = HashSet<Int>()
             for (pose in results) {
-                for (room in allRooms) {
-                    if (room.boundaryPoints.size >= 3) {
-                        if (GeometryUtils.isPointInPolygon(pose.landingPoint, room.boundaryPoints)) {
-                            room.personCount++
-                            // 注意：这里没有break，如果区域重叠，一个人可能算在多个房间
-                            // 按照物理逻辑，通常房间不重叠，或者需要优先级判定
-                        }
+                currentIds.add(pose.id)
+                val currentRoom = findRoomForPoint(pose.landingPoint, allRooms)
+                if (currentRoom != null) {
+                    currentRoom.personCount++
+                }
+
+                val currentRoomId = currentRoom?.id
+                val persistentRoomId = subjectPersistentRoomId[pose.id]
+
+                if (currentRoom != null && !currentRoom.isSovereignTerritory) {
+                    if (persistentRoomId == null) {
+                        currentRoom.persistentPersonCount++
+                        subjectPersistentRoomId[pose.id] = currentRoom.id
+                    } else if (persistentRoomId != currentRoom.id) {
+                        decrementPersistentCount(allRooms, persistentRoomId)
+                        currentRoom.persistentPersonCount++
+                        subjectPersistentRoomId[pose.id] = currentRoom.id
+                    }
+                } else if (currentRoom != null && currentRoom.isSovereignTerritory) {
+                    if (persistentRoomId != null) {
+                        decrementPersistentCount(allRooms, persistentRoomId)
+                        subjectPersistentRoomId.remove(pose.id)
                     }
                 }
+
+                subjectLastRoomId[pose.id] = currentRoomId
             }
 
-            // 更新 UI
-            val livingRoom = allRooms.find { it.isSovereignTerritory }
+            // 处理消失的人（仅次房间）
+            val missingIds = subjectLastRoomId.keys.filter { it !in currentIds }
+            for (missingId in missingIds) {
+                val lastRoomId = subjectLastRoomId[missingId]
+                if (lastRoomId != null && lastRoomId != livingRoomId) {
+                    if (subjectPersistentRoomId[missingId] == null) {
+                        incrementPersistentCount(allRooms, lastRoomId)
+                    }
+                }
+                subjectLastRoomId.remove(missingId)
+                subjectPersistentRoomId.remove(missingId)
+            }
+
             val livingRoomCount = livingRoom?.personCount ?: 0
 
             runOnUiThread {
@@ -423,7 +454,6 @@ class MainActivity : ComponentActivity() {
                 btnEditRoomArea?.visibility = if (state == EditorMenuState.SUBROOM_AREA_EDIT) View.GONE else View.VISIBLE
                 btnRename.visibility = if (state == EditorMenuState.SUBROOM_AREA_EDIT) View.GONE else View.VISIBLE
                 btnDelete.visibility = View.VISIBLE
-                btnDelete.text = if (state == EditorMenuState.SUBROOM_AREA_EDIT) "删除区域" else getString(R.string.delete)
                 btnCancel.visibility = View.VISIBLE
                 btnCancel.text = getString(R.string.cancel)
                 btnFinish.visibility = View.VISIBLE
@@ -605,6 +635,32 @@ class MainActivity : ComponentActivity() {
             list.add(BoundaryVertex(vid++, PointF(p.x, p.y), eid++))
         }
         return list
+    }
+
+    private fun findRoomForPoint(point: PointF, rooms: List<RoomConfig>): RoomConfig? {
+        val subRoom = rooms.firstOrNull {
+            !it.isSovereignTerritory &&
+                it.boundaryPoints.size >= 3 &&
+                GeometryUtils.isPointInPolygon(point, it.boundaryPoints)
+        }
+        if (subRoom != null) return subRoom
+        return rooms.firstOrNull {
+            it.isSovereignTerritory &&
+                it.boundaryPoints.size >= 3 &&
+                GeometryUtils.isPointInPolygon(point, it.boundaryPoints)
+        }
+    }
+
+    private fun incrementPersistentCount(rooms: List<RoomConfig>, roomId: String) {
+        val room = rooms.find { it.id == roomId } ?: return
+        if (room.isSovereignTerritory) return
+        room.persistentPersonCount++
+    }
+
+    private fun decrementPersistentCount(rooms: List<RoomConfig>, roomId: String) {
+        val room = rooms.find { it.id == roomId } ?: return
+        if (room.isSovereignTerritory) return
+        room.persistentPersonCount = maxOf(0, room.persistentPersonCount - 1)
     }
 
     private fun refreshOverlayDisplay() {
