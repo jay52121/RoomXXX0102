@@ -1,1 +1,0 @@
-// Moved to com.example.roomxxx0102.data.model.RoomConfig

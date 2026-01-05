@@ -1,5 +1,5 @@
 # Android Project Context: RoomFlow
-> Generated at: 2026-01-03 19:54:58
+> Generated at: 2026-01-05 15:27:00
 
 ## 1. Project File Structure
 ```text
@@ -7,26 +7,12 @@ java/
     com/
         example/
             roomxxx0102/
-                DebugBoxDrawer.kt
-                DetectionOverlayView.kt
-                GeometryUtils.kt
-                MainActivity.kt
-                PoseData.kt
-                PoseDrawer.kt
-                RoomConfig.kt
-                RoomRecorder.kt
-                RoomRepository.kt
-                VideoFeeder.kt
-                YoloAnalyzer.kt
-                YoloDetector废弃.kt
-                YoloPoseAnalyzer.kt
                 data/
-                    RoomConfig.kt
-                    RoomRepository.kt
                     model/
                         PoseData.kt
                         RoomConfig.kt
                     repository/
+                        AppSettings.kt
                         RoomRepository.kt
                 logic/
                     analyzer/
@@ -38,6 +24,7 @@ java/
                         VideoFeeder.kt
                 ui/
                     activities/
+                        LivingRoomSetupActivity.kt
                         MainActivity.kt
                         SettingsActivity.kt
                     drawers/
@@ -46,134 +33,33 @@ java/
                     settings/
                         RoomListFragment.kt
                         SettingsActivity.kt
+                        SettingsHomeFragment.kt
                     theme/
                         Color.kt
                         Theme.kt
                         Type.kt
                     views/
                         DetectionOverlayView.kt
+                        LivingRoomEditorView.kt
                 utils/
+                    BitmapTransfer.kt
                     GeometryUtils.kt
 ```
 
 ## 2. Key Classes & Signatures
 
-### File: `DebugBoxDrawer.kt`
-```kotlin
-```
-
-### File: `DetectionOverlayView.kt`
-```kotlin
-```
-
-### File: `GeometryUtils.kt`
-```kotlin
-```
-
-### File: `MainActivity.kt`
-```kotlin
-```
-
 ### File: `PoseData.kt`
-```kotlin
-```
-
-### File: `PoseDrawer.kt`
-```kotlin
-```
-
-### File: `RoomConfig.kt`
 > **Description**:
-**房间类型枚举 (Room Type)**
+**计算落地坐标 (Landing Point)**
 
-定义房间在空间逻辑中的角色。
+遵循 Single Source of Truth 原则，该逻辑现在从 UI 层移至数据层。
+返回归一化坐标 (0.0 ~ 1.0)。
 
-```kotlin
-enum class RoomType {
-data class RoomRegion( ...
-    val id: String,
-    val name: String,
-    val type: RoomType,
-    val boundaryPoints: List<PointF> = emptyList()
-```
+逻辑：
+1. 优先取双脚踝中点。
+2. 其次取单脚踝。
+3. 兜底取检测框底部中心。
 
-### File: `RoomRecorder.kt`
-```kotlin
-```
-
-### File: `RoomRepository.kt`
-> **Description**:
-**房间配置仓库 (Room Repository)**
-
-负责 [RoomRegion] 数据的持久化存储与读取。
-使用 JSON 格式保存到外部存储 (App-Specific External Storage)，方便用户查看或备份。
-
-**文件位置**: /sdcard/Android/data/com.example.roomxxx0102/files/room_config.json
-
-```kotlin
-class RoomRepository(private val context: Context) {
-companion object {
-    private val configFile: File
-    fun saveRoom(room: RoomRegion)
-    val currentRooms = loadAllRooms().toMutableList()
-    val index = currentRooms.indexOfFirst { it.id == room.id }
-    fun loadAllRooms(): List<RoomRegion>
-    val file = configFile
-    val jsonString = file.readText()
-    fun deleteRoom(roomId: String)
-    val currentRooms = loadAllRooms().filter { it.id != roomId }
-    val jsonArray = JSONArray()
-    val roomObj = JSONObject()
-    val pointsArray = JSONArray()
-    val pObj = JSONObject()
-    val rootObj = JSONObject()
-    val list = ArrayList<RoomRegion>()
-    val rootObj = JSONObject(jsonString)
-    val jsonArray = rootObj.optJSONArray("rooms") ?: return emptyList()
-    val roomObj = jsonArray.getJSONObject(i)
-    val id = roomObj.getString("id")
-    val name = roomObj.getString("name")
-    val typeStr = roomObj.getString("type")
-    val type = try {
-    val boundaryList = ArrayList<PointF>()
-    val pointsArray = roomObj.optJSONArray("boundary")
-    val pObj = pointsArray.getJSONObject(j)
-    val x = pObj.getDouble("x").toFloat()
-    val y = pObj.getDouble("y").toFloat()
-```
-
-### File: `VideoFeeder.kt`
-```kotlin
-```
-
-### File: `YoloAnalyzer.kt`
-```kotlin
-```
-
-### File: `YoloDetector废弃.kt`
-```kotlin
-//data class YoloResult( ...
-//class YoloDetector( ...
-    //    fun detect(bitmap: Bitmap): List<YoloResult>
-//class MainActivity : ComponentActivity() {
-    //    override fun onCreate(savedInstanceState: Bundle?)
-    //fun YoloApp()
-    //fun YoloDetectionScreen()
-```
-
-### File: `YoloPoseAnalyzer.kt`
-```kotlin
-```
-
-### File: `RoomConfig.kt`
-```kotlin
-```
-
-### File: `RoomRepository.kt`
-```kotlin
-```
-
-### File: `PoseData.kt`
 ```kotlin
 data class Keypoint( ...
     val x: Float,
@@ -187,6 +73,10 @@ data class PoseResult( ...
     val isMoving: Boolean = false,
     val isConfirmed: Boolean = false // 🔥 新增：是否已锁定(曾高分且移动过)
     fun getVisibleKeypointCount(threshold: Float = 0.5f): Int
+    val landingPoint: PointF
+    val leftAnkle = keypoints[15]
+    val rightAnkle = keypoints[16]
+    val CONF_THRESHOLD = 0.5f
 ```
 
 ### File: `RoomConfig.kt`
@@ -204,30 +94,81 @@ data class RoomRegion( ...
     val boundaryPoints: List<PointF> = emptyList()
 data class RoomConfig( ...
     val id: String = UUID.randomUUID().toString(),
-    val name: String,
+    var name: String,
     val isSovereignTerritory: Boolean = false,
-    var isRecorded: Boolean = false
+    var isRecorded: Boolean = false,
+    var boundaryPoints: List<PointF> = emptyList(),
+    var anchorPoint: PointF? = null // 🔥 新增：次房间锚点
+```
+
+### File: `AppSettings.kt`
+> **Description**:
+**应用全局配置 (App Settings)**
+
+管理调试开关和全局参数。
+
+```kotlin
+object AppSettings {
+    var isDebugBoxShown: Boolean = false
+    var isCenterPointShown: Boolean = true
+    var isPoseModeEnabled: Boolean = true // 🔥 默认开启 Pose
+    fun init(context: Context)
+    fun setDebugBoxShown(show: Boolean)
+    fun setCenterPointShown(show: Boolean)
+    fun setPoseModeEnabled(enable: Boolean)
 ```
 
 ### File: `RoomRepository.kt`
 > **Description**:
 **房间数据仓库 (Room Repository)**
 
-负责管理所有房间的配置数据。
-目前采用内存缓存 + 模拟持久化的方式。
-默认包含一个 "客厅 (主监控区)"。
+负责管理房间数据的内存缓存与本地文件持久化。
+使用 JSON 格式存储。
 
 ```kotlin
 object RoomRepository {
     private val cachedRooms = CopyOnWriteArrayList<RoomConfig>()
+    private var configFile: File? = null
+    fun init(context: Context)
     fun getAllRooms(): List<RoomConfig>
-    fun addNewRoom(name: String)
+    fun getSubRooms(): List<RoomConfig>
+    fun addNewRoom(name: String, anchor: PointF? = null)
     val newRoom = RoomConfig(
+    fun updateRoom(room: RoomConfig)
+    val index = cachedRooms.indexOfFirst { it.id == room.id }
     fun deleteRoom(roomId: String): Boolean
     val room = cachedRooms.find { it.id == roomId } ?: return false
     fun markRoomAsRecorded(roomId: String)
-    val room = cachedRooms.find { it.id == roomId }
+    val index = cachedRooms.indexOfFirst { it.id == roomId }
+    val room = cachedRooms[index]
+    fun updateRoomBoundary(roomId: String, points: List<PointF>)
+    val index = cachedRooms.indexOfFirst { it.id == roomId }
+    val room = cachedRooms[index]
+    val isRecorded = points.size >= 3
+    fun saveRoomBoundary(roomId: String, points: List<PointF>)
     fun resetAllStatus()
+    val file = configFile ?: return
+    val jsonString = file.readText()
+    val rootObj = JSONObject(jsonString)
+    val jsonArray = rootObj.optJSONArray("rooms") ?: JSONArray()
+    val roomObj = jsonArray.getJSONObject(i)
+    val boundaryList = ArrayList<PointF>()
+    val boundaryArray = roomObj.optJSONArray("boundary")
+    val pObj = boundaryArray.getJSONObject(j)
+    val x = pObj.optDouble("x", 0.0).toFloat()
+    val y = pObj.optDouble("y", 0.0).toFloat()
+    var anchor: PointF? = null
+    val anchorObj = roomObj.optJSONObject("anchor")
+    val x = anchorObj.optDouble("x", 0.0).toFloat()
+    val y = anchorObj.optDouble("y", 0.0).toFloat()
+    val room = RoomConfig(
+    val file = configFile ?: return
+    val rootObj = JSONObject()
+    val jsonArray = JSONArray()
+    val roomObj = JSONObject()
+    val boundaryArray = JSONArray()
+    val pObj = JSONObject()
+    val anchorObj = JSONObject()
 ```
 
 ### File: `YoloAnalyzer.kt`
@@ -490,41 +431,62 @@ textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener
     fun stop()
 ```
 
+### File: `LivingRoomSetupActivity.kt`
+```kotlin
+class LivingRoomSetupActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?)
+    val rootLayout = FrameLayout(this).apply {
+    val btnContainer = LinearLayout(this).apply {
+    val containerParams = FrameLayout.LayoutParams(
+    fun createBtn(text: String, onClick: () -> Unit): Button
+    val bmp = BitmapTransfer.capturedFrame
+    val room = RoomRepository.getAllRooms().find { it.id == "living_room" }
+    val resultPoints = editorView.getResult()
+```
+
 ### File: `MainActivity.kt`
 ```kotlin
 class MainActivity : ComponentActivity() {
-companion object {
+    private val previewView: PreviewView by lazy { findViewById(R.id.previewView) }
+    private val textureView: android.view.TextureView by lazy { findViewById(R.id.textureView) }
+    private val overlayView: DetectionOverlayView by lazy { findViewById(R.id.overlayView) }
+    private val editorView: LivingRoomEditorView by lazy { findViewById(R.id.editorView) }
+    private val llNormalControls: View by lazy { findViewById(R.id.llNormalControls) }
+    private val llEditorControls: View by lazy { findViewById(R.id.llEditorControls) }
+    private val tvRoomCount: TextView by lazy { findViewById(R.id.tvRoomCount) }
+    private val cardCounter: View by lazy { findViewById(R.id.cardCounter) }
     private var yoloAnalyzer: YoloAnalyzer? = null
     private var poseAnalyzer: YoloPoseAnalyzer? = null
     private var videoFeeder: VideoFeeder? = null
     private var isVideoMode = true
-    private var isDebugBoxShown = false
-    private var isCenterPointShown = true
-    private var isPoseMode = false
     private var isPaused = false
+    private var currentLivingRoomBoundary: List<PointF> = emptyList()
     private val requestPermissionsLauncher = registerForActivityResult(
-    val cameraGranted = permissions[Manifest.permission.CAMERA] ?: false
-    val videoGranted = if (Build.VERSION.SDK_INT >= 33) {
     override fun onCreate(savedInstanceState: Bundle?)
-    val frameLayout = FrameLayout(this).apply {
-    val btnLayout = LinearLayout(this).apply {
-    val params = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
-    val btnPause = Button(this).apply {
-    val btnRewind = Button(this).apply {
-    val btnForward = Button(this).apply {
-    val btnReset = Button(this).apply {
-    val btnSwitchMode = Button(this).apply {
-    val btnBoxSwitch = Button(this).apply {
-    val btnPointSwitch = Button(this).apply {
-    val btnPoseSwitch = Button(this).apply {
-    val btnSettings = Button(this).apply {
-val intent = Intent(this@MainActivity, SettingsActivity::class.java) ...
-    val spacer = 15
+    var peopleInLivingRoom = 0
+startActivity(Intent(this, SettingsActivity::class.java)) ...
+    val roomId = editorView.selectedRoomId
+    val room = RoomRepository.getSubRooms().find { it.id == roomId }
+    val roomId = editorView.selectedRoomId
+    val nextMode = if (editorView.currentMode == LivingRoomEditorView.EditorMode.LIVING_ROOM_HULL) {
+    val btnSwitcher = findViewById<Button>(R.id.btnModeSwitcher)
+    val btnUndo = findViewById<Button>(R.id.btnUndo)
+    val btnClear = findViewById<Button>(R.id.btnClear)
+    val btnRename = findViewById<Button>(R.id.btnRenameRoom)
+    val btnDelete = findViewById<Button>(R.id.btnDeleteRoom)
+    val livingRoom = RoomRepository.getAllRooms().find { it.isSovereignTerritory }
+    val visibility = if (room != null) View.VISIBLE else View.GONE
+    val input = EditText(this).apply { hint = "房间名称" }
+    val name = input.text.toString().trim()
+    val input = EditText(this).apply { setText(room.name) }
+    val points = editorView.getResult()
+    val allRooms = RoomRepository.getAllRooms()
+    val livingRoom = allRooms.find { it.isSovereignTerritory }
+    override fun onResume()
+    override fun onPause()
     override fun onDestroy()
-    val permissionsToRequest = mutableListOf<String>()
-    val storagePermission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
-    val hardcodedPath = "/storage/emulated/0/Android/media/com.example.roomxxx0102/test_video.mp4"
-    val file = File(hardcodedPath)
+    val permissions = mutableListOf(Manifest.permission.CAMERA)
+    val path = "/storage/emulated/0/Android/media/com.example.roomxxx0102/test_video.mp4"
     val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
     val cameraProvider = cameraProviderFuture.get()
     val preview = Preview.Builder().build()
@@ -532,16 +494,11 @@ val intent = Intent(this@MainActivity, SettingsActivity::class.java) ...
 ```
 
 ### File: `SettingsActivity.kt`
-> **Description**:
-**设置中心 Activity (Settings Container)**
-
-负责作为 Fragment 的容器，处理全局的导航和 Toolbar 逻辑。
-启动时自动加载 [RoomListFragment]。
-
 ```kotlin
 class SettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?)
     override fun onOptionsItemSelected(item: MenuItem): Boolean
+    override fun onWindowFocusChanged(hasFocus: Boolean)
 ```
 
 ### File: `DebugBoxDrawer.kt`
@@ -600,19 +557,11 @@ class PoseDrawer {
     val y2 = drawTop + p2.y * drawHeight
     val cx = drawLeft + p.x * drawWidth
     val cy = drawTop + p.y * drawHeight
-    val landingPoint = calculateLandingPoint(kpts)
+    val landingPoint = result.landingPoint
     val lx = drawLeft + landingPoint.x * drawWidth
     val ly = drawTop + landingPoint.y * drawHeight
     val lockStatus = if (result.isConfirmed) "Lock" else ""
     val infoText = "ID:${result.id} %.2f %s".format(result.score, lockStatus)
-    val conf = 0.3f
-    val leftAnkle = kpts[15]; val rightAnkle = kpts[16]
-    val leftKnee = kpts[13]; val leftHip = kpts[11]
-    val rightKnee = kpts[14]; val rightHip = kpts[12]
-    val leftShoulder = kpts[5]; val rightShoulder = kpts[6]
-    val midHipY = (leftHip.y + rightHip.y) / 2
-    val midShoulderY = (leftShoulder.y + rightShoulder.y) / 2
-    val midHipX = (leftHip.x + rightHip.x) / 2
 ```
 
 ### File: `RoomListFragment.kt`
@@ -629,6 +578,7 @@ class RoomListFragment : Fragment() {
     private val roomAdapter = RoomAdapter()
     override fun onCreateView(
     override fun onViewCreated(view: View, savedInstanceState: Bundle?)
+    override fun onResume()
     val rooms = RoomRepository.getAllRooms()
     val input = EditText(context)
     val padding = (16 * resources.displayMetrics.density).toInt()
@@ -646,11 +596,27 @@ inner class RoomViewHolder(private val binding: ItemRoomConfigBinding) : Recycle
     fun bind(room: RoomConfig)
     val btn = binding.btnRecord
     val color = if (room.isRecorded) {
+val intent = Intent(context, LivingRoomSetupActivity::class.java) ...
     val color = if (room.isRecorded) {
 ```
 
 ### File: `SettingsActivity.kt`
 ```kotlin
+```
+
+### File: `SettingsHomeFragment.kt`
+> **Description**:
+**设置主页 (Settings Home)**
+
+包含调试开关和功能入口。
+
+```kotlin
+class SettingsHomeFragment : Fragment() {
+    private var _binding: FragmentSettingsHomeBinding? = null
+    private val binding get() = _binding!!
+    override fun onCreateView(
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?)
+    override fun onDestroyView()
 ```
 
 ### File: `Color.kt`
@@ -679,9 +645,11 @@ inner class RoomViewHolder(private val binding: ItemRoomConfigBinding) : Recycle
 
 ### File: `DetectionOverlayView.kt`
 ```kotlin
-class DetectionOverlayView(context: Context) : View(context) {
+class DetectionOverlayView @JvmOverloads constructor( ...
     private var trackedObjects: List<TrackedDetection> = emptyList()
     private var poseResults: List<PoseResult> = emptyList()
+    private var livingRoomBoundary: List<PointF> = emptyList()
+    private var subRooms: List<RoomConfig> = emptyList()
     private var debugInfo = "Waiting..."
     private var currentFrame: Bitmap? = null
     private val srcRect = Rect()
@@ -689,15 +657,22 @@ class DetectionOverlayView(context: Context) : View(context) {
     private val bitmapPaint = Paint().apply { isFilterBitmap = true }
     private var showDebugBoxes = false
     private var showCenterPoints = true
-    private var showPose = false // 新增 Pose 开关
+    private var showPose = false
     private val debugDrawer = DebugBoxDrawer()
-    private val poseDrawer = PoseDrawer() // 新增 Pose 绘制器
+    private val poseDrawer = PoseDrawer()
     private val movingPaint = Paint().apply {
     private val staticPaint = Paint().apply {
     private val infoPaint = Paint().apply {
+    private val regionFillPaint = Paint().apply {
+    private val regionStrokePaint = Paint().apply {
+    private val pawnFillPaint = Paint().apply {
+    private val pawnStrokePaint = Paint().apply {
+    private val textPaint = Paint().apply {
     override fun dispatchTouchEvent(event: MotionEvent?): Boolean = false
     fun updateData(objects: List<TrackedDetection>, bitmap: Bitmap?, timeMs: Long)
     fun updatePoseData(results: List<PoseResult>, bitmap: Bitmap?, timeMs: Long)
+    fun setLivingRoomBoundary(points: List<PointF>)
+    fun setSubRooms(rooms: List<RoomConfig>)
     fun setDebugBoxState(show: Boolean)
     fun setCenterPointState(show: Boolean)
     fun setPoseState(show: Boolean)
@@ -708,12 +683,113 @@ class DetectionOverlayView(context: Context) : View(context) {
     var drawTop = 0f
     var drawWidth = w
     var drawHeight = h
+    val bmp = currentFrame
     val bmpW = bmp.width.toFloat()
     val bmpH = bmp.height.toFloat()
     val scale = Math.min(w / bmpW, h / bmpH)
+    val path = Path()
+    val startX = drawLeft + livingRoomBoundary[0].x * drawWidth
+    val startY = drawTop + livingRoomBoundary[0].y * drawHeight
+    val px = drawLeft + livingRoomBoundary[i].x * drawWidth
+    val py = drawTop + livingRoomBoundary[i].y * drawHeight
+    val px = drawLeft + anchor.x * drawWidth
+    val py = drawTop + anchor.y * drawHeight
     val screenX = drawLeft + obj.cx * drawWidth
     val screenY = drawTop + obj.cy * drawHeight
     val paint = if (obj.isMoving) movingPaint else staticPaint
+    val r = 12f
+```
+
+### File: `LivingRoomEditorView.kt`
+> **Description**:
+**客厅区域编辑器 View (Living Room Editor)**
+
+```kotlin
+class LivingRoomEditorView @JvmOverloads constructor( ...
+enum class EditorMode {
+    var currentMode: EditorMode = EditorMode.LIVING_ROOM_HULL
+    private val manualPoints = mutableListOf<PointF>()
+    private var subRooms: MutableList<RoomConfig> = mutableListOf()
+    var selectedRoomId: String? = null
+    private var activeRoomId: String? = null // 正在拖拽的 ID
+    private var onAddSubRoom: ((PointF) -> Unit)? = null
+    private var onRoomSelected: ((RoomConfig?) -> Unit)? = null // 选中回调
+    var backgroundBitmap: Bitmap? = null
+    private val srcRect = Rect()
+    private val dstRect = RectF()
+    private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val polygonFillPaint = Paint().apply {
+    private val polygonStrokePaint = Paint().apply {
+    private val vertexPaint = Paint().apply {
+    private val pawnFillPaint = Paint().apply {
+    private val pawnSelectedPaint = Paint().apply {
+    private val pawnStrokePaint = Paint().apply {
+    private val textPaint = Paint().apply {
+    private var draggingIndex = -1
+    private val touchRadius = 70f // 增大判定范围
+    private val edgeClickRadius = 60f
+    private val snapThreshold = 0.03f
+private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+    override fun onDoubleTap(e: MotionEvent): Boolean
+    override fun onSingleTapUp(e: MotionEvent): Boolean
+    val clickedRoom = findRoomAt(e.x, e.y)
+    fun setSubRooms(rooms: List<RoomConfig>)
+    fun setOnSubRoomListener(onAdd: (PointF) -> Unit, onSelected: (RoomConfig?) -> Unit)
+    fun clearSelection()
+    fun setHistoryPoints(points: List<PointF>)
+    fun undo()
+    fun clear()
+    fun getResult(): List<PointF>
+    val nx = (screenX - dstRect.left) / dstRect.width()
+    val ny = (screenY - dstRect.top) / dstRect.height()
+    val sx = dstRect.left + normX * dstRect.width()
+    val sy = dstRect.top + normY * dstRect.height()
+    val screenP = toScreen(anchor.x, anchor.y)
+    val p = manualPoints[i]
+    val screenP = toScreen(p.x, p.y)
+    var bestIndex = -1
+    var minDistance = Float.MAX_VALUE
+    val size = manualPoints.size
+    val p1 = toScreen(manualPoints[i].x, manualPoints[i].y)
+    val p2 = toScreen(manualPoints[(i + 1) % size].x, manualPoints[(i + 1) % size].y)
+    val dist = pointToSegmentDistance(x, y, p1.x, p1.y, p2.x, p2.y)
+    val l2 = (x1 - x2).pow(2) + (y1 - y2).pow(2)
+    var t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2
+    override fun onTouchEvent(event: MotionEvent): Boolean
+    val x = event.x; val y = event.y
+    val p = manualPoints[i]
+    val screenP = toScreen(p.x, p.y)
+    val edgeIndex = getClosestEdgeIndex(x, y)
+    val clickedRoom = findRoomAt(x, y)
+    val normP = toNorm(x, y)
+    val normP = toNorm(x, y)
+    var nx = normP.x; var ny = normP.y
+    override fun onDraw(canvas: Canvas)
+    val w = width.toFloat(); val h = height.toFloat()
+    val bmp = backgroundBitmap
+    val scale = min(w / bmp.width, h / bmp.height)
+    val drawW = bmp.width * scale; val drawH = bmp.height * scale
+    val left = (w - drawW) / 2; val top = (h - drawH) / 2
+    val path = Path()
+    val start = toScreen(manualPoints[0].x, manualPoints[0].y)
+    val p = toScreen(manualPoints[i].x, manualPoints[i].y)
+    val screenP = toScreen(p.x, p.y)
+    val screenP = toScreen(anchor.x, anchor.y)
+    val isSelected = room.id == selectedRoomId
+    val r = 15f
+    val paint = if (isSelected) pawnSelectedPaint else pawnFillPaint
+```
+
+### File: `BitmapTransfer.kt`
+> **Description**:
+**Bitmap 传输工具 (Bitmap Transfer)**
+
+用于在 Activity 之间传递大图，避免 Intent TransactionTooLargeException。
+这是一个简单的单例持有者。
+
+```kotlin
+object BitmapTransfer {
+    var capturedFrame: Bitmap? = null
 ```
 
 ### File: `GeometryUtils.kt`
