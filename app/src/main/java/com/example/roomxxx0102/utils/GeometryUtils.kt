@@ -1,6 +1,10 @@
 package com.example.roomxxx0102.utils
 
 import android.graphics.PointF
+import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
 
 /**
  * **几何算法工具类 (GeometryUtils)**
@@ -102,6 +106,23 @@ object GeometryUtils {
         return (intersectCount % 2) == 1
     }
 
+    fun getClosestEdgeIndex(point: PointF, polygon: List<PointF>): Int {
+        if (polygon.size < 2) return -1
+        var bestIndex = -1
+        var minDistance = Float.MAX_VALUE
+        val size = polygon.size
+        for (i in 0 until size) {
+            val p1 = polygon[i]
+            val p2 = polygon[(i + 1) % size]
+            val dist = pointToSegmentDistance(point.x, point.y, p1.x, p1.y, p2.x, p2.y)
+            if (dist < minDistance) {
+                minDistance = dist
+                bestIndex = i
+            }
+        }
+        return bestIndex
+    }
+
     /**
      * 计算向量 (p1->p2) 与 (p1->p3) 的叉乘 (2D)。
      * > 0 : p1->p2->p3 是逆时针转向 (左转)
@@ -110,5 +131,20 @@ object GeometryUtils {
      */
     private fun crossProduct(p1: PointF, p2: PointF, p3: PointF): Float {
         return (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x)
+    }
+
+    private fun pointToSegmentDistance(
+        px: Float,
+        py: Float,
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float
+    ): Float {
+        val l2 = (x1 - x2).pow(2) + (y1 - y2).pow(2)
+        if (l2 == 0f) return hypot(px - x1, py - y1)
+        var t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2
+        t = max(0f, min(1f, t))
+        return hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)))
     }
 }

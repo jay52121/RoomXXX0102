@@ -1,4 +1,4 @@
-package com.example.roomxxx0102.ui.activities
+﻿package com.example.roomxxx0102.ui.activities
 
 import android.Manifest
 import android.app.AlertDialog
@@ -64,6 +64,21 @@ class MainActivity : ComponentActivity() {
 
     private var isAddSubRoomMode = false
     private var btnAddSubRoom: Button? = null
+    private var isDoorSelectMode = false
+    private var isRoomAreaEditMode = false
+    private var btnSelectDoor: Button? = null
+    private var btnEditRoomArea: Button? = null
+    private var editorMenuState = EditorMenuState.LIVING_ROOM
+
+    // 缁熶竴绠＄悊缂栬緫鑿滃崟鐨勫眰绾х姸鎬?
+    private enum class EditorMenuState {
+        LIVING_ROOM,
+        SUBROOM_IDLE,
+        SUBROOM_ADD,
+        SUBROOM_SELECTED,
+        SUBROOM_DOOR_SELECT,
+        SUBROOM_AREA_EDIT
+    }
 
     private val requestPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -95,7 +110,7 @@ class MainActivity : ComponentActivity() {
             }
             runOnUiThread {
                 overlayView.updatePoseData(results, bitmap, time)
-                tvRoomCount.text = "客厅人数: $peopleInLivingRoom"
+                tvRoomCount.text = "瀹㈠巺浜烘暟: $peopleInLivingRoom"
             }
         }
 
@@ -149,20 +164,38 @@ class MainActivity : ComponentActivity() {
         }
 
         val editorControls = llEditorControls as? LinearLayout
-                btnAddSubRoom = Button(this).apply {
-            text = "增加次房间"
+        btnAddSubRoom = Button(this).apply {
+            text = "澧炲姞娆℃埧闂?
             backgroundTintList = ColorStateList.valueOf(Color.parseColor("#4CAF50"))
             setTextColor(Color.WHITE)
             visibility = View.GONE
             setOnClickListener { enterAddSubRoomMode() }
         }
         btnAddSubRoom?.let { editorControls?.addView(it) }
+
+        btnSelectDoor = Button(this).apply {
+            text = "鎴块棬閫夋嫨"
+            backgroundTintList = ColorStateList.valueOf(Color.parseColor("#2196F3"))
+            setTextColor(Color.WHITE)
+            visibility = View.GONE
+            setOnClickListener { enterDoorSelectMode() }
+        }
+        btnSelectDoor?.let { editorControls?.addView(it) }
+
+        btnEditRoomArea = Button(this).apply {
+            text = "鎴块棿鍖哄煙缂栬緫"
+            backgroundTintList = ColorStateList.valueOf(Color.parseColor("#9C27B0"))
+            setTextColor(Color.WHITE)
+            visibility = View.GONE
+            setOnClickListener { enterRoomAreaEditMode() }
+        }
+        btnEditRoomArea?.let { editorControls?.addView(it) }
     }
 
     private fun enterEditMode() {
         if (isVideoMode) videoFeeder?.pause()
         isPaused = true
-        findViewById<Button>(R.id.btnPause).text = "▶️ 播放"
+        findViewById<Button>(R.id.btnPause).text = "鈻讹笍 鎾斁"
 
         captureCurrentFrame()
         editorView.backgroundBitmap = BitmapTransfer.capturedFrame
@@ -181,65 +214,147 @@ class MainActivity : ComponentActivity() {
     }
     private fun enterAddSubRoomMode() {
         setAddSubRoomMode(true)
-        Toast.makeText(this, "请点击需要增加的位置", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "璇风偣鍑婚渶瑕佸鍔犵殑浣嶇疆", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun enterDoorSelectMode() {
+        setSubRoomActionMode(doorSelect = true, roomAreaEdit = false)
+        Toast.makeText(this, "璇风偣鍑绘煇涓€鏉¤竟浣滀负鍑哄叆鍙?, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun enterRoomAreaEditMode() {
+        setSubRoomActionMode(doorSelect = false, roomAreaEdit = true)
+        Toast.makeText(this, "璇锋嫋鍔ㄦ埧闂翠綅缃繘琛岀紪杈?, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun setSubRoomActionMode(doorSelect: Boolean, roomAreaEdit: Boolean) {
+        isDoorSelectMode = doorSelect
+        isRoomAreaEditMode = roomAreaEdit
+        editorView.setDoorSelectArmed(doorSelect)
+        editorView.setRoomAreaEditArmed(roomAreaEdit)
+        if (editorView.currentMode != LivingRoomEditorView.EditorMode.SUB_ROOM_ANCHOR) return
+        val hasSelection = editorView.selectedRoomId != null
+        if (!hasSelection) {
+            setEditorMenuState(EditorMenuState.SUBROOM_IDLE)
+            return
+        }
+        val nextState = when {
+            doorSelect -> EditorMenuState.SUBROOM_DOOR_SELECT
+            roomAreaEdit -> EditorMenuState.SUBROOM_AREA_EDIT
+            else -> EditorMenuState.SUBROOM_SELECTED
+        }
+        setEditorMenuState(nextState)
     }
 
     private fun setAddSubRoomMode(active: Boolean) {
         isAddSubRoomMode = active
         editorView.setAddSubRoomArmed(active)
+        if (editorView.currentMode != LivingRoomEditorView.EditorMode.SUB_ROOM_ANCHOR) return
         if (active) {
-            val btnSwitcher = findViewById<Button>(R.id.btnModeSwitcher)
-            val btnUndo = findViewById<Button>(R.id.btnUndo)
-            val btnClear = findViewById<Button>(R.id.btnClear)
-            val btnRename = findViewById<Button>(R.id.btnRenameRoom)
-            val btnDelete = findViewById<Button>(R.id.btnDeleteRoom)
-            val btnCancel = findViewById<Button>(R.id.btnCancel)
-            val btnFinish = findViewById<Button>(R.id.btnFinish)
-            btnSwitcher.visibility = View.GONE
-            btnUndo.visibility = View.GONE
-            btnClear.visibility = View.GONE
-            btnRename.visibility = View.GONE
-            btnDelete.visibility = View.GONE
-            btnFinish.visibility = View.GONE
-            btnAddSubRoom?.visibility = View.GONE
-            btnCancel.visibility = View.VISIBLE
+            setEditorMenuState(EditorMenuState.SUBROOM_ADD)
         } else {
-            applyModeSelection(editorView.currentMode)
+            val hasSelection = editorView.selectedRoomId != null
+            val nextState = if (hasSelection) {
+                when {
+                    isDoorSelectMode -> EditorMenuState.SUBROOM_DOOR_SELECT
+                    isRoomAreaEditMode -> EditorMenuState.SUBROOM_AREA_EDIT
+                    else -> EditorMenuState.SUBROOM_SELECTED
+                }
+            } else {
+                EditorMenuState.SUBROOM_IDLE
+            }
+            setEditorMenuState(nextState)
         }
     }
 
-    private fun applyModeSelection(mode: LivingRoomEditorView.EditorMode) {
-        isAddSubRoomMode = false
-        editorView.setAddSubRoomArmed(false)
-        editorView.currentMode = mode
+    private fun setEditorMenuState(state: EditorMenuState) {
+        editorMenuState = state
+        renderEditorMenu(state)
+    }
+
+    private fun renderEditorMenu(state: EditorMenuState) {
         val btnSwitcher = findViewById<Button>(R.id.btnModeSwitcher)
         val btnUndo = findViewById<Button>(R.id.btnUndo)
         val btnClear = findViewById<Button>(R.id.btnClear)
         val btnRename = findViewById<Button>(R.id.btnRenameRoom)
         val btnDelete = findViewById<Button>(R.id.btnDeleteRoom)
+        val btnCancel = findViewById<Button>(R.id.btnCancel)
+        val btnFinish = findViewById<Button>(R.id.btnFinish)
+        val colorPrimary = ColorStateList.valueOf(Color.parseColor("#2196F3"))
+        val colorSubRoom = ColorStateList.valueOf(Color.parseColor("#9C27B0"))
+
+        when (state) {
+            EditorMenuState.LIVING_ROOM -> {
+                btnSwitcher.visibility = View.VISIBLE
+                btnSwitcher.text = "鍒囪嚦娆℃埧闂?
+                btnSwitcher.backgroundTintList = colorPrimary
+                btnUndo.visibility = View.VISIBLE
+                btnClear.visibility = View.VISIBLE
+                btnAddSubRoom?.visibility = View.GONE
+                btnSelectDoor?.visibility = View.GONE
+                btnEditRoomArea?.visibility = View.GONE
+                btnRename.visibility = View.GONE
+                btnDelete.visibility = View.GONE
+                btnCancel.visibility = View.VISIBLE
+                btnFinish.visibility = View.VISIBLE
+            }
+            EditorMenuState.SUBROOM_IDLE -> {
+                btnSwitcher.visibility = View.VISIBLE
+                btnSwitcher.text = "鍒囪嚦瀹㈠巺"
+                btnSwitcher.backgroundTintList = colorSubRoom
+                btnUndo.visibility = View.GONE
+                btnClear.visibility = View.GONE
+                btnAddSubRoom?.visibility = View.VISIBLE
+                btnSelectDoor?.visibility = View.GONE
+                btnEditRoomArea?.visibility = View.GONE
+                btnRename.visibility = View.GONE
+                btnDelete.visibility = View.GONE
+                btnCancel.visibility = View.VISIBLE
+                btnFinish.visibility = View.VISIBLE
+            }
+            EditorMenuState.SUBROOM_ADD -> {
+                btnSwitcher.visibility = View.GONE
+                btnUndo.visibility = View.GONE
+                btnClear.visibility = View.GONE
+                btnAddSubRoom?.visibility = View.GONE
+                btnSelectDoor?.visibility = View.GONE
+                btnEditRoomArea?.visibility = View.GONE
+                btnRename.visibility = View.GONE
+                btnDelete.visibility = View.GONE
+                btnCancel.visibility = View.VISIBLE
+                btnFinish.visibility = View.GONE
+            }
+            EditorMenuState.SUBROOM_SELECTED,
+            EditorMenuState.SUBROOM_DOOR_SELECT,
+            EditorMenuState.SUBROOM_AREA_EDIT -> {
+                btnSwitcher.visibility = View.VISIBLE
+                btnSwitcher.text = "鍒囪嚦瀹㈠巺"
+                btnSwitcher.backgroundTintList = colorSubRoom
+                btnUndo.visibility = View.GONE
+                btnClear.visibility = View.GONE
+                btnAddSubRoom?.visibility = View.GONE
+                btnSelectDoor?.visibility = View.VISIBLE
+                btnEditRoomArea?.visibility = View.VISIBLE
+                btnRename.visibility = View.VISIBLE
+                btnDelete.visibility = View.VISIBLE
+                btnCancel.visibility = View.VISIBLE
+                btnFinish.visibility = View.VISIBLE
+            }
+        }
+    }
+
+    private fun applyModeSelection(mode: LivingRoomEditorView.EditorMode) {
+        editorView.currentMode = mode
+        isAddSubRoomMode = false
+        editorView.setAddSubRoomArmed(false)
+        setSubRoomActionMode(doorSelect = false, roomAreaEdit = false)
 
         if (mode == LivingRoomEditorView.EditorMode.LIVING_ROOM_HULL) {
-            btnAddSubRoom?.visibility = View.GONE
-            btnSwitcher.text = "切至次房间"
-            btnSwitcher.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#2196F3"))
-            btnUndo.visibility = View.VISIBLE
-            btnClear.visibility = View.VISIBLE
-            btnRename.visibility = View.GONE
-            btnDelete.visibility = View.GONE
-
+            setEditorMenuState(EditorMenuState.LIVING_ROOM)
             val livingRoom = RoomRepository.getAllRooms().find { it.isSovereignTerritory }
             editorView.setHistoryVertices(livingRoom?.boundaryVertices ?: emptyList())
         } else {
-            btnAddSubRoom?.visibility = View.VISIBLE
-            btnSwitcher.text = "切至客厅区域"
-            btnSwitcher.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#9C27B0"))
-            btnUndo.visibility = View.GONE
-            btnClear.visibility = View.GONE
-
-            // ?????????????????
-            btnRename.visibility = View.GONE
-            btnDelete.visibility = View.GONE
-
+            setEditorMenuState(EditorMenuState.SUBROOM_IDLE)
             editorView.setSubRooms(RoomRepository.getSubRooms())
             editorView.setOnSubRoomListener(
                 onAdd = { point ->
@@ -247,29 +362,39 @@ class MainActivity : ComponentActivity() {
                     showAddSubRoomDialog(point)
                 },
                 onSelected = { room ->
-                    val visibility = if (room != null) View.VISIBLE else View.GONE
-                    btnRename.visibility = visibility
-                    btnDelete.visibility = visibility
+                    if (room == null) {
+                        setSubRoomActionMode(doorSelect = false, roomAreaEdit = false)
+                        return@setOnSubRoomListener
+                    }
+                    val nextState = when {
+                        isDoorSelectMode -> EditorMenuState.SUBROOM_DOOR_SELECT
+                        isRoomAreaEditMode -> EditorMenuState.SUBROOM_AREA_EDIT
+                        else -> EditorMenuState.SUBROOM_SELECTED
+                    }
+                    setEditorMenuState(nextState)
+                },
+                onUpdated = { room ->
+                    RoomRepository.updateRoom(room)
                 }
             )
         }
     }
     private fun showAddSubRoomDialog(point: PointF) {
-        val input = EditText(this).apply { hint = "房间名称" }
-        AlertDialog.Builder(this).setTitle("新建房间").setView(input)
-            .setPositiveButton("确定") { _, _ ->
+        val input = EditText(this).apply { hint = "鎴块棿鍚嶇О" }
+        AlertDialog.Builder(this).setTitle("鏂板缓鎴块棿").setView(input)
+            .setPositiveButton("纭畾") { _, _ ->
                 val name = input.text.toString().trim()
                 if (name.isNotEmpty()) {
                     RoomRepository.addNewRoom(name, point)
                     editorView.setSubRooms(RoomRepository.getSubRooms())
                 }
-            }.setNegativeButton("取消", null).show()
+            }.setNegativeButton("鍙栨秷", null).show()
     }
 
     private fun showRenameDialog(room: RoomConfig) {
         val input = EditText(this).apply { setText(room.name) }
-        AlertDialog.Builder(this).setTitle("修改名称").setView(input)
-            .setPositiveButton("确定") { _, _ ->
+        AlertDialog.Builder(this).setTitle("淇敼鍚嶇О").setView(input)
+            .setPositiveButton("纭畾") { _, _ ->
                 room.name = input.text.toString()
                 RoomRepository.updateRoom(room)
                 editorView.setSubRooms(RoomRepository.getSubRooms())
@@ -349,7 +474,7 @@ class MainActivity : ComponentActivity() {
 
     private fun togglePause(btn: Button) {
         isPaused = !isPaused
-        btn.text = if (isPaused) "▶️ 播放" else "⏯️ 暂停"
+        btn.text = if (isPaused) "鈻讹笍 鎾斁" else "鈴笍 鏆傚仠"
         if (isVideoMode) {
             if (isPaused) videoFeeder?.pause() else videoFeeder?.resume()
         } else {
@@ -411,3 +536,7 @@ class MainActivity : ComponentActivity() {
         try { ProcessCameraProvider.getInstance(this).get().unbindAll() } catch (e: Exception) {}
     }
 }
+
+
+
+

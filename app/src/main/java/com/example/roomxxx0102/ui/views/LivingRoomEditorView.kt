@@ -13,6 +13,7 @@ import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
+import android.widget.Toast
 import com.example.roomxxx0102.data.model.BoundaryVertex
 import com.example.roomxxx0102.data.model.RoomConfig
 import com.example.roomxxx0102.utils.GeometryUtils
@@ -48,6 +49,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
 
     private var onAddSubRoom: ((PointF) -> Unit)? = null
     private var onRoomSelected: ((RoomConfig?) -> Unit)? = null
+    private var onRoomUpdated: ((RoomConfig) -> Unit)? = null
 
     var backgroundBitmap: Bitmap? = null
         set(value) {
@@ -91,6 +93,24 @@ class LivingRoomEditorView @JvmOverloads constructor(
         strokeWidth = 3f
         isAntiAlias = true
     }
+    private val edgeAvailablePaint = Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 8f
+        isAntiAlias = true
+    }
+    private val edgeOccupiedPaint = Paint().apply {
+        color = Color.parseColor("#F44336")
+        style = Paint.Style.STROKE
+        strokeWidth = 8f
+        isAntiAlias = true
+    }
+    private val edgeSelectedPaint = Paint().apply {
+        color = Color.parseColor("#2196F3")
+        style = Paint.Style.STROKE
+        strokeWidth = 8f
+        isAntiAlias = true
+    }
     private val textPaint = Paint().apply {
         color = Color.WHITE
         textSize = 40f
@@ -108,6 +128,8 @@ class LivingRoomEditorView @JvmOverloads constructor(
     private var nextEdgeId = 1
     private val removedEdgeIds = mutableSetOf<Int>()
     private var isAddSubRoomArmed = false
+    private var isDoorSelectArmed = false
+    private var isRoomAreaEditArmed = false
 
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDoubleTap(e: MotionEvent): Boolean {
@@ -135,13 +157,26 @@ class LivingRoomEditorView @JvmOverloads constructor(
         invalidate()
     }
 
-    fun setOnSubRoomListener(onAdd: (PointF) -> Unit, onSelected: (RoomConfig?) -> Unit) {
+    fun setOnSubRoomListener(
+        onAdd: (PointF) -> Unit,
+        onSelected: (RoomConfig?) -> Unit,
+        onUpdated: (RoomConfig) -> Unit
+    ) {
         this.onAddSubRoom = onAdd
         this.onRoomSelected = onSelected
+        this.onRoomUpdated = onUpdated
     }
 
     fun setAddSubRoomArmed(armed: Boolean) {
         isAddSubRoomArmed = armed
+    }
+
+    fun setDoorSelectArmed(armed: Boolean) {
+        isDoorSelectArmed = armed
+    }
+
+    fun setRoomAreaEditArmed(armed: Boolean) {
+        isRoomAreaEditArmed = armed
     }
 
     fun clearSelection() {
@@ -354,10 +389,50 @@ class LivingRoomEditorView @JvmOverloads constructor(
                         selectedRoomId = clickedRoom.id
                         onRoomSelected?.invoke(clickedRoom)
                         return true
-                    } else {
-                        clearSelection()
+                    }
+
+                    if (selectedRoomId != null && isDoorSelectArmed) {
+                        val normP = toNorm(x, y)
+                        val polygon = boundaryVertices.map { it.point }
+                        val edgeIndex = GeometryUtils.getClosestEdgeIndex(normP, polygon)
+                        if (edgeIndex == -1) {
+                            Toast.makeText(context, "未选择出入口", Toast.LENGTH_SHORT).show()
+                            return true
+                        }
+
+                        val p1 = toScreen(
+                            boundaryVertices[edgeIndex].point.x,
+                            boundaryVertices[edgeIndex].point.y
+                        )
+                        val p2 = toScreen(
+                            boundaryVertices[(edgeIndex + 1) % boundaryVertices.size].point.x,
+                            boundaryVertices[(edgeIndex + 1) % boundaryVertices.size].point.y
+                        )
+                        val dist = pointToSegmentDistance(x, y, p1.x, p1.y, p2.x, p2.y)
+                        if (dist > edgeClickRadius) {
+                            Toast.makeText(context, "未选择出入口", Toast.LENGTH_SHORT).show()
+                            return true
+                        }
+
+                        val edgeId = boundaryVertices[edgeIndex].id
+                        val selectedRoom = subRooms.find { it.id == selectedRoomId } ?: return true
+                        val occupiedByOther = subRooms.find {
+                            it.id != selectedRoom.id && it.occupiedWallIds.contains(edgeId)
+                        }
+                        if (occupiedByOther != null) {
+                            Toast.makeText(context, "这是${occupiedByOther.name}房间的出入口", Toast.LENGTH_SHORT).show()
+                            return true
+                        }
+
+                        selectedRoom.occupiedWallIds.clear()
+                        selectedRoom.occupiedWallIds.add(edgeId)
+                        onRoomUpdated?.invoke(selectedRoom)
+                        invalidate()
                         return true
                     }
+
+                    clearSelection()
+                    return true
                 }
                 return true
             }
@@ -375,7 +450,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
                         invalidate()
                     }
                 } else {
-                    if (isAddSubRoomArmed) return true
+                    if (isAddSubRoomArmed || !isRoomAreaEditArmed) return true
                     activeRoomId?.let { id ->
                         subRooms.find { it.id == id }?.let {
                             it.anchorPoint = toNorm(x, y)
@@ -433,6 +508,24 @@ class LivingRoomEditorView @JvmOverloads constructor(
                 canvas.drawCircle(screenP.x, screenP.y, 15f, vertexPaint)
             }
         } else {
+            if (boundaryVertices.size >= 2) {
+                val selectedRoom = subRooms.find { it.id == selectedRoomId }
+                for (i in boundaryVertices.indices) {
+                    val edgeId = boundaryVertices[i].id
+                    val owner = subRooms.find { it.occupiedWallIds.contains(edgeId) }
+                    val paint = when {
+                        owner != null && selectedRoom != null && owner.id == selectedRoom.id -> edgeSelectedPaint
+                        owner != null -> edgeOccupiedPaint
+                        else -> edgeAvailablePaint
+                    }
+                    val p1 = toScreen(boundaryVertices[i].point.x, boundaryVertices[i].point.y)
+                    val p2 = toScreen(
+                        boundaryVertices[(i + 1) % boundaryVertices.size].point.x,
+                        boundaryVertices[(i + 1) % boundaryVertices.size].point.y
+                    )
+                    canvas.drawLine(p1.x, p1.y, p2.x, p2.y, paint)
+                }
+            }
             for (room in subRooms) {
                 room.anchorPoint?.let { anchor ->
                     val screenP = toScreen(anchor.x, anchor.y)
