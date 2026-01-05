@@ -123,6 +123,64 @@ object GeometryUtils {
         return bestIndex
     }
 
+    fun isPolygonSimple(polygon: List<PointF>): Boolean {
+        if (polygon.size < 3) return false
+        val area = polygonArea(polygon)
+        if (kotlin.math.abs(area) < 1e-4f) return false
+        if (polygon.size == 3) return true
+        if (polygon.size != 4) return false
+
+        val p0 = polygon[0]
+        val p1 = polygon[1]
+        val p2 = polygon[2]
+        val p3 = polygon[3]
+        if (segmentsIntersect(p0, p1, p2, p3)) return false
+        if (segmentsIntersect(p1, p2, p3, p0)) return false
+        return true
+    }
+
+    fun checkSelfIntersection(points: List<PointF>): Boolean {
+        val n = points.size
+        if (n < 4) return false
+        for (i in 0 until n) {
+            val a1 = points[i]
+            val a2 = points[(i + 1) % n]
+            for (j in i + 1 until n) {
+                val b1 = points[j]
+                val b2 = points[(j + 1) % n]
+                if (isAdjacentEdge(i, j, n)) continue
+                if (segmentsIntersect(a1, a2, b1, b2)) return true
+            }
+        }
+        return false
+    }
+
+    fun isPointOnPolygonBoundary(point: PointF, polygon: List<PointF>, epsilon: Float = 1e-4f): Boolean {
+        if (polygon.size < 2) return false
+        for (i in polygon.indices) {
+            val a = polygon[i]
+            val b = polygon[(i + 1) % polygon.size]
+            if (isPointOnSegment(point, a, b, epsilon)) return true
+        }
+        return false
+    }
+
+    fun doPolygonsOverlap(a: List<PointF>, b: List<PointF>): Boolean {
+        if (a.size < 3 || b.size < 3) return false
+        for (p in a) if (isPointInPolygon(p, b) && !isPointOnPolygonBoundary(p, b)) return true
+        for (p in b) if (isPointInPolygon(p, a) && !isPointOnPolygonBoundary(p, a)) return true
+        for (i in a.indices) {
+            val a1 = a[i]
+            val a2 = a[(i + 1) % a.size]
+            for (j in b.indices) {
+                val b1 = b[j]
+                val b2 = b[(j + 1) % b.size]
+                if (segmentsStrictIntersect(a1, a2, b1, b2)) return true
+            }
+        }
+        return false
+    }
+
     /**
      * 计算向量 (p1->p2) 与 (p1->p3) 的叉乘 (2D)。
      * > 0 : p1->p2->p3 是逆时针转向 (左转)
@@ -131,6 +189,59 @@ object GeometryUtils {
      */
     private fun crossProduct(p1: PointF, p2: PointF, p3: PointF): Float {
         return (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x)
+    }
+
+    private fun polygonArea(polygon: List<PointF>): Float {
+        var sum = 0f
+        for (i in polygon.indices) {
+            val p1 = polygon[i]
+            val p2 = polygon[(i + 1) % polygon.size]
+            sum += (p1.x * p2.y - p2.x * p1.y)
+        }
+        return sum / 2f
+    }
+
+    private fun segmentsIntersect(a1: PointF, a2: PointF, b1: PointF, b2: PointF): Boolean {
+        val d1 = direction(a1, a2, b1)
+        val d2 = direction(a1, a2, b2)
+        val d3 = direction(b1, b2, a1)
+        val d4 = direction(b1, b2, a2)
+        if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+            ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+        ) {
+            return true
+        }
+        return false
+    }
+
+    private fun segmentsStrictIntersect(a1: PointF, a2: PointF, b1: PointF, b2: PointF): Boolean {
+        val d1 = direction(a1, a2, b1)
+        val d2 = direction(a1, a2, b2)
+        val d3 = direction(b1, b2, a1)
+        val d4 = direction(b1, b2, a2)
+        return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+            ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+    }
+
+    private fun direction(a: PointF, b: PointF, c: PointF): Float {
+        return (c.x - a.x) * (b.y - a.y) - (c.y - a.y) * (b.x - a.x)
+    }
+
+    private fun isAdjacentEdge(i: Int, j: Int, n: Int): Boolean {
+        if (i == j) return true
+        val iNext = (i + 1) % n
+        val jNext = (j + 1) % n
+        return i == jNext || j == iNext
+    }
+
+    private fun isPointOnSegment(p: PointF, a: PointF, b: PointF, epsilon: Float): Boolean {
+        val cross = (p.y - a.y) * (b.x - a.x) - (p.x - a.x) * (b.y - a.y)
+        if (kotlin.math.abs(cross) > epsilon) return false
+        val dot = (p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)
+        if (dot < -epsilon) return false
+        val lenSq = (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)
+        if (dot - lenSq > epsilon) return false
+        return true
     }
 
     private fun pointToSegmentDistance(

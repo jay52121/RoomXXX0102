@@ -30,6 +30,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.example.roomxxx0102.R
+import com.example.roomxxx0102.data.model.BoundaryVertex
 import com.example.roomxxx0102.data.model.RoomConfig
 import com.example.roomxxx0102.data.repository.AppSettings
 import com.example.roomxxx0102.data.repository.RoomRepository
@@ -97,19 +98,34 @@ class MainActivity : ComponentActivity() {
 
         yoloAnalyzer = YoloAnalyzer(this, overlayView)
         poseAnalyzer = YoloPoseAnalyzer(this) { results, bitmap, time ->
-            var peopleInLivingRoom = 0
-            if (currentLivingRoomBoundary.size >= 3) {
-                for (pose in results) {
-                    if (GeometryUtils.isPointInPolygon(pose.landingPoint, currentLivingRoomBoundary)) {
-                        peopleInLivingRoom++
+            // 获取所有房间引用
+            val allRooms = RoomRepository.getAllRooms()
+            
+            // 重置计数
+            allRooms.forEach { it.personCount = 0 }
+
+            // 遍历每个人，判断他在哪个房间
+            for (pose in results) {
+                for (room in allRooms) {
+                    if (room.boundaryPoints.size >= 3) {
+                        if (GeometryUtils.isPointInPolygon(pose.landingPoint, room.boundaryPoints)) {
+                            room.personCount++
+                            // 注意：这里没有break，如果区域重叠，一个人可能算在多个房间
+                            // 按照物理逻辑，通常房间不重叠，或者需要优先级判定
+                        }
                     }
                 }
-            } else {
-                peopleInLivingRoom = results.size
             }
+
+            // 更新 UI
+            val livingRoom = allRooms.find { it.isSovereignTerritory }
+            val livingRoomCount = livingRoom?.personCount ?: 0
+
             runOnUiThread {
                 overlayView.updatePoseData(results, bitmap, time)
-                tvRoomCount.text = getString(R.string.room_people_count, peopleInLivingRoom)
+                // 强制刷新 overlayView 以重新绘制房间人数
+                overlayView.postInvalidate() 
+                tvRoomCount.text = getString(R.string.room_people_count, livingRoomCount)
             }
         }
 
@@ -135,24 +151,43 @@ class MainActivity : ComponentActivity() {
         findViewById<Button>(R.id.btnSetupRoom).setOnClickListener { enterEditMode() }
 
         findViewById<Button>(R.id.btnModeSwitcher).setOnClickListener { toggleRoomMode(it as Button) }
-        findViewById<Button>(R.id.btnUndo).setOnClickListener { editorView.undo() }
-        findViewById<Button>(R.id.btnClear).setOnClickListener { editorView.clear() }
+        findViewById<Button>(R.id.btnUndo).setOnClickListener {
+            if (editorMenuState == EditorMenuState.SUBROOM_AREA_EDIT) {
+                editorView.undoRegionEdit()
+            } else {
+                editorView.undo()
+            }
+        }
+        findViewById<Button>(R.id.btnClear).setOnClickListener {
+            if (editorMenuState == EditorMenuState.SUBROOM_AREA_EDIT) {
+                editorView.restoreRegionEdit()
+            } else {
+                editorView.clear()
+            }
+        }
         findViewById<Button>(R.id.btnCancel).setOnClickListener {
             when (editorMenuState) {
                 EditorMenuState.SUBROOM_DOOR_SELECT -> editorView.clearPendingDoorSelection()
+                EditorMenuState.SUBROOM_AREA_EDIT -> {
+                    editorView.endSubRoomRegionEdit()
+                    transitionTo(EditorMenuState.SUBROOM_SELECTED)
+                }
                 EditorMenuState.SUBROOM_ADD -> setAddSubRoomMode(false)
                 else -> exitEditMode(save = false)
             }
         }
         findViewById<Button>(R.id.btnFinish).setOnClickListener {
             if (editorMenuState == EditorMenuState.SUBROOM_DOOR_SELECT) {
-                Log.d("MainActivity", "Door commit: room=${editorView.selectedRoomId}")
                 val saved = editorView.commitDoorSelection()
                 if (!saved) {
                     Toast.makeText(this, "未保存", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 transitionTo(EditorMenuState.SUBROOM_SELECTED)
+            } else if (editorMenuState == EditorMenuState.SUBROOM_AREA_EDIT) {
+                if (!finishRoomAreaEdit()) {
+                    return@setOnClickListener
+                }
             } else {
                 exitEditMode(save = true)
             }
@@ -165,7 +200,16 @@ class MainActivity : ComponentActivity() {
         }
         findViewById<Button>(R.id.btnDeleteRoom).setOnClickListener {
             val roomId = editorView.selectedRoomId
-            if (roomId != null) {
+            if (roomId == null) return@setOnClickListener
+            if (editorMenuState == EditorMenuState.SUBROOM_AREA_EDIT) {
+                val room = RoomRepository.getSubRooms().find { it.id == roomId } ?: return@setOnClickListener
+                room.boundaryVertices.clear()
+                RoomRepository.updateRoom(room)
+                editorView.deleteRegionEdit()
+                editorView.endSubRoomRegionEdit()
+                editorView.setSubRooms(RoomRepository.getSubRooms())
+                transitionTo(EditorMenuState.SUBROOM_SELECTED)
+            } else {
                 RoomRepository.deleteRoom(roomId)
                 editorView.setSubRooms(RoomRepository.getSubRooms())
                 editorView.clearSelection()
@@ -238,10 +282,20 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(this, getString(R.string.toast_select_door), Toast.LENGTH_SHORT).show()
     }
 
-    private fun enterRoomAreaEditMode() {
-        if (editorView.selectedRoomId == null) return
+    private fun enterRoomAreaEditMode(): Boolean {
+        val roomId = editorView.selectedRoomId ?: return false
+        val room = RoomRepository.getSubRooms().find { it.id == roomId } ?: return false
+        if (room.occupiedWallIds.isEmpty()) {
+            Toast.makeText(this, "请先绑定房门", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        if (!editorView.startSubRoomRegionEdit(room)) {
+            Toast.makeText(this, "区域编辑初始化失败", Toast.LENGTH_SHORT).show()
+            return false
+        }
         setSubRoomActionMode(doorSelect = false, roomAreaEdit = true)
         Toast.makeText(this, getString(R.string.toast_edit_area), Toast.LENGTH_SHORT).show()
+        return true
     }
 
     private fun setSubRoomActionMode(doorSelect: Boolean, roomAreaEdit: Boolean) {
@@ -288,6 +342,9 @@ class MainActivity : ComponentActivity() {
         editorView.setRoomAreaEditArmed(nextArea)
         if (prev == EditorMenuState.SUBROOM_DOOR_SELECT && state != EditorMenuState.SUBROOM_DOOR_SELECT) {
             editorView.discardPendingDoorSelection()
+        }
+        if (prev == EditorMenuState.SUBROOM_AREA_EDIT && state != EditorMenuState.SUBROOM_AREA_EDIT) {
+            editorView.endSubRoomRegionEdit()
         }
         renderEditorMenu(state)
     }
@@ -352,13 +409,21 @@ class MainActivity : ComponentActivity() {
                 btnSwitcher.visibility = View.VISIBLE
                 btnSwitcher.text = getString(R.string.switch_to_living_room)
                 btnSwitcher.backgroundTintList = colorSubRoom
-                btnUndo.visibility = View.GONE
-                btnClear.visibility = View.GONE
+                btnUndo.visibility = if (state == EditorMenuState.SUBROOM_AREA_EDIT) View.VISIBLE else View.GONE
+                btnClear.visibility = if (state == EditorMenuState.SUBROOM_AREA_EDIT) View.VISIBLE else View.GONE
+                if (state == EditorMenuState.SUBROOM_AREA_EDIT) {
+                    btnUndo.text = "撤销"
+                    btnClear.text = "还原"
+                } else {
+                    btnUndo.text = getString(R.string.undo)
+                    btnClear.text = getString(R.string.clear)
+                }
                 btnAddSubRoom?.visibility = View.GONE
-                btnSelectDoor?.visibility = View.VISIBLE
-                btnEditRoomArea?.visibility = View.VISIBLE
-                btnRename.visibility = View.VISIBLE
+                btnSelectDoor?.visibility = if (state == EditorMenuState.SUBROOM_AREA_EDIT) View.GONE else View.VISIBLE
+                btnEditRoomArea?.visibility = if (state == EditorMenuState.SUBROOM_AREA_EDIT) View.GONE else View.VISIBLE
+                btnRename.visibility = if (state == EditorMenuState.SUBROOM_AREA_EDIT) View.GONE else View.VISIBLE
                 btnDelete.visibility = View.VISIBLE
+                btnDelete.text = if (state == EditorMenuState.SUBROOM_AREA_EDIT) "删除区域" else getString(R.string.delete)
                 btnCancel.visibility = View.VISIBLE
                 btnCancel.text = getString(R.string.cancel)
                 btnFinish.visibility = View.VISIBLE
@@ -403,6 +468,34 @@ class MainActivity : ComponentActivity() {
                     if (room == null) {
                         transitionTo(EditorMenuState.SUBROOM_IDLE)
                         return@setOnSubRoomListener
+                    }
+                    if (editorMenuState == EditorMenuState.SUBROOM_AREA_EDIT) {
+                        val editingRoomId = editorView.getRegionEditRoomId()
+                        if (editingRoomId != null && editingRoomId != room.id) {
+                            AlertDialog.Builder(this)
+                                .setTitle("切换房间")
+                                .setMessage("是否保存当前房间的区域编辑？")
+                                .setPositiveButton("保存并切换") { _, _ ->
+                                    val saved = finishRoomAreaEdit()
+                                    if (!saved) {
+                                        editorView.setSelectedRoomId(editingRoomId, false)
+                                        transitionTo(EditorMenuState.SUBROOM_AREA_EDIT)
+                                        return@setPositiveButton
+                                    }
+                                    enterRoomAreaEditMode()
+                                }
+                                .setNegativeButton("不保存并切换") { _, _ ->
+                                    editorView.endSubRoomRegionEdit()
+                                    transitionTo(EditorMenuState.SUBROOM_SELECTED)
+                                    enterRoomAreaEditMode()
+                                }
+                                .setNeutralButton("取消") { _, _ ->
+                                    editorView.setSelectedRoomId(editingRoomId, false)
+                                    transitionTo(EditorMenuState.SUBROOM_AREA_EDIT)
+                                }
+                                .show()
+                            return@setOnSubRoomListener
+                        }
                     }
                     val nextState = when (editorMenuState) {
                         EditorMenuState.SUBROOM_DOOR_SELECT -> EditorMenuState.SUBROOM_DOOR_SELECT
@@ -461,9 +554,57 @@ class MainActivity : ComponentActivity() {
             val before = room.occupiedWallIds.size
             room.occupiedWallIds.removeAll(removedEdgeIds)
             if (room.occupiedWallIds.size != before) {
+                room.boundaryVertices.clear()
                 RoomRepository.updateRoom(room)
             }
         }
+    }
+
+    private fun finishRoomAreaEdit(): Boolean {
+        val roomId = editorView.getRegionEditRoomId() ?: editorView.selectedRoomId ?: return false
+        val room = RoomRepository.getSubRooms().find { it.id == roomId } ?: return false
+        val points = editorView.getRegionEditPoints()
+        if (points.size < 3 || points.size > 4) {
+            Toast.makeText(this, "区域形状不合法", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val livingPolygon = RoomRepository.getAllRooms().find { it.isSovereignTerritory }?.boundaryPoints ?: emptyList()
+        for (p in points) {
+            if (GeometryUtils.isPointInPolygon(p, livingPolygon) &&
+                !GeometryUtils.isPointOnPolygonBoundary(p, livingPolygon)
+            ) {
+                Toast.makeText(this, "区域不能进入客厅", Toast.LENGTH_SHORT).show()
+                return false
+            }
+        }
+        if (!GeometryUtils.isPolygonSimple(points)) {
+            Toast.makeText(this, "区域形状不合法", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val others = RoomRepository.getSubRooms().filter { it.id != room.id }
+        for (other in others) {
+            val otherPoints = other.boundaryVertices.map { it.point }
+            if (otherPoints.size >= 3 && GeometryUtils.doPolygonsOverlap(points, otherPoints)) {
+                Toast.makeText(this, "区域与其它房间重叠", Toast.LENGTH_SHORT).show()
+                return false
+            }
+        }
+        room.boundaryVertices = buildBoundaryVertices(points)
+        RoomRepository.updateRoom(room)
+        editorView.endSubRoomRegionEdit()
+        editorView.setSubRooms(RoomRepository.getSubRooms())
+        transitionTo(EditorMenuState.SUBROOM_SELECTED)
+        return true
+    }
+
+    private fun buildBoundaryVertices(points: List<PointF>): MutableList<BoundaryVertex> {
+        val list = mutableListOf<BoundaryVertex>()
+        var vid = 1
+        var eid = 1
+        for (p in points) {
+            list.add(BoundaryVertex(vid++, PointF(p.x, p.y), eid++))
+        }
+        return list
     }
 
     private fun refreshOverlayDisplay() {

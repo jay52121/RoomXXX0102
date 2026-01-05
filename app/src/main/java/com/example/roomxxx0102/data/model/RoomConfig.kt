@@ -46,9 +46,18 @@ data class RoomConfig(
     // Anchor point for sub rooms
     var anchorPoint: PointF? = null,
 
+    // Display point for label/icon (independent from anchor).
+    var labelPoint: PointF? = null,
+
     // Theme color for sub room (null = unassigned / no door).
     var themeColor: Int? = null
 ) {
+    // 🔥 新增：当前识别到的人数 (瞬时值，不持久化)
+    var personCount: Int = 0
+
+    // 🔥 新增：真实人数 (逻辑推算值，不持久化，暂未使用)
+    var realPersonCount: Int = 0
+
     val boundaryPoints: List<PointF>
         get() = boundaryVertices.map { it.point }
 }

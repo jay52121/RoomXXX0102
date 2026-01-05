@@ -83,6 +83,10 @@ class DetectionOverlayView @JvmOverloads constructor(
         strokeWidth = 4f
         isAntiAlias = true
     }
+    private val subRoomFillPaint = Paint().apply {
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
     private val edgeThemePaint = Paint().apply {
         style = Paint.Style.STROKE
         strokeWidth = 12f
@@ -229,14 +233,34 @@ class DetectionOverlayView @JvmOverloads constructor(
                 }
             }
             
+            for (room in subRooms) {
+                val points = room.boundaryVertices.map { it.point }
+                if (points.size >= 3) {
+                    val path = Path()
+                    val startX = drawLeft + points[0].x * drawWidth
+                    val startY = drawTop + points[0].y * drawHeight
+                    path.moveTo(startX, startY)
+                    for (i in 1 until points.size) {
+                        val px = drawLeft + points[i].x * drawWidth
+                        val py = drawTop + points[i].y * drawHeight
+                        path.lineTo(px, py)
+                    }
+                    path.close()
+                    val color = room.themeColor ?: Color.WHITE
+                    subRoomFillPaint.color = Color.argb(85, Color.red(color), Color.green(color), Color.blue(color))
+                    canvas.drawPath(path, subRoomFillPaint)
+                }
+            }
+
             // 2. 🔥 画次房间棋子
             for (room in subRooms) {
-                room.anchorPoint?.let { anchor ->
-                    val px = drawLeft + anchor.x * drawWidth
-                    val py = drawTop + anchor.y * drawHeight
+                val anchor = room.labelPoint ?: room.anchorPoint
+                anchor?.let {
+                    val px = drawLeft + it.x * drawWidth
+                    val py = drawTop + it.y * drawHeight
                     val fillColor =
                         if (room.occupiedWallIds.isEmpty()) Color.WHITE else (room.themeColor ?: Color.WHITE)
-                    drawPawn(canvas, px, py, room.name, fillColor)
+                    drawPawn(canvas, px, py, room.name, fillColor, room.personCount)
                 }
             }
         }
@@ -262,13 +286,38 @@ class DetectionOverlayView @JvmOverloads constructor(
         }
     }
     
-    private fun drawPawn(canvas: Canvas, x: Float, y: Float, name: String, fillColor: Int) {
+    private fun drawPawn(canvas: Canvas, x: Float, y: Float, name: String, fillColor: Int, count: Int) {
         val r = 12f
         pawnFillPaint.color = fillColor
         canvas.drawCircle(x, y, r, pawnFillPaint)
         canvas.drawCircle(x, y, r, pawnStrokePaint)
         canvas.drawCircle(x, y - r * 1.2f, r * 0.7f, pawnFillPaint)
         canvas.drawCircle(x, y - r * 1.2f, r * 0.7f, pawnStrokePaint)
+        
+        // 名称保持默认大小 (30f) 和白色
+        textPaint.textSize = 30f
+        textPaint.color = Color.WHITE
         canvas.drawText(name, x, y - r * 2.5f, textPaint)
+        
+        // 🔥 修改：人数画在名称上方
+        val countText = if (count == 0) "0" else "$count"
+        
+        if (count > 0) {
+            // 有人：红色、变大 (45f)
+            textPaint.color = Color.RED
+            textPaint.textSize = 45f
+            // 确保不透明 (Color.RED 默认 Alpha 255)
+        } else {
+            // 无人：白色、默认大小
+            textPaint.color = Color.WHITE
+            textPaint.textSize = 30f
+        }
+        
+        // 绘制人数 (稍微调高一点位置以适应更大的字号)
+        canvas.drawText(countText, x, y - r * 4.5f, textPaint)
+        
+        // 恢复画笔默认状态 (避免影响后续绘制)
+        textPaint.color = Color.WHITE
+        textPaint.textSize = 30f
     }
 }

@@ -52,6 +52,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
         private set
 
     private var activeRoomId: String? = null
+    private var draggingLabelRoomId: String? = null
 
     private var onAddSubRoom: ((PointF) -> Unit)? = null
     private var onRoomSelected: ((RoomConfig?) -> Unit)? = null
@@ -136,8 +137,23 @@ class LivingRoomEditorView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
         setShadowLayer(3f, 0f, 0f, Color.BLACK)
     }
+    private val regionFillPaint = Paint().apply {
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val regionVertexPaint = Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val regionStrokePaint = Paint().apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
+        isAntiAlias = true
+    }
 
     private var draggingIndex = -1
+    private var regionDraggingIndex = -1
     private val touchRadius = 70f
     private val edgeClickRadius = 60f
     private val snapThreshold = 0.03f
@@ -150,6 +166,12 @@ class LivingRoomEditorView @JvmOverloads constructor(
     private var isRoomAreaEditArmed = false
     private var pendingDoorEdgeId: Int? = null
     private var pendingClearDoor = false
+    private var regionEditPoints = mutableListOf<PointF>()
+    private var regionEditInitial = emptyList<PointF>()
+    private var regionEditRoomId: String? = null
+    private val regionEditHistory = ArrayDeque<List<PointF>>()
+    private var regionEditDebugLogged = false
+    private var regionEditDrawLogged = false
 
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDoubleTap(e: MotionEvent): Boolean {
@@ -206,6 +228,9 @@ class LivingRoomEditorView @JvmOverloads constructor(
 
     fun setRoomAreaEditArmed(armed: Boolean) {
         isRoomAreaEditArmed = armed
+        if (!armed) {
+            regionDraggingIndex = -1
+        }
     }
 
     fun clearPendingDoorSelection() {
@@ -221,13 +246,102 @@ class LivingRoomEditorView @JvmOverloads constructor(
         invalidate()
     }
 
+    fun startSubRoomRegionEdit(room: RoomConfig): Boolean {
+        if (room.occupiedWallIds.isEmpty()) {
+            Toast.makeText(context, "区域编辑失败：未绑定房门", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val anchor = room.labelPoint ?: room.anchorPoint ?: run {
+            Toast.makeText(context, "区域编辑失败：缺少锚点", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        val edgeId = room.occupiedWallIds.first()
+        val edgeIndex = boundaryVertices.indexOfFirst { it.id == edgeId }
+        if (boundaryVertices.size < 2) {
+            Toast.makeText(context, "区域编辑失败：客厅边界不足", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        if (edgeIndex == -1) {
+            val edgeIds = boundaryVertices.joinToString(",") { it.id.toString() }
+            Toast.makeText(
+                context,
+                "区域编辑失败：未找到门边ID=$edgeId，客厅边ID=[$edgeIds]",
+                Toast.LENGTH_LONG
+            ).show()
+            return false
+        }
+
+        val a = boundaryVertices[edgeIndex].point
+        val b = boundaryVertices[(edgeIndex + 1) % boundaryVertices.size].point
+        val existing = room.boundaryVertices.map { it.point }
+        regionEditInitial = listOf(PointF(a.x, a.y), PointF(b.x, b.y), PointF(anchor.x, anchor.y))
+        regionEditPoints = if (existing.size >= 3 && isRegionEdgeMatched(existing, a, b)) {
+            existing.map { PointF(it.x, it.y) }.toMutableList()
+        } else {
+            regionEditInitial.map { PointF(it.x, it.y) }.toMutableList()
+        }
+        regionEditRoomId = room.id
+        regionEditHistory.clear()
+        regionEditDebugLogged = false
+        regionEditDrawLogged = false
+        Log.d(
+            TAG,
+            "RegionEdit start: room=${room.id} edge=$edgeId idx=$edgeIndex " +
+                "A=(${a.x},${a.y}) B=(${b.x},${b.y}) P=(${anchor.x},${anchor.y}) " +
+                "points=${regionEditPoints.size} usedExisting=${existing.size >= 3 && isRegionEdgeMatched(existing, a, b)}"
+        )
+        invalidate()
+        return true
+    }
+
+    fun endSubRoomRegionEdit() {
+        regionEditRoomId = null
+        regionEditPoints.clear()
+        regionEditInitial = emptyList()
+        regionEditHistory.clear()
+        regionDraggingIndex = -1
+        regionEditDebugLogged = false
+        regionEditDrawLogged = false
+        invalidate()
+    }
+
+    fun getRegionEditPoints(): List<PointF> {
+        return regionEditPoints.map { PointF(it.x, it.y) }
+    }
+
+    fun undoRegionEdit(): Boolean {
+        val prev = regionEditHistory.removeLastOrNull() ?: return false
+        regionEditPoints = prev.map { PointF(it.x, it.y) }.toMutableList()
+        invalidate()
+        return true
+    }
+
+    fun restoreRegionEdit(): Boolean {
+        if (regionEditInitial.isEmpty()) return false
+        regionEditPoints = regionEditInitial.map { PointF(it.x, it.y) }.toMutableList()
+        regionEditHistory.clear()
+        invalidate()
+        return true
+    }
+
+    fun deleteRegionEdit(): Boolean {
+        regionEditPoints.clear()
+        invalidate()
+        return true
+    }
+
     fun commitDoorSelection(): Boolean {
         if (!isDoorSelectArmed) return false
         val selectedRoom = subRooms.find { it.id == selectedRoomId } ?: return false
         if (pendingDoorEdgeId == null && !pendingClearDoor) return false
+        val prevEdgeId = selectedRoom.occupiedWallIds.firstOrNull()
         selectedRoom.occupiedWallIds.clear()
         if (!pendingClearDoor) {
             pendingDoorEdgeId?.let { selectedRoom.occupiedWallIds.add(it) }
+        }
+        val newEdgeId = selectedRoom.occupiedWallIds.firstOrNull()
+        if (pendingClearDoor || (prevEdgeId != null && newEdgeId != prevEdgeId)) {
+            selectedRoom.boundaryVertices.clear()
         }
         onRoomUpdated?.invoke(selectedRoom)
         pendingDoorEdgeId = null
@@ -239,6 +353,17 @@ class LivingRoomEditorView @JvmOverloads constructor(
     fun clearSelection() {
         selectedRoomId = null
         onRoomSelected?.invoke(null)
+        invalidate()
+    }
+
+    fun getRegionEditRoomId(): String? = regionEditRoomId
+
+    fun setSelectedRoomId(roomId: String?, notify: Boolean = true) {
+        selectedRoomId = roomId
+        if (notify) {
+            val room = roomId?.let { id -> subRooms.find { it.id == id } }
+            onRoomSelected?.invoke(room)
+        }
         invalidate()
     }
 
@@ -257,6 +382,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
     fun undo() {
         if (currentMode == EditorMode.LIVING_ROOM_HULL && boundaryVertices.size > 3) {
             if (removeVertexAt(boundaryVertices.lastIndex)) {
+                updateSubRoomRegionsForLivingRoomChange()
                 invalidate()
             }
         }
@@ -266,6 +392,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
         if (currentMode == EditorMode.LIVING_ROOM_HULL) {
             markAllEdgesRemoved()
             initDefaultPolygon()
+            updateSubRoomRegionsForLivingRoomChange()
             invalidate()
         }
     }
@@ -329,12 +456,16 @@ class LivingRoomEditorView @JvmOverloads constructor(
 
     private fun findRoomAt(x: Float, y: Float): RoomConfig? {
         for (room in subRooms) {
-            room.anchorPoint?.let { anchor ->
+            getDisplayPoint(room)?.let { anchor ->
                 val screenP = toScreen(anchor.x, anchor.y)
                 if (hypot(screenP.x - x, screenP.y - y) < touchRadius) return room
             }
         }
         return null
+    }
+
+    private fun getDisplayPoint(room: RoomConfig): PointF? {
+        return room.labelPoint ?: room.anchorPoint
     }
 
     private fun handleDeleteVertex(x: Float, y: Float): Boolean {
@@ -344,6 +475,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
             val screenP = toScreen(p.x, p.y)
             if (hypot(screenP.x - x, screenP.y - y) < touchRadius) {
                 if (removeVertexAt(i)) {
+                    updateSubRoomRegionsForLivingRoomChange()
                     invalidate()
                     return true
                 }
@@ -426,10 +558,61 @@ class LivingRoomEditorView @JvmOverloads constructor(
                     if (edgeIndex != -1) {
                         val newIndex = insertVertexAfter(edgeIndex, toNorm(x, y))
                         draggingIndex = newIndex
+                        updateSubRoomRegionsForLivingRoomChange()
                         invalidate()
                         return true
                     }
                 } else {
+                    if (!isAddSubRoomArmed && !isDoorSelectArmed) {
+                        val hit = findRoomAt(x, y)
+                        if (hit != null) {
+                            selectedRoomId = hit.id
+                            onRoomSelected?.invoke(hit)
+                            if (hit.labelPoint == null && hit.anchorPoint != null) {
+                                hit.labelPoint = PointF(hit.anchorPoint!!.x, hit.anchorPoint!!.y)
+                                onRoomUpdated?.invoke(hit)
+                            }
+                            draggingLabelRoomId = hit.id
+                            return true
+                        }
+                    }
+                    if (isRoomAreaEditArmed) {
+                        if (regionEditRoomId == null || regionEditPoints.size < 3) return true
+                        regionDraggingIndex = -1
+                        for (i in 2 until regionEditPoints.size) {
+                            val p = regionEditPoints[i]
+                            val screenP = toScreen(p.x, p.y)
+                            if (hypot(screenP.x - x, screenP.y - y) < touchRadius) {
+                                regionEditHistory.add(regionEditPoints.map { PointF(it.x, it.y) })
+                                regionDraggingIndex = i
+                                return true
+                            }
+                        }
+                        if (regionEditPoints.size == 3) {
+                            val p0 = toScreen(regionEditPoints[0].x, regionEditPoints[0].y)
+                            val p1 = toScreen(regionEditPoints[1].x, regionEditPoints[1].y)
+                            val p2 = toScreen(regionEditPoints[2].x, regionEditPoints[2].y)
+                            val d12 = pointToSegmentDistance(x, y, p1.x, p1.y, p2.x, p2.y)
+                            val d20 = pointToSegmentDistance(x, y, p2.x, p2.y, p0.x, p0.y)
+                            val insertPoint = toNorm(x, y)
+                            if (min(d12, d20) < edgeClickRadius) {
+                                val newList = regionEditPoints.map { PointF(it.x, it.y) }.toMutableList()
+                                if (d12 <= d20) {
+                                    newList.add(2, insertPoint)
+                                } else {
+                                    newList.add(insertPoint)
+                                }
+                                if (isRegionPolygonValid(newList)) {
+                                    regionEditHistory.add(regionEditPoints.map { PointF(it.x, it.y) })
+                                    regionEditPoints = newList
+                                    invalidate()
+                                }
+                                return true
+                            }
+                        }
+                        return true
+                    }
+
                     if (isAddSubRoomArmed) {
                         val normP = toNorm(x, y)
                         val polygon = boundaryVertices.map { it.point }
@@ -503,10 +686,39 @@ class LivingRoomEditorView @JvmOverloads constructor(
                         if (abs(nx - 1f) < snapThreshold) nx = 1f
                         if (abs(ny - 0f) < snapThreshold) ny = 0f
                         if (abs(ny - 1f) < snapThreshold) ny = 1f
-                        boundaryVertices[draggingIndex].point = PointF(nx, ny)
-                        invalidate()
+                        val temp = boundaryVertices.map { PointF(it.point.x, it.point.y) }.toMutableList()
+                        temp[draggingIndex] = PointF(nx, ny)
+                        if (!GeometryUtils.checkSelfIntersection(temp)) {
+                            boundaryVertices[draggingIndex].point = PointF(nx, ny)
+                            updateSubRoomRegionsForLivingRoomChange()
+                            invalidate()
+                        }
                     }
                 } else {
+                    if (draggingLabelRoomId != null) {
+                        val normP = toNorm(x, y)
+                        val room = subRooms.find { it.id == draggingLabelRoomId }
+                        if (room != null) {
+                            val livingPolygon = boundaryVertices.map { it.point }
+                            if (!GeometryUtils.isPointInPolygon(normP, livingPolygon)) {
+                                room.labelPoint = PointF(normP.x, normP.y)
+                                invalidate()
+                            }
+                        }
+                        return true
+                    }
+                    if (isRoomAreaEditArmed) {
+                        if (regionDraggingIndex >= 2 && regionDraggingIndex < regionEditPoints.size) {
+                            val normP = toNorm(x, y)
+                            val newList = regionEditPoints.map { PointF(it.x, it.y) }.toMutableList()
+                            newList[regionDraggingIndex] = normP
+                            if (isRegionPolygonValid(newList)) {
+                                regionEditPoints = newList
+                                invalidate()
+                            }
+                        }
+                        return true
+                    }
                     if (isAddSubRoomArmed || !isRoomAreaEditArmed) return true
                     activeRoomId?.let { id ->
                         subRooms.find { it.id == id }?.let {
@@ -519,7 +731,12 @@ class LivingRoomEditorView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 draggingIndex = -1
+                regionDraggingIndex = -1
                 activeRoomId = null
+                draggingLabelRoomId?.let { id ->
+                    subRooms.find { it.id == id }?.let { onRoomUpdated?.invoke(it) }
+                }
+                draggingLabelRoomId = null
                 return true
             }
         }
@@ -584,7 +801,26 @@ class LivingRoomEditorView @JvmOverloads constructor(
                 }
             }
             for (room in subRooms) {
-                room.anchorPoint?.let { anchor ->
+                if (isRoomAreaEditArmed && room.id == regionEditRoomId) {
+                    continue
+                }
+                val points = room.boundaryVertices.map { it.point }
+                if (points.size >= 3) {
+                    val path = Path()
+                    val start = toScreen(points[0].x, points[0].y)
+                    path.moveTo(start.x, start.y)
+                    for (i in 1 until points.size) {
+                        val p = toScreen(points[i].x, points[i].y)
+                        path.lineTo(p.x, p.y)
+                    }
+                    path.close()
+                    val color = room.themeColor ?: Color.WHITE
+                    regionFillPaint.color = Color.argb(85, Color.red(color), Color.green(color), Color.blue(color))
+                    canvas.drawPath(path, regionFillPaint)
+                }
+            }
+            for (room in subRooms) {
+                getDisplayPoint(room)?.let { anchor ->
                     val screenP = toScreen(anchor.x, anchor.y)
                     val fillColor =
                         if (room.occupiedWallIds.isEmpty()) Color.WHITE else (room.themeColor ?: Color.WHITE)
@@ -660,7 +896,74 @@ class LivingRoomEditorView @JvmOverloads constructor(
                 canvas.drawCircle(screenP.x, screenP.y, 12f, vertexPaint)
             }
             for (room in subRooms) {
-                room.anchorPoint?.let { anchor ->
+                if (isRoomAreaEditArmed && room.id == regionEditRoomId) {
+                    continue
+                }
+                val points = room.boundaryVertices.map { it.point }
+                if (points.size >= 3) {
+                    val path = Path()
+                    val start = toScreen(points[0].x, points[0].y)
+                    path.moveTo(start.x, start.y)
+                    for (i in 1 until points.size) {
+                        val p = toScreen(points[i].x, points[i].y)
+                        path.lineTo(p.x, p.y)
+                    }
+                    path.close()
+                    val color = room.themeColor ?: Color.WHITE
+                    regionFillPaint.color = Color.argb(85, Color.red(color), Color.green(color), Color.blue(color))
+                    canvas.drawPath(path, regionFillPaint)
+                }
+            }
+            val editRoom = regionEditRoomId?.let { id -> subRooms.find { it.id == id } }
+            if (editRoom != null && regionEditPoints.size >= 3) {
+                if (!regionEditDrawLogged) {
+                    Log.d(
+                        TAG,
+                        "RegionEdit draw ok: room=${editRoom.id} points=${regionEditPoints.size} " +
+                            "subRooms=${subRooms.size}"
+                    )
+                    regionEditDrawLogged = true
+                }
+                val path = Path()
+                val start = toScreen(regionEditPoints[0].x, regionEditPoints[0].y)
+                path.moveTo(start.x, start.y)
+                for (i in 1 until regionEditPoints.size) {
+                    val p = toScreen(regionEditPoints[i].x, regionEditPoints[i].y)
+                    path.lineTo(p.x, p.y)
+                }
+                path.close()
+                val color = editRoom.themeColor ?: Color.WHITE
+                regionFillPaint.color = Color.argb(140, Color.red(color), Color.green(color), Color.blue(color))
+                canvas.drawPath(path, regionFillPaint)
+                val strokeColor = if (color == Color.WHITE) Color.CYAN else color
+                regionStrokePaint.color = strokeColor
+                canvas.drawPath(path, regionStrokePaint)
+                val a = toScreen(regionEditPoints[0].x, regionEditPoints[0].y)
+                val b = toScreen(regionEditPoints[1].x, regionEditPoints[1].y)
+                canvas.drawCircle(a.x, a.y, 10f, regionVertexPaint)
+                canvas.drawCircle(b.x, b.y, 10f, regionVertexPaint)
+            }
+            if (regionEditRoomId != null && regionEditPoints.size >= 3) {
+                for (i in 2 until regionEditPoints.size) {
+                    val p = toScreen(regionEditPoints[i].x, regionEditPoints[i].y)
+                    canvas.drawCircle(p.x, p.y, 12f, regionVertexPaint)
+                }
+            } else if (regionEditRoomId != null && !regionEditDebugLogged) {
+                Log.d(
+                    TAG,
+                    "RegionEdit draw missing: room=$regionEditRoomId points=${regionEditPoints.size}"
+                )
+                regionEditDebugLogged = true
+            } else if (regionEditRoomId != null && !regionEditDrawLogged) {
+                val ids = subRooms.joinToString(",") { it.id }
+                Log.d(
+                    TAG,
+                    "RegionEdit draw skip: room=$regionEditRoomId subRooms=[$ids]"
+                )
+                regionEditDrawLogged = true
+            }
+            for (room in subRooms) {
+                getDisplayPoint(room)?.let { anchor ->
                     val screenP = toScreen(anchor.x, anchor.y)
                     val isSelected = room.id == selectedRoomId
                     val fillColor =
@@ -708,5 +1011,80 @@ class LivingRoomEditorView @JvmOverloads constructor(
         }
         canvas.drawText(name, x, y - r * 2.5f, textPaint)
         textPaint.color = oldTextColor
+    }
+
+    private fun isRegionPolygonValid(points: List<PointF>): Boolean {
+        if (points.size < 3 || points.size > 4) return false
+        val livingPolygon = boundaryVertices.map { it.point }
+        if (livingPolygon.isNotEmpty()) {
+            for (p in points) {
+                if (GeometryUtils.isPointInPolygon(p, livingPolygon) &&
+                    !GeometryUtils.isPointOnPolygonBoundary(p, livingPolygon)
+                ) {
+                    return false
+                }
+            }
+        }
+        if (!GeometryUtils.isPolygonSimple(points)) return false
+        return true
+    }
+
+    private fun isRegionEdgeMatched(points: List<PointF>, a: PointF, b: PointF): Boolean {
+        if (points.size < 2) return false
+        val p0 = points[0]
+        val p1 = points[1]
+        return (isSamePoint(p0, a) && isSamePoint(p1, b)) ||
+            (isSamePoint(p0, b) && isSamePoint(p1, a))
+    }
+
+    private fun isSamePoint(p1: PointF, p2: PointF, eps: Float = 0.01f): Boolean {
+        return kotlin.math.abs(p1.x - p2.x) <= eps && kotlin.math.abs(p1.y - p2.y) <= eps
+    }
+
+    private fun buildRegionVertices(points: List<PointF>): MutableList<BoundaryVertex> {
+        val list = mutableListOf<BoundaryVertex>()
+        var vid = 1
+        var eid = 1
+        for (p in points) {
+            list.add(BoundaryVertex(vid++, PointF(p.x, p.y), eid++))
+        }
+        return list
+    }
+
+    private fun updateSubRoomRegionsForLivingRoomChange() {
+        if (boundaryVertices.size < 2 || subRooms.isEmpty()) return
+        val livingPolygon = boundaryVertices.map { it.point }
+        for (room in subRooms) {
+            if (room.occupiedWallIds.isEmpty()) continue
+            if (room.boundaryVertices.size < 3) continue
+            val edgeId = room.occupiedWallIds.first()
+            val edgeIndex = boundaryVertices.indexOfFirst { it.id == edgeId }
+            if (edgeIndex == -1) {
+                room.boundaryVertices.clear()
+                onRoomUpdated?.invoke(room)
+                continue
+            }
+            val a = boundaryVertices[edgeIndex].point
+            val b = boundaryVertices[(edgeIndex + 1) % boundaryVertices.size].point
+            val points = room.boundaryVertices.map { it.point }.toMutableList()
+            if (points.size < 3 || points.size > 4) continue
+            points[0] = PointF(a.x, a.y)
+            points[1] = PointF(b.x, b.y)
+            val valid = isRegionPolygonValid(points) &&
+                !GeometryUtils.checkSelfIntersection(points)
+            if (!valid) {
+                room.boundaryVertices.clear()
+                onRoomUpdated?.invoke(room)
+                continue
+            }
+            if (room.boundaryVertices.size == points.size) {
+                for (i in points.indices) {
+                    room.boundaryVertices[i].point = PointF(points[i].x, points[i].y)
+                }
+            } else {
+                room.boundaryVertices = buildRegionVertices(points)
+            }
+            onRoomUpdated?.invoke(room)
+        }
     }
 }

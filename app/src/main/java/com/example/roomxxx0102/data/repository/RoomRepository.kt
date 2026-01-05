@@ -94,6 +94,159 @@ object RoomRepository {
         // ...
     }
 
+    // --- 纯数据处理：备份与恢复 ---
+
+    fun getBackupJson(): String {
+        return try {
+            val rootObj = JSONObject()
+            val jsonArray = JSONArray()
+            for (room in cachedRooms) {
+                val roomObj = serializeRoom(room)
+                jsonArray.put(roomObj)
+            }
+            rootObj.put("rooms", jsonArray)
+            rootObj.toString(2)
+        } catch (e: Exception) {
+            Log.e(TAG, "Backup failed", e)
+            "{}"
+        }
+    }
+
+    fun restoreFromBackup(jsonString: String): Boolean {
+        return try {
+            val rootObj = JSONObject(jsonString)
+            val jsonArray = rootObj.optJSONArray("rooms") ?: return false
+            if (jsonArray.length() == 0) return false
+
+            val restoredRooms = ArrayList<RoomConfig>()
+            for (i in 0 until jsonArray.length()) {
+                val roomObj = jsonArray.getJSONObject(i)
+                val room = deserializeRoom(roomObj)
+                restoredRooms.add(room)
+            }
+
+            if (restoredRooms.isNotEmpty()) {
+                cachedRooms.clear()
+                cachedRooms.addAll(restoredRooms)
+                ensureMissingThemeColors()
+                saveToFile()
+                Log.i(TAG, "Restored ${restoredRooms.size} rooms from backup")
+                true
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Restore failed", e)
+            false
+        }
+    }
+
+    // --- 私有辅助方法 ---
+
+    private fun serializeRoom(room: RoomConfig): JSONObject {
+        val roomObj = JSONObject()
+        roomObj.put("id", room.id)
+        roomObj.put("name", room.name)
+        roomObj.put("isSovereign", room.isSovereignTerritory)
+        roomObj.put("isRecorded", room.isRecorded)
+
+        val boundaryArray = JSONArray()
+        for (v in room.boundaryVertices) {
+            val vObj = JSONObject()
+            vObj.put("id", v.id)
+            vObj.put("x", v.point.x.toDouble())
+            vObj.put("y", v.point.y.toDouble())
+            vObj.put("edgeIdToNext", v.edgeIdToNext)
+            boundaryArray.put(vObj)
+        }
+        roomObj.put("boundaryVertices", boundaryArray)
+
+        val occupiedArray = JSONArray()
+        for (wallId in room.occupiedWallIds) {
+            occupiedArray.put(wallId)
+        }
+        roomObj.put("occupiedWallIds", occupiedArray)
+
+        room.anchorPoint?.let { p ->
+            val anchorObj = JSONObject()
+            anchorObj.put("x", p.x.toDouble())
+            anchorObj.put("y", p.y.toDouble())
+            roomObj.put("anchor", anchorObj)
+        }
+        room.labelPoint?.let { p ->
+            val labelObj = JSONObject()
+            labelObj.put("x", p.x.toDouble())
+            labelObj.put("y", p.y.toDouble())
+            roomObj.put("label", labelObj)
+        }
+        room.themeColor?.let { color ->
+            roomObj.put("themeColor", color)
+        }
+        return roomObj
+    }
+
+    private fun deserializeRoom(roomObj: JSONObject): RoomConfig {
+        val boundaryVertices = ArrayList<BoundaryVertex>()
+        val boundaryVerticesArray = roomObj.optJSONArray("boundaryVertices")
+        if (boundaryVerticesArray != null) {
+            for (j in 0 until boundaryVerticesArray.length()) {
+                val vObj = boundaryVerticesArray.getJSONObject(j)
+                val id = vObj.optInt("id", j + 1)
+                val x = vObj.optDouble("x", 0.0).toFloat()
+                val y = vObj.optDouble("y", 0.0).toFloat()
+                val edgeId = vObj.optInt("edgeIdToNext", j + 1)
+                boundaryVertices.add(BoundaryVertex(id, PointF(x, y), edgeId))
+            }
+        } else {
+            val boundaryList = ArrayList<PointF>()
+            val boundaryArray = roomObj.optJSONArray("boundary")
+            if (boundaryArray != null) {
+                for (j in 0 until boundaryArray.length()) {
+                    val pObj = boundaryArray.getJSONObject(j)
+                    val x = pObj.optDouble("x", 0.0).toFloat()
+                    val y = pObj.optDouble("y", 0.0).toFloat()
+                    boundaryList.add(PointF(x, y))
+                }
+            }
+            boundaryVertices.addAll(buildVerticesFromPoints(boundaryList))
+        }
+
+        var anchor: PointF? = null
+        val anchorObj = roomObj.optJSONObject("anchor")
+        if (anchorObj != null) {
+            val x = anchorObj.optDouble("x", 0.0).toFloat()
+            val y = anchorObj.optDouble("y", 0.0).toFloat()
+            anchor = PointF(x, y)
+        }
+        var label: PointF? = null
+        val labelObj = roomObj.optJSONObject("label")
+        if (labelObj != null) {
+            val x = labelObj.optDouble("x", 0.0).toFloat()
+            val y = labelObj.optDouble("y", 0.0).toFloat()
+            label = PointF(x, y)
+        }
+
+        val occupiedWallIds = ArrayList<Int>()
+        val occupiedArray = roomObj.optJSONArray("occupiedWallIds")
+        if (occupiedArray != null) {
+            for (j in 0 until occupiedArray.length()) {
+                occupiedWallIds.add(occupiedArray.optInt(j))
+            }
+        }
+
+        return RoomConfig(
+            id = roomObj.getString("id"),
+            name = roomObj.getString("name"),
+            isSovereignTerritory = roomObj.optBoolean("isSovereign", false),
+            isRecorded = roomObj.optBoolean("isRecorded", false),
+            boundaryVertices = boundaryVertices,
+            occupiedWallIds = occupiedWallIds,
+            anchorPoint = anchor,
+            labelPoint = label,
+            themeColor = if (roomObj.has("themeColor")) roomObj.optInt("themeColor") else null
+        )
+    }
+
     private fun copyBoundaryVertices(vertices: List<BoundaryVertex>): MutableList<BoundaryVertex> {
         return vertices.map {
             BoundaryVertex(it.id, PointF(it.point.x, it.point.y), it.edgeIdToNext)
@@ -127,59 +280,7 @@ object RoomRepository {
 
             for (i in 0 until jsonArray.length()) {
                 val roomObj = jsonArray.getJSONObject(i)
-
-                val boundaryVertices = ArrayList<BoundaryVertex>()
-                val boundaryVerticesArray = roomObj.optJSONArray("boundaryVertices")
-                if (boundaryVerticesArray != null) {
-                    for (j in 0 until boundaryVerticesArray.length()) {
-                        val vObj = boundaryVerticesArray.getJSONObject(j)
-                        val id = vObj.optInt("id", j + 1)
-                        val x = vObj.optDouble("x", 0.0).toFloat()
-                        val y = vObj.optDouble("y", 0.0).toFloat()
-                        val edgeId = vObj.optInt("edgeIdToNext", j + 1)
-                        boundaryVertices.add(BoundaryVertex(id, PointF(x, y), edgeId))
-                    }
-                } else {
-                    val boundaryList = ArrayList<PointF>()
-                    val boundaryArray = roomObj.optJSONArray("boundary")
-                    if (boundaryArray != null) {
-                        for (j in 0 until boundaryArray.length()) {
-                            val pObj = boundaryArray.getJSONObject(j)
-                            val x = pObj.optDouble("x", 0.0).toFloat()
-                            val y = pObj.optDouble("y", 0.0).toFloat()
-                            boundaryList.add(PointF(x, y))
-                        }
-                    }
-                    boundaryVertices.addAll(buildVerticesFromPoints(boundaryList))
-                }
-
-                var anchor: PointF? = null
-                val anchorObj = roomObj.optJSONObject("anchor")
-                if (anchorObj != null) {
-                    val x = anchorObj.optDouble("x", 0.0).toFloat()
-                    val y = anchorObj.optDouble("y", 0.0).toFloat()
-                    anchor = PointF(x, y)
-                }
-
-                val occupiedWallIds = ArrayList<Int>()
-                val occupiedArray = roomObj.optJSONArray("occupiedWallIds")
-                if (occupiedArray != null) {
-                    for (j in 0 until occupiedArray.length()) {
-                        occupiedWallIds.add(occupiedArray.optInt(j))
-                    }
-                }
-
-                val room = RoomConfig(
-                    id = roomObj.getString("id"),
-                    name = roomObj.getString("name"),
-                    isSovereignTerritory = roomObj.optBoolean("isSovereign", false),
-                    isRecorded = roomObj.optBoolean("isRecorded", false),
-                    boundaryVertices = boundaryVertices,
-                    occupiedWallIds = occupiedWallIds,
-                    anchorPoint = anchor,
-                    themeColor = if (roomObj.has("themeColor")) roomObj.optInt("themeColor") else null
-                )
-                cachedRooms.add(room)
+                cachedRooms.add(deserializeRoom(roomObj))
             }
             Log.i(TAG, "Loaded ${cachedRooms.size} rooms")
             if (ensureMissingThemeColors()) {
@@ -210,44 +311,9 @@ object RoomRepository {
         try {
             val rootObj = JSONObject()
             val jsonArray = JSONArray()
-
             for (room in cachedRooms) {
-                val roomObj = JSONObject()
-                roomObj.put("id", room.id)
-                roomObj.put("name", room.name)
-                roomObj.put("isSovereign", room.isSovereignTerritory)
-                roomObj.put("isRecorded", room.isRecorded)
-
-                val boundaryArray = JSONArray()
-                for (v in room.boundaryVertices) {
-                    val vObj = JSONObject()
-                    vObj.put("id", v.id)
-                    vObj.put("x", v.point.x.toDouble())
-                    vObj.put("y", v.point.y.toDouble())
-                    vObj.put("edgeIdToNext", v.edgeIdToNext)
-                    boundaryArray.put(vObj)
-                }
-                roomObj.put("boundaryVertices", boundaryArray)
-
-                val occupiedArray = JSONArray()
-                for (wallId in room.occupiedWallIds) {
-                    occupiedArray.put(wallId)
-                }
-                roomObj.put("occupiedWallIds", occupiedArray)
-
-                room.anchorPoint?.let { p ->
-                    val anchorObj = JSONObject()
-                    anchorObj.put("x", p.x.toDouble())
-                    anchorObj.put("y", p.y.toDouble())
-                    roomObj.put("anchor", anchorObj)
-                }
-                room.themeColor?.let { color ->
-                    roomObj.put("themeColor", color)
-                }
-
-                jsonArray.put(roomObj)
+                jsonArray.put(serializeRoom(room))
             }
-
             rootObj.put("rooms", jsonArray)
             file.writeText(rootObj.toString(2))
             Log.d(TAG, "Config saved: ${file.absolutePath}")

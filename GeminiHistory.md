@@ -1,5 +1,63 @@
 # Gemini History
 
+## [011] 2026-01-06 00:45:00 - 优化人数显示样式
+
+**用户指令**：
+> 看不太清，当人数不等于零的时候，把它变成一个大大的完全不透明的。 红色的数字。
+
+**任务概述**：
+优化了 `DetectionOverlayView` 中人数统计的显示样式。
+当房间人数 > 0 时，数字将以 **红色 (Color.RED)** 和 **放大字体 (45f)** 显示，以增强警示效果。
+当人数 == 0 时，保持原有的白色和普通字号。
+
+**修改文件**：
+*   `app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt`
+
+**技术变更**：
+*   **`DetectionOverlayView.kt`**:
+    *   `drawPawn`: 增加了对 `count > 0` 的条件判断，动态修改 `textPaint` 的颜色和大小。绘制后及时恢复画笔默认状态。
+
+---
+
+## [010] 2026-01-06 00:35:00 - 调整人数显示位置
+
+**用户指令**：
+> 数字应该显示在房间名称的上方，而不是下方。
+
+**任务概述**：
+用户对上一步中添加的人数显示位置不满意。
+本次修改调整了 `DetectionOverlayView.drawPawn` 的绘制逻辑，将人数文本的 Y 坐标上移，使其显示在房间名称的上方。
+
+**修改文件**：
+*   `app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt`
+
+**技术变更**：
+*   **`DetectionOverlayView.kt`**:
+    *   `drawPawn`: 修改 `countText` 的绘制坐标为 `y - r * 4.0f`（原为 `y + r * 2.5f`）。
+
+---
+
+## [009] 2026-01-06 00:15:00 - 增加房间人数统计功能
+
+**用户指令**：
+> 回到我们之前说的客厅人数显示问题。 修改这个房间人数的数据模型吧.增加一个真实人数和当前识别人数的持久化... 第二步，把当前识别人数的逻辑改成和客厅一样... 第三步，把当前识别人数显示在房间名称的上面。
+
+**任务概述**：
+为了实现对所有房间（不仅是客厅）的人数统计，我们分三步进行了升级：
+1.  **数据层**：在 `RoomConfig` 中新增了 `personCount` (瞬时值) 和 `realPersonCount` (逻辑值)。
+2.  **逻辑层**：修改了 `MainActivity` 的检测回调，现在会遍历所有房间的多边形区域 (`boundaryPoints`) 来判定人物位置，并分别更新各自的 `personCount`。
+3.  **UI 层**：暂时只更新了数据结构，UI 显示部分（DetectionOverlayView）尚未修改，因为用户决定先解决编辑模式的重影问题。
+
+**修改文件**：
+*   `app/src/main/java/com/example/roomxxx0102/data/model/RoomConfig.kt`
+*   `app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt`
+
+**技术变更**：
+*   **`RoomConfig.kt`**: 新增 `var personCount: Int = 0`。
+*   **`MainActivity.kt`**: 重写 `poseAnalyzer` 回调，引入双重循环判定：`results.forEach { person -> allRooms.forEach { room -> ... } }`。
+
+---
+
 ## [008] 2026-01-05 23:55:00 - 修复重影问题(状态同步)
 
 **用户指令**：
