@@ -38,7 +38,7 @@ data class PoseResult(
 
             val leftAnkle = keypoints[15]
             val rightAnkle = keypoints[16]
-            val CONF_THRESHOLD = 0.5f
+            val CONF_THRESHOLD = 0.00f//相信脚踝的阈值
 
             return if (leftAnkle.conf > CONF_THRESHOLD && rightAnkle.conf > CONF_THRESHOLD) {
                 PointF((leftAnkle.x + rightAnkle.x) / 2, (leftAnkle.y + rightAnkle.y) / 2)

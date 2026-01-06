@@ -70,13 +70,13 @@ class YoloPoseAnalyzer(
          * [Input Barrier]: 基础候选门槛 (0.4)。
          * 低于此分数的检测框将被视为纯噪音直接丢弃，不进入追踪逻辑。
          */
-        private const val MIN_CANDIDATE_SCORE_THRESHOLD = 0.4f
+        private const val MIN_CANDIDATE_SCORE_THRESHOLD = 0.3f
 
         /**
          * [Output Barrier]: 显示门槛 (0.45)。
          * 对于未锁定的新目标，必须超过此分数才会在 UI 上显示。
          */
-        private const val MIN_DISPLAY_SCORE_THRESHOLD = 0.45f
+        private const val MIN_DISPLAY_SCORE_THRESHOLD = 0.5f
 
         /**
          * [Locking Condition]: 锁定所需最高分 (0.6)。
@@ -93,7 +93,7 @@ class YoloPoseAnalyzer(
          * [Movement]: 显著移动判定阈值 (0.05 = 屏幕宽度的 5%)。
          * 防止因检测框抖动而误判为移动。
          */
-        private const val MIN_MOVEMENT_DISTANCE_RATIO = 0.05f
+        private const val MIN_MOVEMENT_DISTANCE_RATIO = 0.01f
 
         /**
          * [Memory]: 最大丢失容忍帧数 (60帧 ≈ 2-6秒)。
@@ -177,7 +177,7 @@ class YoloPoseAnalyzer(
         if (interpreter == null) { image.close(); return }
         try {
             val bitmap = image.toBitmap()
-            analyzeBitmapAndTrackPoses(bitmap, drawOnOverlay = false)
+            analyzeBitmapAndTrackPoses(bitmap, null, drawOnOverlay = false)
         } catch (e: Exception) {
             Log.e(TAG, "Analysis Failed", e)
         } finally {
@@ -189,9 +189,10 @@ class YoloPoseAnalyzer(
      * 执行核心分析流程：预处理 -> 推理 -> 后处理 -> 追踪 -> 过滤。
      * 
      * @param bitmap 输入图像。
+     * @param roi 可选的感兴趣区域 (0.0~1.0)。如果不为 null，将裁剪该区域进行推理。
      * @param drawOnOverlay 是否将原图传递给回调用于绘制背景 (调试用)。
      */
-    fun analyzeBitmapAndTrackPoses(bitmap: Bitmap, drawOnOverlay: Boolean = true) {
+    fun analyzeBitmapAndTrackPoses(bitmap: Bitmap, roi: RectF? = null, drawOnOverlay: Boolean = true) {
         if (interpreter == null) {
             if (drawOnOverlay) onPoseAnalysisResultsUpdated(emptyList(), bitmap, 0L)
             return
@@ -199,20 +200,41 @@ class YoloPoseAnalyzer(
         
         val startTimeMs = System.currentTimeMillis()
         try {
-            // 1. 加载与预处理
-            tensorImage!!.load(bitmap)
+            // 🔥 Step 1: 准备输入图像 (裁剪或全图)
+            val inputBitmap: Bitmap
+            val roiPx: RectF? 
+
+            if (roi != null) {
+                // 计算像素级 ROI
+                val w = bitmap.width
+                val h = bitmap.height
+                val left = (roi.left * w).toInt().coerceIn(0, w - 1)
+                val top = (roi.top * h).toInt().coerceIn(0, h - 1)
+                val width = (roi.width() * w).toInt().coerceIn(1, w - left)
+                val height = (roi.height() * h).toInt().coerceIn(1, h - top)
+                
+                inputBitmap = Bitmap.createBitmap(bitmap, left, top, width, height)
+                roiPx = RectF(left.toFloat(), top.toFloat(), (left + width).toFloat(), (top + height).toFloat())
+            } else {
+                inputBitmap = bitmap
+                roiPx = null
+            }
+
+            // 2. 加载与预处理
+            tensorImage!!.load(inputBitmap)
             val input = imageProcessor.process(tensorImage)
             
-            // 2. 模型推理
+            // 3. 模型推理
             interpreter!!.run(input.buffer, modelOutputBuffer)
 
-            // 3. 提取原始数据 (Raw Parsing)
-            val rawPoseCandidates = extractRawPosesFromModelOutput(modelOutputBuffer!![0])
+            // 4. 提取原始数据 (Raw Parsing)
+            // 🔥 这里需要将 roiPx 传进去，用于坐标反变换
+            val rawPoseCandidates = extractRawPosesFromModelOutput(modelOutputBuffer!![0], roiPx, bitmap.width, bitmap.height)
             
-            // 4. 非极大值抑制 (NMS)
+            // 5. 非极大值抑制 (NMS)
             val nmsFilteredCandidates = applyNonMaximumSuppression(rawPoseCandidates)
             
-            // 5. 追踪与业务逻辑过滤 (Tracking & Ghost Filtering)
+            // 6. 追踪与业务逻辑过滤 (Tracking & Ghost Filtering)
             val finalTrackedSubjects = updateTrackingStateAndFilterGhosts(nmsFilteredCandidates)
             
             val inferenceTimeMs = System.currentTimeMillis() - startTimeMs
@@ -324,9 +346,14 @@ class YoloPoseAnalyzer(
 
     /**
      * [Raw Parsing]: 从模型输出张量中提取结构化数据。
-     * 支持自适应归一化 (处理 0..1 和 0..640 两种格式)。
+     * 🔥 新增：支持 ROI 坐标逆映射
      */
-    private fun extractRawPosesFromModelOutput(outputTensor: Array<FloatArray>): MutableList<PoseResult> {
+    private fun extractRawPosesFromModelOutput(
+        outputTensor: Array<FloatArray>, 
+        roiPx: RectF?, 
+        fullWidth: Int, 
+        fullHeight: Int
+    ): MutableList<PoseResult> {
         val results = ArrayList<PoseResult>()
         if (outputTensor.isEmpty() || outputTensor[0].isEmpty()) return results
         
@@ -347,11 +374,27 @@ class YoloPoseAnalyzer(
                 var h = outputTensor[3][i]
 
                 // 自适应归一化：如果值 > 1.0，视为像素坐标，需除以输入尺寸
+                // 注意：这里的输入尺寸是送进模型的图（即 640x640）
+                // 如果是 ROI 模式，这里得到的是相对 ROI 的 0..1 坐标（或 0..640 坐标）
                 if (cx > 1.0f || cy > 1.0f || w > 1.0f || h > 1.0f) {
                     cx /= modelInputWidth
                     cy /= modelInputHeight
                     w /= modelInputWidth
                     h /= modelInputHeight
+                }
+
+                // 坐标变换：如果使用了 ROI，需要把 0..1 的相对坐标映射回全图的 0..1
+                if (roiPx != null) {
+                    val roiW = roiPx.width()
+                    val roiH = roiPx.height()
+                    val roiX = roiPx.left
+                    val roiY = roiPx.top
+                    
+                    // 局部 0..1 -> 局部像素 -> 全局像素 -> 全局 0..1
+                    cx = (cx * roiW + roiX) / fullWidth
+                    cy = (cy * roiH + roiY) / fullHeight
+                    w = (w * roiW) / fullWidth
+                    h = (h * roiH) / fullHeight
                 }
 
                 val normRect = RectF(
@@ -367,10 +410,22 @@ class YoloPoseAnalyzer(
                     var ky = outputTensor[6 + k * 3][i]
                     val kConf = outputTensor[7 + k * 3][i]
                     
+                    // 同样处理关键点坐标
                     if (kx > 1.0f || ky > 1.0f) {
                         kx /= modelInputWidth
                         ky /= modelInputHeight
                     }
+                    
+                    if (roiPx != null) {
+                        val roiW = roiPx.width()
+                        val roiH = roiPx.height()
+                        val roiX = roiPx.left
+                        val roiY = roiPx.top
+                        
+                        kx = (kx * roiW + roiX) / fullWidth
+                        ky = (ky * roiH + roiY) / fullHeight
+                    }
+                    
                     keypoints.add(Keypoint(kx, ky, kConf))
                 }
 

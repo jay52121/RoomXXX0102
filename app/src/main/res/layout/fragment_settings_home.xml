@@ -64,6 +64,15 @@
                     android:textColor="#333333"
                     android:checked="true"
                     android:paddingVertical="8dp" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switch_roi_crop"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="启用 ROI 真实裁剪 (Beta)"
+                    android:textSize="16sp"
+                    android:textColor="#FF9800"
+                    android:paddingVertical="8dp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -164,6 +173,41 @@
                     android:layout_height="wrap_content"
                     android:text="读取房间配置 (Restore)"
                     android:backgroundTint="#FF9800"
+                    android:textColor="#FFFFFF"/>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 测试视频来源卡片 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="2dp"
+            app:cardBackgroundColor="#FFFFFF">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="测试视频来源"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#009688"
+                    android:layout_marginBottom="12dp"/>
+
+                <Button
+                    android:id="@+id/btn_select_video"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="选择测试视频"
+                    android:backgroundTint="#009688"
                     android:textColor="#FFFFFF"/>
 
             </LinearLayout>

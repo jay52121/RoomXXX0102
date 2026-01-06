@@ -949,6 +949,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
                     canvas.drawCircle(p.x, p.y, 12f, regionVertexPaint)
                 }
             } else if (regionEditRoomId != null && !regionEditDebugLogged) {
+                ensureRegionEditFallback()
                 Log.d(
                     TAG,
                     "RegionEdit draw missing: room=$regionEditRoomId points=${regionEditPoints.size}"
@@ -1027,6 +1028,29 @@ class LivingRoomEditorView @JvmOverloads constructor(
         }
         if (!GeometryUtils.isPolygonSimple(points)) return false
         return true
+    }
+
+    private fun ensureRegionEditFallback() {
+        if (!isRoomAreaEditArmed) return
+        val roomId = regionEditRoomId ?: return
+        if (regionEditPoints.size >= 3) return
+        val room = subRooms.find { it.id == roomId } ?: return
+        if (room.occupiedWallIds.isEmpty()) return
+        val edgeId = room.occupiedWallIds.first()
+        val edgeIndex = boundaryVertices.indexOfFirst { it.id == edgeId }
+        if (edgeIndex == -1 || boundaryVertices.size < 2) return
+        val anchor = room.labelPoint ?: room.anchorPoint ?: return
+        val a = boundaryVertices[edgeIndex].point
+        val b = boundaryVertices[(edgeIndex + 1) % boundaryVertices.size].point
+        regionEditInitial = listOf(PointF(a.x, a.y), PointF(b.x, b.y), PointF(anchor.x, anchor.y))
+        regionEditPoints = regionEditInitial.map { PointF(it.x, it.y) }.toMutableList()
+        Log.d(
+            TAG,
+            "RegionEdit fallback: room=$roomId edge=$edgeId idx=$edgeIndex " +
+                "A=(${a.x},${a.y}) B=(${b.x},${b.y}) P=(${anchor.x},${anchor.y}) " +
+                "points=${regionEditPoints.size}"
+        )
+        invalidate()
     }
 
     private fun isRegionEdgeMatched(points: List<PointF>, a: PointF, b: PointF): Boolean {

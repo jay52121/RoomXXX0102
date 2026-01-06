@@ -13,6 +13,8 @@ object AppSettings {
     private const val KEY_SHOW_BOX = "show_box"
     private const val KEY_SHOW_POINT = "show_point"
     private const val KEY_ENABLE_POSE = "enable_pose"
+    private const val KEY_ENABLE_ROI_CROP = "enable_roi_crop"
+    private const val KEY_TEST_VIDEO_URI = "test_video_uri"
 
     private lateinit var prefs: SharedPreferences
 
@@ -23,6 +25,10 @@ object AppSettings {
         private set
     var isPoseModeEnabled: Boolean = true // 🔥 默认开启 Pose
         private set
+    var isRoiRealCropEnabled: Boolean = false // 🔥 新增：ROI 真实裁剪开关
+        private set
+    var testVideoUri: String? = null
+        private set
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -30,6 +36,8 @@ object AppSettings {
         isDebugBoxShown = prefs.getBoolean(KEY_SHOW_BOX, false)
         isCenterPointShown = prefs.getBoolean(KEY_SHOW_POINT, true)
         isPoseModeEnabled = prefs.getBoolean(KEY_ENABLE_POSE, true)
+        isRoiRealCropEnabled = prefs.getBoolean(KEY_ENABLE_ROI_CROP, false)
+        testVideoUri = prefs.getString(KEY_TEST_VIDEO_URI, null)
     }
 
     fun setDebugBoxShown(show: Boolean) {
@@ -45,5 +53,19 @@ object AppSettings {
     fun setPoseModeEnabled(enable: Boolean) {
         isPoseModeEnabled = enable
         prefs.edit().putBoolean(KEY_ENABLE_POSE, enable).apply()
+    }
+
+    fun setRoiRealCropEnabled(enable: Boolean) {
+        isRoiRealCropEnabled = enable
+        prefs.edit().putBoolean(KEY_ENABLE_ROI_CROP, enable).apply()
+    }
+
+    fun setTestVideoUri(uri: String?) {
+        testVideoUri = uri
+        if (uri.isNullOrBlank()) {
+            prefs.edit().remove(KEY_TEST_VIDEO_URI).apply()
+        } else {
+            prefs.edit().putString(KEY_TEST_VIDEO_URI, uri).apply()
+        }
     }
 }

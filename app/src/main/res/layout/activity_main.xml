@@ -68,6 +68,15 @@
         android:padding="12dp">
 
         <Button
+            android:id="@+id/btnRadar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🗺️ 雷达"
+            android:backgroundTint="#673AB7"
+            android:textColor="@android:color/white"
+            android:layout_marginEnd="8dp" />
+
+        <Button
             android:id="@+id/btnPause"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -178,5 +187,32 @@
             android:textColor="@android:color/white"/>
 
     </LinearLayout>
+
+    <!-- 7. 雷达地图层 (默认隐藏) -->
+    <FrameLayout
+        android:id="@+id/flRadarContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        android:elevation="10dp">
+
+        <com.example.roomxxx0102.ui.views.TacticalMapView
+            android:id="@+id/tacticalMapView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <ImageButton
+            android:id="@+id/btnCloseRadar"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="32dp"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            android:background="@drawable/abc_popup_background_mtrl_mult" 
+            android:backgroundTint="#80000000"
+            android:padding="8dp"
+            app:tint="#FFFFFF"
+            android:contentDescription="关闭雷达" />
+    </FrameLayout>
 
 </FrameLayout>

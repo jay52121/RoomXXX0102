@@ -54,7 +54,18 @@ class PoseDrawer {
         Pair(12, 14), Pair(14, 16)
     )
 
-    private val kptConfThreshold = 0.3f
+    private val kptConfThreshold = 0.00f//脚踝置信度阈值
+
+    // 关键点颜色分级
+    private fun getKeypointColor(score: Float): Int {
+        return when {
+            score < 0.01f -> Color.GRAY
+            score < 0.05f -> Color.RED
+            score < 0.1f -> Color.YELLOW
+            score < 0.3f -> Color.CYAN // 蓝色在黑色背景看不清，改用 Cyan
+            else -> Color.GREEN
+        }
+    }
 
     // 🔥 颜色分级辅助函数
     private fun getScoreColor(score: Float): Int {
@@ -122,6 +133,7 @@ class PoseDrawer {
                 if (p.conf > kptConfThreshold) {
                     val cx = drawLeft + p.x * drawWidth
                     val cy = drawTop + p.y * drawHeight
+                    kptPaint.color = getKeypointColor(p.conf)
                     canvas.drawCircle(cx, cy, 5f, kptPaint)
                 }
             }

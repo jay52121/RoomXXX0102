@@ -1,8 +1,10 @@
 package com.example.roomxxx0102.logic.video
 
 import android.content.Context
+import android.graphics.RectF
 import android.graphics.SurfaceTexture
 import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -21,6 +23,9 @@ class VideoFeeder(
     var poseAnalyzer: YoloPoseAnalyzer? = null
     
     var isPoseMode = false
+    
+    // 🔥 新增：下一帧的 ROI，由 MainActivity 设置
+    var nextFrameRoi: RectF? = null
 
     private var mediaPlayer: MediaPlayer? = null
     private var isAnalyzing = false
@@ -41,9 +46,14 @@ class VideoFeeder(
             val bitmap = textureView.bitmap 
 
             if (bitmap != null) {
+                // 获取当前的 ROI (并为下一帧重置？或者由 MainActivity 持续更新？)
+                // 既然 MainActivity 是每一帧回调都设置，那这里直接读取即可
+                val roi = nextFrameRoi
+                
                 Thread {
                     if (isPoseMode) {
-                        poseAnalyzer?.analyzeBitmapAndTrackPoses(bitmap, drawOnOverlay = true)
+                        // 🔥 传入 ROI
+                        poseAnalyzer?.analyzeBitmapAndTrackPoses(bitmap, roi, drawOnOverlay = true)
                     } else {
                         yoloAnalyzer?.detectOnBitmap(bitmap, drawOnOverlay = true)
                     }
@@ -84,6 +94,29 @@ class VideoFeeder(
         }
     }
 
+    fun start(uri: Uri) {
+        stop()
+        try {
+            Log.d("VideoFeeder", "?? 初始化 MediaPlayer (Uri)...")
+            textureView.visibility = android.view.View.VISIBLE
+
+            if (textureView.isAvailable) {
+                startMediaPlayer(uri, textureView.surfaceTexture!!)
+            } else {
+                textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+                        startMediaPlayer(uri, surface)
+                    }
+                    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
+                    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean = true
+                    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("VideoFeeder", "? 启动失败", e)
+        }
+    }
+
     private fun startMediaPlayer(file: File, surfaceTexture: SurfaceTexture) {
         try {
             val surface = Surface(surfaceTexture)
@@ -106,6 +139,27 @@ class VideoFeeder(
     }
 
     // 🔥 新增：暂停功能
+    private fun startMediaPlayer(uri: Uri, surfaceTexture: SurfaceTexture) {
+        try {
+            val surface = Surface(surfaceTexture)
+            mediaPlayer = MediaPlayer().apply {
+                setDataSource(context, uri)
+                setSurface(surface)
+                isLooping = true
+                setOnPreparedListener { mp ->
+                    Log.d("VideoFeeder", "? 视频准备就绪: ${mp.videoWidth}x${mp.videoHeight}")
+                    adjustAspectRatio(mp.videoWidth, mp.videoHeight)
+                    mp.start()
+                    isAnalyzing = true
+                    handler.post(analyzeRunnable)
+                }
+                prepareAsync()
+            }
+        } catch (e: Exception) {
+            Log.e("VideoFeeder", "? MediaPlayer 错误", e)
+        }
+    }
+
     fun pause() {
         mediaPlayer?.let {
             if (it.isPlaying) {

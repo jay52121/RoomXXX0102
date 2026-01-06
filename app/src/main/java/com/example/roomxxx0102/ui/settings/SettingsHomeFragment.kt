@@ -1,6 +1,7 @@
 package com.example.roomxxx0102.ui.settings
 
 import android.app.AlertDialog
+import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -68,6 +69,20 @@ class SettingsHomeFragment : Fragment() {
         }
     }
 
+    private val selectVideoLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            try {
+                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                requireContext().contentResolver.takePersistableUriPermission(uri, flags)
+                AppSettings.setTestVideoUri(uri.toString())
+                Toast.makeText(context, "已设置测试视频", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "设置失败: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -84,6 +99,7 @@ class SettingsHomeFragment : Fragment() {
         binding.switchShowBox.isChecked = AppSettings.isDebugBoxShown
         binding.switchShowPoint.isChecked = AppSettings.isCenterPointShown
         binding.switchPoseMode.isChecked = AppSettings.isPoseModeEnabled
+        binding.switchRoiCrop.isChecked = AppSettings.isRoiRealCropEnabled
 
         // 开关监听
         binding.switchShowBox.setOnCheckedChangeListener { _, isChecked ->
@@ -96,6 +112,10 @@ class SettingsHomeFragment : Fragment() {
 
         binding.switchPoseMode.setOnCheckedChangeListener { _, isChecked ->
             AppSettings.setPoseModeEnabled(isChecked)
+        }
+
+        binding.switchRoiCrop.setOnCheckedChangeListener { _, isChecked ->
+            AppSettings.setRoiRealCropEnabled(isChecked)
         }
 
         // 区域设置入口
@@ -140,6 +160,11 @@ class SettingsHomeFragment : Fragment() {
                 }
                 .setNegativeButton("取消", null)
                 .show()
+        }
+
+        // 测试视频选择
+        binding.btnSelectVideo.setOnClickListener {
+            selectVideoLauncher.launch(arrayOf("video/*"))
         }
 
         // 重置按钮

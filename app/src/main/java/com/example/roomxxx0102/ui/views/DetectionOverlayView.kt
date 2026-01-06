@@ -4,12 +4,14 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.AttributeSet
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import com.example.roomxxx0102.data.model.BoundaryVertex
@@ -45,6 +47,25 @@ class DetectionOverlayView @JvmOverloads constructor(
     private var showPose = false
     // 🔥 新增：是否处于编辑模式
     private var isEditMode = false
+
+    // 🔥 ROI 绘制相关
+    private var roiBox: RectF? = null
+    private var isRoiTracking = false
+    private var roiRatio: Float? = null
+    private val roiPaint = Paint().apply {
+        color = Color.YELLOW
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
+        pathEffect = DashPathEffect(floatArrayOf(20f, 10f), 0f)
+    }
+    private val roiTextPaint = Paint().apply {
+        color = Color.WHITE
+        textSize = 28f
+        isAntiAlias = true
+        textAlign = Paint.Align.CENTER
+        setShadowLayer(3f, 0f, 0f, Color.BLACK)
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
 
     private val debugDrawer = DebugBoxDrawer()
     private val poseDrawer = PoseDrawer()
@@ -150,6 +171,31 @@ class DetectionOverlayView @JvmOverloads constructor(
         postInvalidate()
     }
 
+    // 🔥 更新 ROI 框 (带状态和样式控制)
+    fun updateRoiBox(box: RectF?, isTracking: Boolean, isSparse: Boolean = false) {
+        roiBox = box
+        isRoiTracking = isTracking
+        if (box == null) {
+            roiRatio = null
+        }
+        if (box != null) {
+            // 动态设置虚线样式
+            // isSparse (未开启真实裁剪): 极度稀疏 (20实, 80虚)
+            // !isSparse (开启真实裁剪): 密集 (20实, 10虚)
+            val intervals = if (isSparse) floatArrayOf(20f, 80f) else floatArrayOf(20f, 10f)
+            roiPaint.pathEffect = DashPathEffect(intervals, 0f)
+            
+            // 颜色逻辑在 onDraw 处理
+            Log.d("ROI_DEBUG", "View received ROI: $box, tracking=$isTracking, sparse=$isSparse")
+        }
+        postInvalidate()
+    }
+
+    fun setRoiRatio(ratio: Float?) {
+        roiRatio = ratio
+        postInvalidate()
+    }
+
     fun setDebugBoxState(show: Boolean) {
         showDebugBoxes = show
         postInvalidate()
@@ -196,6 +242,25 @@ class DetectionOverlayView @JvmOverloads constructor(
             canvas.drawBitmap(bmp, srcRect, dstRect, bitmapPaint)
         } else {
             dstRect.set(0f, 0f, w, h)
+        }
+
+        // 🔥 画 ROI 框 (最上层)
+        roiBox?.let { r ->
+            // 根据状态切换颜色
+            roiPaint.color = if (isRoiTracking) Color.YELLOW else Color.RED
+            
+            val left = drawLeft + r.left * drawWidth
+            val top = drawTop + r.top * drawHeight
+            val right = drawLeft + r.right * drawWidth
+            val bottom = drawTop + r.bottom * drawHeight
+            canvas.drawRect(left, top, right, bottom, roiPaint)
+
+            roiRatio?.let { ratio ->
+                val text = String.format("%.2f", ratio)
+                val cx = (left + right) / 2f
+                val cy = top + 28f
+                canvas.drawText(text, cx, cy, roiTextPaint)
+            }
         }
 
         // 🔥 修改：如果是编辑模式，不绘制房间区域和棋子，交由 LivingRoomEditorView 绘制
@@ -254,13 +319,12 @@ class DetectionOverlayView @JvmOverloads constructor(
 
             // 2. 🔥 画次房间棋子
             for (room in subRooms) {
-                val anchor = room.labelPoint ?: room.anchorPoint
-                anchor?.let {
-                    val px = drawLeft + it.x * drawWidth
-                    val py = drawTop + it.y * drawHeight
+                room.anchorPoint?.let { anchor ->
+                    val px = drawLeft + anchor.x * drawWidth
+                    val py = drawTop + anchor.y * drawHeight
                     val fillColor =
                         if (room.occupiedWallIds.isEmpty()) Color.WHITE else (room.themeColor ?: Color.WHITE)
-                    drawPawn(canvas, px, py, room.name, fillColor, room.personCount, room.persistentPersonCount)
+                    drawPawn(canvas, px, py, room.name, fillColor, room.personCount)
                 }
             }
         }
@@ -286,15 +350,7 @@ class DetectionOverlayView @JvmOverloads constructor(
         }
     }
     
-    private fun drawPawn(
-        canvas: Canvas,
-        x: Float,
-        y: Float,
-        name: String,
-        fillColor: Int,
-        count: Int,
-        persistentCount: Int
-    ) {
+    private fun drawPawn(canvas: Canvas, x: Float, y: Float, name: String, fillColor: Int, count: Int) {
         val r = 12f
         pawnFillPaint.color = fillColor
         canvas.drawCircle(x, y, r, pawnFillPaint)
@@ -323,10 +379,6 @@ class DetectionOverlayView @JvmOverloads constructor(
         
         // 绘制人数 (稍微调高一点位置以适应更大的字号)
         canvas.drawText(countText, x, y - r * 4.5f, textPaint)
-
-        textPaint.color = Color.YELLOW
-        textPaint.textSize = 30f
-        canvas.drawText("$persistentCount", x, y - r * 6.5f, textPaint)
         
         // 恢复画笔默认状态 (避免影响后续绘制)
         textPaint.color = Color.WHITE
