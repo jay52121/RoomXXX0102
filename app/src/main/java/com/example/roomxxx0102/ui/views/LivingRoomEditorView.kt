@@ -53,6 +53,10 @@ class LivingRoomEditorView @JvmOverloads constructor(
 
     private var activeRoomId: String? = null
     private var draggingLabelRoomId: String? = null
+    private var pendingLabelRoomId: String? = null
+    private var pendingLabelDownX = 0f
+    private var pendingLabelDownY = 0f
+    private val labelDragThreshold = 12f
 
     private var onAddSubRoom: ((PointF) -> Unit)? = null
     private var onRoomSelected: ((RoomConfig?) -> Unit)? = null
@@ -164,7 +168,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
     private var isAddSubRoomArmed = false
     private var isDoorSelectArmed = false
     private var isRoomAreaEditArmed = false
-    private var pendingDoorEdgeId: Int? = null
+    private val pendingDoorEdgeIds = linkedSetOf<Int>()
     private var pendingClearDoor = false
     private var regionEditPoints = mutableListOf<PointF>()
     private var regionEditInitial = emptyList<PointF>()
@@ -219,8 +223,17 @@ class LivingRoomEditorView @JvmOverloads constructor(
     fun setDoorSelectArmed(armed: Boolean) {
         isDoorSelectArmed = armed
         if (armed) {
-            pendingDoorEdgeId = null
+            pendingDoorEdgeIds.clear()
+            val selectedRoom = subRooms.find { it.id == selectedRoomId }
+            if (selectedRoom != null) {
+                if (selectedRoom.isLivingBlindZone) {
+                    pendingDoorEdgeIds.addAll(selectedRoom.occupiedWallIds)
+                } else {
+                    selectedRoom.occupiedWallIds.firstOrNull()?.let { pendingDoorEdgeIds.add(it) }
+                }
+            }
             pendingClearDoor = false
+            invalidate()
         } else {
             discardPendingDoorSelection()
         }
@@ -235,13 +248,13 @@ class LivingRoomEditorView @JvmOverloads constructor(
 
     fun clearPendingDoorSelection() {
         if (!isDoorSelectArmed) return
-        pendingDoorEdgeId = null
+        pendingDoorEdgeIds.clear()
         pendingClearDoor = true
         invalidate()
     }
 
     fun discardPendingDoorSelection() {
-        pendingDoorEdgeId = null
+        pendingDoorEdgeIds.clear()
         pendingClearDoor = false
         invalidate()
     }
@@ -333,18 +346,22 @@ class LivingRoomEditorView @JvmOverloads constructor(
     fun commitDoorSelection(): Boolean {
         if (!isDoorSelectArmed) return false
         val selectedRoom = subRooms.find { it.id == selectedRoomId } ?: return false
-        if (pendingDoorEdgeId == null && !pendingClearDoor) return false
-        val prevEdgeId = selectedRoom.occupiedWallIds.firstOrNull()
+        if (pendingDoorEdgeIds.isEmpty() && !pendingClearDoor) return false
+        val prevEdgeIds = selectedRoom.occupiedWallIds.toSet()
         selectedRoom.occupiedWallIds.clear()
         if (!pendingClearDoor) {
-            pendingDoorEdgeId?.let { selectedRoom.occupiedWallIds.add(it) }
+            if (selectedRoom.isLivingBlindZone) {
+                selectedRoom.occupiedWallIds.addAll(pendingDoorEdgeIds)
+            } else {
+                pendingDoorEdgeIds.firstOrNull()?.let { selectedRoom.occupiedWallIds.add(it) }
+            }
         }
-        val newEdgeId = selectedRoom.occupiedWallIds.firstOrNull()
-        if (pendingClearDoor || (prevEdgeId != null && newEdgeId != prevEdgeId)) {
+        val newEdgeIds = selectedRoom.occupiedWallIds.toSet()
+        if (pendingClearDoor || prevEdgeIds != newEdgeIds) {
             selectedRoom.boundaryVertices.clear()
         }
         onRoomUpdated?.invoke(selectedRoom)
-        pendingDoorEdgeId = null
+        pendingDoorEdgeIds.clear()
         pendingClearDoor = false
         invalidate()
         return true
@@ -538,7 +555,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (gestureDetector.onTouchEvent(event)) return true
+        val handledByGesture = gestureDetector.onTouchEvent(event)
         val x = event.x
         val y = event.y
 
@@ -563,7 +580,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
                         return true
                     }
                 } else {
-                    if (!isAddSubRoomArmed && !isDoorSelectArmed) {
+                    if (!isAddSubRoomArmed && !isDoorSelectArmed && !isRoomAreaEditArmed) {
                         val hit = findRoomAt(x, y)
                         if (hit != null) {
                             selectedRoomId = hit.id
@@ -572,7 +589,9 @@ class LivingRoomEditorView @JvmOverloads constructor(
                                 hit.labelPoint = PointF(hit.anchorPoint!!.x, hit.anchorPoint!!.y)
                                 onRoomUpdated?.invoke(hit)
                             }
-                            draggingLabelRoomId = hit.id
+                            pendingLabelRoomId = hit.id
+                            pendingLabelDownX = x
+                            pendingLabelDownY = y
                             return true
                         }
                     }
@@ -663,10 +682,24 @@ class LivingRoomEditorView @JvmOverloads constructor(
                             Toast.makeText(context, context.getString(R.string.toast_door_occupied_by, occupiedByOther.name), Toast.LENGTH_SHORT).show()
                             return true
                         }
-
-                        pendingDoorEdgeId = edgeId
                         pendingClearDoor = false
-                        Log.d(TAG, "Door pending set: room=$selectedRoomId edge=$edgeId")
+                        if (selectedRoom.isLivingBlindZone) {
+                            val proposed = pendingDoorEdgeIds.toMutableSet()
+                            if (!proposed.add(edgeId)) {
+                                proposed.remove(edgeId)
+                            }
+                            if (proposed.isNotEmpty() && !isContinuousEdgeSelection(proposed)) {
+                                Toast.makeText(context, "盲区房门必须选择连续边", Toast.LENGTH_SHORT).show()
+                                return true
+                            }
+                            pendingDoorEdgeIds.clear()
+                            pendingDoorEdgeIds.addAll(proposed)
+                            Log.d(TAG, "Door pending set(blind): room=$selectedRoomId edges=${pendingDoorEdgeIds.joinToString(",")}")
+                        } else {
+                            pendingDoorEdgeIds.clear()
+                            pendingDoorEdgeIds.add(edgeId)
+                            Log.d(TAG, "Door pending set: room=$selectedRoomId edge=$edgeId")
+                        }
                         invalidate()
                         return true
                     }
@@ -695,7 +728,17 @@ class LivingRoomEditorView @JvmOverloads constructor(
                         }
                     }
                 } else {
-                    if (draggingLabelRoomId != null) {
+                    if (!isRoomAreaEditArmed && draggingLabelRoomId == null && pendingLabelRoomId != null) {
+                        val dx = x - pendingLabelDownX
+                        val dy = y - pendingLabelDownY
+                        if (hypot(dx, dy) > labelDragThreshold) {
+                            draggingLabelRoomId = pendingLabelRoomId
+                            pendingLabelRoomId = null
+                        } else {
+                            return true
+                        }
+                    }
+                    if (!isRoomAreaEditArmed && draggingLabelRoomId != null) {
                         val normP = toNorm(x, y)
                         val room = subRooms.find { it.id == draggingLabelRoomId }
                         if (room != null) {
@@ -733,6 +776,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
                 draggingIndex = -1
                 regionDraggingIndex = -1
                 activeRoomId = null
+                pendingLabelRoomId = null
                 draggingLabelRoomId?.let { id ->
                     subRooms.find { it.id == id }?.let { onRoomUpdated?.invoke(it) }
                 }
@@ -740,7 +784,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
                 return true
             }
         }
-        return super.onTouchEvent(event)
+        return handledByGesture || super.onTouchEvent(event)
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -829,51 +873,38 @@ class LivingRoomEditorView @JvmOverloads constructor(
             }
         } else {
             val selectedRoom = subRooms.find { it.id == selectedRoomId }
-            val highlightEdgeId = if (selectedRoom == null) {
-                null
-            } else if (pendingClearDoor) {
-                null
+            val highlightEdgeIds = if (selectedRoom == null || pendingClearDoor) {
+                emptySet()
             } else if (isDoorSelectArmed) {
-                pendingDoorEdgeId
+                pendingDoorEdgeIds.toSet()
             } else {
-                selectedRoom.occupiedWallIds.firstOrNull()
-            }
-            if (highlightEdgeId != null) {
-                val i = boundaryVertices.indexOfFirst { it.id == highlightEdgeId }
-                if (i != -1) {
-                    val p1 = toScreen(boundaryVertices[i].point.x, boundaryVertices[i].point.y)
-                    val p2 = toScreen(
-                        boundaryVertices[(i + 1) % boundaryVertices.size].point.x,
-                        boundaryVertices[(i + 1) % boundaryVertices.size].point.y
-                    )
-                    val shader = android.graphics.LinearGradient(
-                        p1.x, p1.y, p2.x, p2.y,
-                        intArrayOf(
-                            Color.RED, Color.YELLOW, Color.GREEN,
-                            Color.CYAN, Color.BLUE, Color.MAGENTA
-                        ),
-                        null,
-                        android.graphics.Shader.TileMode.CLAMP
-                    )
-                    edgeSelectedPaint.shader = shader
-                } else {
-                    edgeSelectedPaint.shader = null
-                }
-            } else {
-                edgeSelectedPaint.shader = null
+                selectedRoom.occupiedWallIds.toSet()
             }
             if (boundaryVertices.size >= 2) {
-                val selectedEdgeId = highlightEdgeId
                 for (i in boundaryVertices.indices) {
                     val edgeId = boundaryVertices[i].id
                     val owner = subRooms.find { it.occupiedWallIds.contains(edgeId) }
-                    val paint = if (selectedRoom != null && selectedEdgeId != null && edgeId == selectedEdgeId) {
+                    val paint = if (selectedRoom != null && highlightEdgeIds.contains(edgeId)) {
+                        val p1 = toScreen(boundaryVertices[i].point.x, boundaryVertices[i].point.y)
+                        val p2 = toScreen(
+                            boundaryVertices[(i + 1) % boundaryVertices.size].point.x,
+                            boundaryVertices[(i + 1) % boundaryVertices.size].point.y
+                        )
+                        edgeSelectedPaint.shader = android.graphics.LinearGradient(
+                            p1.x, p1.y, p2.x, p2.y,
+                            intArrayOf(
+                                Color.RED, Color.YELLOW, Color.GREEN,
+                                Color.CYAN, Color.BLUE, Color.MAGENTA
+                            ),
+                            null,
+                            android.graphics.Shader.TileMode.CLAMP
+                        )
                         edgeSelectedPaint
                     } else if (owner != null && owner.occupiedWallIds.isNotEmpty()) {
                         if (
                             selectedRoom != null &&
                             owner.id == selectedRoom.id &&
-                            (pendingClearDoor || (isDoorSelectArmed && pendingDoorEdgeId != null))
+                            (pendingClearDoor || (isDoorSelectArmed && pendingDoorEdgeIds.isNotEmpty()))
                         ) {
                             edgeAvailablePaint
                         } else {
@@ -889,6 +920,9 @@ class LivingRoomEditorView @JvmOverloads constructor(
                         boundaryVertices[(i + 1) % boundaryVertices.size].point.y
                     )
                     canvas.drawLine(p1.x, p1.y, p2.x, p2.y, paint)
+                    if (paint === edgeSelectedPaint) {
+                        edgeSelectedPaint.shader = null
+                    }
                 }
             }
             for (v in boundaryVertices) {
@@ -1073,6 +1107,36 @@ class LivingRoomEditorView @JvmOverloads constructor(
             list.add(BoundaryVertex(vid++, PointF(p.x, p.y), eid++))
         }
         return list
+    }
+
+    private fun isContinuousEdgeSelection(edgeIds: Set<Int>): Boolean {
+        if (edgeIds.size <= 1) return true
+        val size = boundaryVertices.size
+        if (size == 0) return false
+
+        val selectedIndices = edgeIds.mapNotNull { edgeId ->
+            boundaryVertices.indexOfFirst { it.id == edgeId }.takeIf { it >= 0 }
+        }.toSet()
+        if (selectedIndices.size != edgeIds.size) return false
+
+        val start = selectedIndices.first()
+        val queue = ArrayDeque<Int>()
+        val visited = mutableSetOf<Int>()
+        queue.add(start)
+        visited.add(start)
+
+        while (queue.isNotEmpty()) {
+            val cur = queue.removeFirst()
+            val prev = if (cur == 0) size - 1 else cur - 1
+            val next = (cur + 1) % size
+            if (selectedIndices.contains(prev) && visited.add(prev)) {
+                queue.add(prev)
+            }
+            if (selectedIndices.contains(next) && visited.add(next)) {
+                queue.add(next)
+            }
+        }
+        return visited.size == selectedIndices.size
     }
 
     private fun updateSubRoomRegionsForLivingRoomChange() {

@@ -2,11 +2,15 @@ package com.example.roomxxx0102.ui.drawers
 
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.util.Log
 import com.example.roomxxx0102.data.model.Keypoint
+import com.example.roomxxx0102.data.model.POSE_HIGH_CONFIDENCE_THRESHOLD
 import com.example.roomxxx0102.data.model.PoseResult
+import com.example.roomxxx0102.data.model.IdSource
 
 class PoseDrawer {
 
@@ -43,6 +47,11 @@ class PoseDrawer {
         typeface = Typeface.DEFAULT_BOLD
         setShadowLayer(3f, 0f, 0f, Color.BLACK)
     }
+    
+    // 虚线效果 (10实, 10虚)
+    private val dashedEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
+    private val shieldEffect = DashPathEffect(floatArrayOf(20f, 120f), 0f)
+    private val shieldColor = Color.parseColor("#B000FF")
 
     private val skeletonConnections = listOf(
         Pair(3, 5), Pair(4, 6),
@@ -54,26 +63,27 @@ class PoseDrawer {
         Pair(12, 14), Pair(14, 16)
     )
 
-    private val kptConfThreshold = 0.00f//脚踝置信度阈值
+    // 基础可见性阈值：低于此值的点完全不画
+    private val minVisibleThreshold = 0.1f 
 
-    // 关键点颜色分级
+    // 🔥 关键点置信度颜色分级
     private fun getKeypointColor(score: Float): Int {
         return when {
             score < 0.01f -> Color.GRAY
             score < 0.05f -> Color.RED
             score < 0.1f -> Color.YELLOW
-            score < 0.3f -> Color.CYAN // 蓝色在黑色背景看不清，改用 Cyan
-            else -> Color.GREEN
+            score < POSE_HIGH_CONFIDENCE_THRESHOLD -> Color.CYAN // 0.1 ~ 0.7
+            else -> Color.GREEN // >= 0.7
         }
     }
 
-    // 🔥 颜色分级辅助函数
+    // 整体框的颜色分级 (保持原逻辑，也可以按需调整)
     private fun getScoreColor(score: Float): Int {
         return when {
             score < 0.3f -> Color.GRAY
             score < 0.5f -> Color.RED
             score < 0.6f -> Color.YELLOW
-            score < 0.8f -> Color.CYAN // 蓝色在黑色背景看不清，改用 Cyan
+            score < 0.8f -> Color.CYAN 
             else -> Color.GREEN
         }
     }
@@ -97,11 +107,34 @@ class PoseDrawer {
             
             // 如果已锁定 (isConfirmed)，则框和骨架跟随分数变色，直观展示信号强弱
             // 如果未锁定 (普通检测)，使用默认白色，表示还在考察期
-            val mainColor = if (result.isConfirmed) scoreColor else Color.WHITE
+            val mainColor = if (result.isShielded) shieldColor else if (result.isConfirmed) scoreColor else Color.WHITE
 
             boxPaint.color = mainColor
             skeletonLinePaint.color = mainColor
-            scoreTextPaint.color = scoreColor // 文字始终显示分数颜色
+            scoreTextPaint.color = if (result.isShielded) shieldColor else scoreColor
+            
+            // --- 1.5 确定线型 (虚线/实线) ---
+            // 判定肩膀是否可信 (5:左肩, 6:右肩)
+            var shouldersTrusted = false
+            if (kpts.size > 6) {
+                val leftShoulder = kpts[5]
+                val rightShoulder = kpts[6]
+                if (leftShoulder.conf >= POSE_HIGH_CONFIDENCE_THRESHOLD && 
+                    rightShoulder.conf >= POSE_HIGH_CONFIDENCE_THRESHOLD) {
+                    shouldersTrusted = true
+                }
+            }
+            
+            // 逻辑：既没有被 lock，肩膀也没有大于高度可信 -> 虚线
+            val isWeakTarget = !result.isConfirmed && !shouldersTrusted
+            
+            if (result.isShielded) {
+                boxPaint.pathEffect = shieldEffect
+            } else if (isWeakTarget) {
+                boxPaint.pathEffect = dashedEffect
+            } else {
+                boxPaint.pathEffect = null
+            }
 
             // --- 2. 映射坐标 ---
             val screenLeft = drawLeft + box.left * drawWidth
@@ -118,7 +151,8 @@ class PoseDrawer {
                 if (idx1 < kpts.size && idx2 < kpts.size) {
                     val p1 = kpts[idx1]
                     val p2 = kpts[idx2]
-                    if (p1.conf > kptConfThreshold && p2.conf > kptConfThreshold) {
+                    // 只要大于基础可见性阈值就画线
+                    if (p1.conf > minVisibleThreshold && p2.conf > minVisibleThreshold) {
                         val x1 = drawLeft + p1.x * drawWidth
                         val y1 = drawTop + p1.y * drawHeight
                         val x2 = drawLeft + p2.x * drawWidth
@@ -130,9 +164,12 @@ class PoseDrawer {
 
             // 关键点
             for (p in kpts) {
-                if (p.conf > kptConfThreshold) {
+                // 只要大于基础可见性阈值就画点
+                if (p.conf > minVisibleThreshold) {
                     val cx = drawLeft + p.x * drawWidth
                     val cy = drawTop + p.y * drawHeight
+                    
+                    // 🔥 颜色由全局常量判定
                     kptPaint.color = getKeypointColor(p.conf)
                     canvas.drawCircle(cx, cy, 5f, kptPaint)
                 }
@@ -142,11 +179,22 @@ class PoseDrawer {
             val landingPoint = result.landingPoint
             val lx = drawLeft + landingPoint.x * drawWidth
             val ly = drawTop + landingPoint.y * drawHeight
+            if (landingPoint.x <= 0.01f && landingPoint.y <= 0.01f) {
+                val leftAnkle = kpts.getOrNull(15)
+                val rightAnkle = kpts.getOrNull(16)
+                Log.d(
+                    "PoseDrawer",
+                    "LandingPoint near zero: id=${result.id} box=$box " +
+                        "L=(${leftAnkle?.x},${leftAnkle?.y},${leftAnkle?.conf}) " +
+                        "R=(${rightAnkle?.x},${rightAnkle?.y},${rightAnkle?.conf})"
+                )
+            }
             canvas.drawCircle(lx, ly, 20f, landingPointPaint)
 
-            // 文字信息: "ID:0 Conf:0.85 (Lock)"
+            // 文字信息: "BID:0 Conf:0.85 (Lock)"
             val lockStatus = if (result.isConfirmed) "Lock" else ""
-            val infoText = "ID:${result.id} %.2f %s".format(result.score, lockStatus)
+            val idLabel = if (result.idSource == IdSource.REMOTE) "BID" else "ID"
+            val infoText = "$idLabel:${result.id} %.2f %s".format(result.score, lockStatus)
             canvas.drawText(infoText, screenLeft, screenTop - 15f, scoreTextPaint)
         }
     }

@@ -32,12 +32,19 @@ object RoomRepository {
         return cachedRooms.filter { !it.isSovereignTerritory }
     }
 
-    fun addNewRoom(name: String, anchor: PointF? = null) {
+    fun addNewRoom(
+        name: String,
+        anchor: PointF? = null,
+        isEntranceDoor: Boolean = false,
+        isLivingBlindZone: Boolean = false
+    ) {
         val newRoom = RoomConfig(
             name = name,
             isSovereignTerritory = false,
             isRecorded = false,
-            anchorPoint = anchor
+            anchorPoint = anchor,
+            isEntranceDoor = isEntranceDoor,
+            isLivingBlindZone = isLivingBlindZone
         )
         cachedRooms.add(newRoom)
         saveToFile()
@@ -149,6 +156,8 @@ object RoomRepository {
         roomObj.put("name", room.name)
         roomObj.put("isSovereign", room.isSovereignTerritory)
         roomObj.put("isRecorded", room.isRecorded)
+        roomObj.put("isEntranceDoor", room.isEntranceDoor)
+        roomObj.put("isLivingBlindZone", room.isLivingBlindZone)
 
         val boundaryArray = JSONArray()
         for (v in room.boundaryVertices) {
@@ -243,7 +252,9 @@ object RoomRepository {
             occupiedWallIds = occupiedWallIds,
             anchorPoint = anchor,
             labelPoint = label,
-            themeColor = if (roomObj.has("themeColor")) roomObj.optInt("themeColor") else null
+            themeColor = if (roomObj.has("themeColor")) roomObj.optInt("themeColor") else null,
+            isEntranceDoor = roomObj.optBoolean("isEntranceDoor", false),
+            isLivingBlindZone = roomObj.optBoolean("isLivingBlindZone", false)
         )
     }
 

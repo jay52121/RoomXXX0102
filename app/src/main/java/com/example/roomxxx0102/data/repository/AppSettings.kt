@@ -15,6 +15,8 @@ object AppSettings {
     private const val KEY_ENABLE_POSE = "enable_pose"
     private const val KEY_ENABLE_ROI_CROP = "enable_roi_crop"
     private const val KEY_TEST_VIDEO_URI = "test_video_uri"
+    private const val KEY_ENABLE_NEW_TRACKER = "enable_new_tracker"
+    private const val KEY_ROI_LOG_MODE = "roi_log_mode"
 
     private lateinit var prefs: SharedPreferences
 
@@ -29,6 +31,14 @@ object AppSettings {
         private set
     var testVideoUri: String? = null
         private set
+    var isNewTrackerPredictionEnabled: Boolean = false
+        private set
+    var roiLogMode: Int = ROI_LOG_MODE_TIME
+        private set
+
+    const val ROI_LOG_MODE_TIME = 0
+    const val ROI_LOG_MODE_MOVE = 1
+    const val ROI_LOG_MODE_OFF = 2
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -38,6 +48,8 @@ object AppSettings {
         isPoseModeEnabled = prefs.getBoolean(KEY_ENABLE_POSE, true)
         isRoiRealCropEnabled = prefs.getBoolean(KEY_ENABLE_ROI_CROP, false)
         testVideoUri = prefs.getString(KEY_TEST_VIDEO_URI, null)
+        isNewTrackerPredictionEnabled = prefs.getBoolean(KEY_ENABLE_NEW_TRACKER, false)
+        roiLogMode = prefs.getInt(KEY_ROI_LOG_MODE, ROI_LOG_MODE_TIME)
     }
 
     fun setDebugBoxShown(show: Boolean) {
@@ -67,5 +79,15 @@ object AppSettings {
         } else {
             prefs.edit().putString(KEY_TEST_VIDEO_URI, uri).apply()
         }
+    }
+
+    fun setNewTrackerPredictionEnabled(enable: Boolean) {
+        isNewTrackerPredictionEnabled = enable
+        prefs.edit().putBoolean(KEY_ENABLE_NEW_TRACKER, enable).apply()
+    }
+
+    fun setRoiLogMode(mode: Int) {
+        roiLogMode = mode
+        prefs.edit().putInt(KEY_ROI_LOG_MODE, mode).apply()
     }
 }

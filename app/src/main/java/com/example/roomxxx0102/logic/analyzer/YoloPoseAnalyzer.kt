@@ -8,6 +8,13 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import com.example.roomxxx0102.data.model.Keypoint
 import com.example.roomxxx0102.data.model.PoseResult
+import com.example.roomxxx0102.data.model.IdSource
+import com.example.roomxxx0102.data.repository.AppSettings
+import com.example.roomxxx0102.logic.tracker.RemoteByteTrackEngine
+import com.example.roomxxx0102.logic.tracker.SimpleTrackerEngine
+import com.example.roomxxx0102.logic.tracker.TrackDetection
+import com.example.roomxxx0102.logic.tracker.TrackResult
+import com.example.roomxxx0102.logic.tracker.TrackerEngine
 import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate
@@ -18,26 +25,8 @@ import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.image.ops.ResizeOp
 import java.io.FileInputStream
 import java.nio.channels.FileChannel
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.pow
-import kotlin.math.sqrt
-
-/**
- * [AI Role]: 内部状态记录类 (Internal State Record)
- * [Responsibility]: 记录单个被追踪主体 (Subject) 的历史轨迹和状态信息。
- * [Key Logic]: 用于支持 "防误触与锁定 (Anti-Ghost & Locking)" 机制，
- * 只要 [hasEverMoved] 为 true 且 [maxHistoricalScore] 达标，该主体即被视为 "真确目标 (Confirmed)"。
- */
-private data class TrackedSubjectHistory(
-    var centerX: Float,
-    var centerY: Float,
-    var consecutiveStaticFrames: Int = 0, // 连续静止帧数
-    var consecutiveMissingFrames: Int = 0, // 连续丢失帧数
-    var maxHistoricalScore: Float = 0f,   // 历史最高置信度
-    var hasEverMoved: Boolean = false     // 是否曾经发生过显著移动
-)
 
 /**
  * [AI Role]: 感知层核心分析器 (Perception Layer Core Analyzer)
@@ -67,39 +56,16 @@ class YoloPoseAnalyzer(
         // --- 阈值策略 (Threshold Strategy) ---
 
         /**
-         * [Input Barrier]: 基础候选门槛 (0.4)。
+         * [Input Barrier]: 基础候选门槛 (0.15)。
          * 低于此分数的检测框将被视为纯噪音直接丢弃，不进入追踪逻辑。
          */
-        private const val MIN_CANDIDATE_SCORE_THRESHOLD = 0.3f
-
-        /**
-         * [Output Barrier]: 显示门槛 (0.45)。
-         * 对于未锁定的新目标，必须超过此分数才会在 UI 上显示。
-         */
-        private const val MIN_DISPLAY_SCORE_THRESHOLD = 0.5f
-
-        /**
-         * [Locking Condition]: 锁定所需最高分 (0.6)。
-         * 只有历史最高分超过此值，且发生过移动，目标才会被标记为 [isConfirmed]。
-         */
-        private const val MIN_SCORE_FOR_LOCKING = 0.6f
+        private const val MIN_CANDIDATE_SCORE_THRESHOLD = 0.15f
 
         /**
          * [NMS]: 非极大值抑制阈值 (0.5)。用于去除重叠框。
          */
         private const val NMS_IOU_THRESHOLD = 0.5f
 
-        /**
-         * [Movement]: 显著移动判定阈值 (0.05 = 屏幕宽度的 5%)。
-         * 防止因检测框抖动而误判为移动。
-         */
-        private const val MIN_MOVEMENT_DISTANCE_RATIO = 0.01f
-
-        /**
-         * [Memory]: 最大丢失容忍帧数 (60帧 ≈ 2-6秒)。
-         * 即使目标暂时消失或被遮挡，ID 也会在内存中保留这么久。
-         */
-        private const val MAX_MISSING_FRAMES_TOLERANCE = 60
     }
 
     private var interpreter: Interpreter? = null
@@ -111,9 +77,12 @@ class YoloPoseAnalyzer(
     private var tensorImage: TensorImage? = null
     private var modelOutputBuffer: Array<Array<FloatArray>>? = null
 
-    // [Tracking State]: 当前活跃的追踪器映射表 (ID -> History)
-    private val activeTrackersMap = ConcurrentHashMap<Int, TrackedSubjectHistory>()
-    private var nextSubjectId = 0
+    // [Tracking Engine]: 追踪引擎 (可切换本地/远程)
+    private var trackerEngine: TrackerEngine = SimpleTrackerEngine()
+    private var isUsingRemoteTracker = false
+    private var lastShieldZones: List<RectF> = emptyList()
+    private var heartbeatFrameId = 0
+    private var lastUnlockMessage: String? = null
 
     // [Preprocessing]: 图像预处理管线
     private val imageProcessor = ImageProcessor.Builder()
@@ -131,8 +100,7 @@ class YoloPoseAnalyzer(
      * 通常在切换视频源或重置场景时调用。
      */
     fun resetTrackingState() {
-        activeTrackersMap.clear()
-        nextSubjectId = 0
+        trackerEngine.reset()
         Log.d(TAG, "🚫 追踪器状态已重置")
     }
 
@@ -193,6 +161,7 @@ class YoloPoseAnalyzer(
      * @param drawOnOverlay 是否将原图传递给回调用于绘制背景 (调试用)。
      */
     fun analyzeBitmapAndTrackPoses(bitmap: Bitmap, roi: RectF? = null, drawOnOverlay: Boolean = true) {
+        val frameId = ++heartbeatFrameId
         if (interpreter == null) {
             if (drawOnOverlay) onPoseAnalysisResultsUpdated(emptyList(), bitmap, 0L)
             return
@@ -228,14 +197,33 @@ class YoloPoseAnalyzer(
             interpreter!!.run(input.buffer, modelOutputBuffer)
 
             // 4. 提取原始数据 (Raw Parsing)
-            // 🔥 这里需要将 roiPx 传进去，用于坐标反变换
             val rawPoseCandidates = extractRawPosesFromModelOutput(modelOutputBuffer!![0], roiPx, bitmap.width, bitmap.height)
+            if (roiPx != null) {
+                val tb = rawPoseCandidates.firstOrNull()?.box
+                RoiLogAggregator.updateRoiCoord(roiPx, tb)
+            }
             
             // 5. 非极大值抑制 (NMS)
             val nmsFilteredCandidates = applyNonMaximumSuppression(rawPoseCandidates)
-            
+//
             // 6. 追踪与业务逻辑过滤 (Tracking & Ghost Filtering)
-            val finalTrackedSubjects = updateTrackingStateAndFilterGhosts(nmsFilteredCandidates)
+            updateTrackerEngineIfNeeded()
+            val detections = nmsFilteredCandidates.map {
+                toPixelDetection(it, bitmap.width, bitmap.height)
+            }
+            val tracked = trackerEngine.track(detections, bitmap.width, bitmap.height)
+            lastUnlockMessage = trackerEngine.consumeUnlockMessage()
+            lastShieldZones = trackerEngine.getShieldZones().map { toNormalizedRect(it, bitmap.width, bitmap.height) }
+            val finalTrackedSubjects = tracked.map {
+                toNormalizedResult(it, bitmap.width, bitmap.height)
+            }
+            RoiLogAggregator.updateHeartbeat(
+                frameId,
+                rawPoseCandidates.size,
+                nmsFilteredCandidates.size,
+                finalTrackedSubjects.size,
+                roi != null
+            )
             
             val inferenceTimeMs = System.currentTimeMillis() - startTimeMs
             val backgroundBitmap = if (drawOnOverlay) bitmap else null
@@ -248,100 +236,80 @@ class YoloPoseAnalyzer(
         }
     }
 
-    /**
-     * [Core Logic]: 核心追踪与过滤算法。
-     * 负责将当前的检测框与历史追踪器匹配，更新状态，并根据 "锁定逻辑" 决定是否输出。
-     * 
-     * @param candidates 当前帧经过 NMS 后的候选框列表。
-     * @return 经过筛选后的最终输出列表。
-     */
-    private fun updateTrackingStateAndFilterGhosts(candidates: List<PoseResult>): List<PoseResult> {
-        val finalOutputList = ArrayList<PoseResult>()
-        val matchedTrackerIds = HashSet<Int>()
+    fun getShieldZones(): List<RectF> = lastShieldZones
 
-        for (candidate in candidates) {
-            // --- 贪婪匹配 (Greedy Matching) ---
-            var bestMatchId = -1
-            var minDistance = Float.MAX_VALUE
-            val candidateCx = candidate.box.centerX()
-            val candidateCy = candidate.box.centerY()
+    fun consumeUnlockMessage(): String? {
+        val msg = lastUnlockMessage
+        lastUnlockMessage = null
+        return msg
+    }
 
-            // 寻找最近的历史目标
-            for ((id, history) in activeTrackersMap) {
-                if (id in matchedTrackerIds) continue
-                // 计算欧氏距离 (Euclidean Distance)
-                val distance = sqrt((candidateCx - history.centerX).pow(2) + (candidateCy - history.centerY).pow(2))
-                
-                // 距离阈值判定 (0.15 归一化距离)
-                if (distance < 0.15f && distance < minDistance) {
-                    minDistance = distance
-                    bestMatchId = id
-                }
-            }
-
-            var currentId = -1
-            var isLocked = false
-            var isMoving = false
-
-            if (bestMatchId != -1) {
-                // --- 匹配成功：更新老兵 (Veteran) ---
-                currentId = bestMatchId
-                val history = activeTrackersMap[bestMatchId]!!
-                
-                // 移动判定逻辑：距离超过阈值才算移动
-                val moveDistance = sqrt((candidateCx - history.centerX).pow(2) + (candidateCy - history.centerY).pow(2))
-                val isMovingNow = moveDistance > MIN_MOVEMENT_DISTANCE_RATIO
-                
-                if (isMovingNow) history.hasEverMoved = true
-                isMoving = isMovingNow
-
-                // 更新历史最高分
-                history.maxHistoricalScore = max(history.maxHistoricalScore, candidate.score)
-                
-                // 更新位置
-                history.centerX = candidateCx
-                history.centerY = candidateCy
-                history.consecutiveMissingFrames = 0
-                
-                matchedTrackerIds.add(bestMatchId)
-
-                // 判定锁定状态: 历史分高 + 动过 = 真人
-                isLocked = (history.maxHistoricalScore > MIN_SCORE_FOR_LOCKING) && history.hasEverMoved
-
-            } else {
-                // --- 匹配失败：注册新兵 (Rookie) ---
-                currentId = nextSubjectId++
-                val newHistory = TrackedSubjectHistory(candidateCx, candidateCy)
-                newHistory.maxHistoricalScore = candidate.score
-                activeTrackersMap[currentId] = newHistory
-            }
-
-            // --- 最终保留决策 (Final Decision) ---
-            // 规则 A: 未锁定目标，必须分数够高 (Display Threshold)。
-            // 规则 B: 已锁定目标 (Confirmed)，无视当前分数，强制保留 (Hysteresis)。
-            if (candidate.score > MIN_DISPLAY_SCORE_THRESHOLD || isLocked) {
-                finalOutputList.add(candidate.copy(
-                    id = currentId, 
-                    isMoving = isMoving, 
-                    isConfirmed = isLocked
-                ))
-            }
+    private fun updateTrackerEngineIfNeeded() {
+        val useRemote = AppSettings.isNewTrackerPredictionEnabled
+        if (useRemote == isUsingRemoteTracker) return
+        trackerEngine = if (useRemote) {
+            RemoteByteTrackEngine(SimpleTrackerEngine())
+        } else {
+            SimpleTrackerEngine()
         }
+        trackerEngine.reset()
+        isUsingRemoteTracker = useRemote
+    }
 
-        // --- 清理垃圾 (Garbage Collection) ---
-        // 移除长时间丢失的追踪器
-        val iterator = activeTrackersMap.iterator()
-        while (iterator.hasNext()) {
-            val entry = iterator.next()
-            if (!matchedTrackerIds.contains(entry.key)) {
-                entry.value.consecutiveMissingFrames++
-                if (entry.value.consecutiveMissingFrames > MAX_MISSING_FRAMES_TOLERANCE) {
-                    iterator.remove()
-                }
-            }
+    private fun toPixelDetection(
+        result: PoseResult,
+        fullWidth: Int,
+        fullHeight: Int
+    ): TrackDetection {
+        val box = RectF(
+            result.box.left * fullWidth,
+            result.box.top * fullHeight,
+            result.box.right * fullWidth,
+            result.box.bottom * fullHeight
+        )
+        val kpts = result.keypoints.map {
+            Keypoint(it.x * fullWidth, it.y * fullHeight, it.conf)
         }
+        return TrackDetection(box = box, keypoints = kpts, score = result.score)
+    }
 
-        return finalOutputList
+    private fun toNormalizedRect(
+        rect: RectF,
+        fullWidth: Int,
+        fullHeight: Int
+    ): RectF {
+        return RectF(
+            rect.left / fullWidth,
+            rect.top / fullHeight,
+            rect.right / fullWidth,
+            rect.bottom / fullHeight
+        )
+    }
+
+    private fun toNormalizedResult(
+        track: TrackResult,
+        fullWidth: Int,
+        fullHeight: Int
+    ): PoseResult {
+        val box = RectF(
+            track.box.left / fullWidth,
+            track.box.top / fullHeight,
+            track.box.right / fullWidth,
+            track.box.bottom / fullHeight
+        )
+        val kpts = track.keypoints.map {
+            Keypoint(it.x / fullWidth, it.y / fullHeight, it.conf)
+        }
+        return PoseResult(
+            id = track.trackId,
+            box = box,
+            keypoints = kpts,
+            score = track.score,
+            isMoving = track.isMoving,
+            isConfirmed = track.isConfirmed,
+            idSource = if (track.isRemote) IdSource.REMOTE else IdSource.LOCAL,
+            isShielded = track.isShielded
+        )
     }
 
     /**
@@ -360,37 +328,25 @@ class YoloPoseAnalyzer(
         val numAnchors = outputTensor[0].size 
         val numChannels = outputTensor.size
         
-        // 校验通道数 (Box(4) + Score(1) + Kpt(17*3) = 56)
         if (numChannels < 56) return results
 
         for (i in 0 until numAnchors) {
             val score = outputTensor[4][i]
             
-            // 第一道筛选：低分直接丢弃
             if (score > MIN_CANDIDATE_SCORE_THRESHOLD) {
                 var cx = outputTensor[0][i]
                 var cy = outputTensor[1][i]
                 var w = outputTensor[2][i]
                 var h = outputTensor[3][i]
 
-                // 自适应归一化：如果值 > 1.0，视为像素坐标，需除以输入尺寸
-                // 注意：这里的输入尺寸是送进模型的图（即 640x640）
-                // 如果是 ROI 模式，这里得到的是相对 ROI 的 0..1 坐标（或 0..640 坐标）
-                if (cx > 1.0f || cy > 1.0f || w > 1.0f || h > 1.0f) {
-                    cx /= modelInputWidth
-                    cy /= modelInputHeight
-                    w /= modelInputWidth
-                    h /= modelInputHeight
-                }
+                // 模型输出按归一化坐标处理（允许轻微越界，例如 >1）
 
-                // 坐标变换：如果使用了 ROI，需要把 0..1 的相对坐标映射回全图的 0..1
                 if (roiPx != null) {
                     val roiW = roiPx.width()
                     val roiH = roiPx.height()
                     val roiX = roiPx.left
                     val roiY = roiPx.top
                     
-                    // 局部 0..1 -> 局部像素 -> 全局像素 -> 全局 0..1
                     cx = (cx * roiW + roiX) / fullWidth
                     cy = (cy * roiH + roiY) / fullHeight
                     w = (w * roiW) / fullWidth
@@ -406,15 +362,13 @@ class YoloPoseAnalyzer(
 
                 val keypoints = ArrayList<Keypoint>(17)
                 for (k in 0 until 17) {
-                    var kx = outputTensor[5 + k * 3][i]
-                    var ky = outputTensor[6 + k * 3][i]
+                    val rawKx = outputTensor[5 + k * 3][i]
+                    val rawKy = outputTensor[6 + k * 3][i]
+                    var kx = rawKx
+                    var ky = rawKy
                     val kConf = outputTensor[7 + k * 3][i]
                     
-                    // 同样处理关键点坐标
-                    if (kx > 1.0f || ky > 1.0f) {
-                        kx /= modelInputWidth
-                        ky /= modelInputHeight
-                    }
+                    // 关键点按归一化坐标处理（允许轻微越界，例如 >1）
                     
                     if (roiPx != null) {
                         val roiW = roiPx.width()
@@ -424,6 +378,16 @@ class YoloPoseAnalyzer(
                         
                         kx = (kx * roiW + roiX) / fullWidth
                         ky = (ky * roiH + roiY) / fullHeight
+                    }
+
+                    if ((k == 15 || k == 16) &&
+                        (rawKx <= 0.01f && rawKy <= 0.01f || kx <= 0.01f && ky <= 0.01f)
+                    ) {
+                        Log.d(
+                            TAG,
+                            "AnkleKP near zero: k=$k raw=($rawKx,$rawKy) norm=($kx,$ky) " +
+                                "conf=$kConf roi=$roiPx box=$normRect"
+                        )
                     }
                     
                     keypoints.add(Keypoint(kx, ky, kConf))
@@ -435,9 +399,6 @@ class YoloPoseAnalyzer(
         return results
     }
 
-    /**
-     * [NMS]: 应用非极大值抑制，去除重叠的检测框。
-     */
     private fun applyNonMaximumSuppression(candidates: MutableList<PoseResult>): List<PoseResult> {
         val keep = ArrayList<PoseResult>()
         candidates.sortByDescending { it.score }
@@ -456,9 +417,6 @@ class YoloPoseAnalyzer(
         return keep
     }
 
-    /**
-     * 计算两个矩形的交并比 (IoU)。
-     */
     private fun calculateIntersectionOverUnion(a: RectF, b: RectF): Float {
         val left = max(a.left, b.left)
         val top = max(a.top, b.top)

@@ -110,81 +110,121 @@
             android:id="@+id/btnSettings"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/btn_settings" />
+            android:text="@string/btn_settings"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnDebugPanel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="调试面板:关" />
     </LinearLayout>
 
     <!-- 6. 编辑工具栏 (顶部) -->
     <LinearLayout
         android:id="@+id/llEditorControls"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
         android:layout_marginTop="32dp"
         android:background="@drawable/abc_popup_background_mtrl_mult" 
-        android:backgroundTint="#CC000000"
+        android:backgroundTint="#1A000000"
         android:padding="12dp"
         android:orientation="horizontal"
+        android:gravity="center_vertical|end"
         android:visibility="gone">
 
-        <Button
-            android:id="@+id/btnModeSwitcher"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:id="@+id/llEditorLeft"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="@string/switch_to_sub_room"
-            android:backgroundTint="#2196F3"
-            android:textColor="@android:color/white"
-            android:layout_marginEnd="16dp"/>
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-        <!-- 客厅模式按键 -->
-        <Button
-            android:id="@+id/btnUndo"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/undo"
-            android:layout_marginEnd="8dp"/>
+            <!-- Spinner: 移除 theme 属性 -->
+            <Spinner
+                android:id="@+id/spnEditMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:backgroundTint="@android:color/white"
+                android:spinnerMode="dropdown"
+                android:layout_marginEnd="16dp"/>
 
-        <Button
-            android:id="@+id/btnClear"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/clear"
-            android:layout_marginEnd="8dp"/>
+            <!-- 客厅模式按键 -->
+            <Button
+                android:id="@+id/btnUndo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/undo"
+                android:layout_marginEnd="8dp"/>
 
-        <!-- 🔥 次房间选中后显示的按键 (默认 GONE) -->
-        <Button
-            android:id="@+id/btnRenameRoom"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/rename"
-            android:backgroundTint="#9C27B0"
-            android:textColor="@android:color/white"
-            android:visibility="gone"
-            android:layout_marginEnd="8dp"/>
+            <Button
+                android:id="@+id/btnClear"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/clear"
+                android:layout_marginEnd="8dp"/>
 
-        <Button
-            android:id="@+id/btnDeleteRoom"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/delete"
-            android:backgroundTint="#F44336"
-            android:textColor="@android:color/white"
-            android:visibility="gone"
-            android:layout_marginEnd="8dp"/>
+            <!-- 次房间选中后显示的按键 (默认 GONE) -->
+            <Button
+                android:id="@+id/btnRenameRoom"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/rename"
+                android:backgroundTint="#9C27B0"
+                android:textColor="@android:color/white"
+                android:visibility="gone"
+                android:layout_marginEnd="8dp"/>
 
-        <Button
-            android:id="@+id/btnCancel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/cancel"
-            android:layout_marginEnd="8dp"/>
+            <Button
+                android:id="@+id/btnDeleteRoom"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/delete"
+                android:backgroundTint="#F44336"
+                android:textColor="@android:color/white"
+                android:visibility="gone"
+                android:layout_marginEnd="8dp"/>
+        </LinearLayout>
 
-        <Button
-            android:id="@+id/btnFinish"
+        <LinearLayout
+            android:id="@+id/llEditorRight"
             android:layout_width="wrap_content"
+            android:layout_gravity="end"
             android:layout_height="wrap_content"
-            android:text="@string/finish"
-            android:backgroundTint="#4CAF50"
-            android:textColor="@android:color/white"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/abc_popup_background_mtrl_mult"
+            android:backgroundTint="#1A000000"
+            android:padding="8dp">
+
+            <Button
+                android:id="@+id/btnCancel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/cancel"
+                android:layout_marginEnd="8dp"/>
+
+            <Button
+                android:id="@+id/btnFinish"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/finish"
+                android:backgroundTint="#4CAF50"
+                android:textColor="@android:color/white"
+                android:layout_marginEnd="8dp"/>
+
+            <!-- 关闭按钮 -->
+            <ImageButton
+                android:id="@+id/btnClose"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                app:tint="#FFFFFF"
+                android:contentDescription="关闭编辑" />
+        </LinearLayout>
 
     </LinearLayout>
 
@@ -214,5 +254,33 @@
             app:tint="#FFFFFF"
             android:contentDescription="关闭雷达" />
     </FrameLayout>
+    
+    <!-- 设备设置层 (默认隐藏) -->
+    <LinearLayout
+        android:id="@+id/llDeviceSettings"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:background="#80000000"
+        android:padding="24dp"
+        android:visibility="gone">
+        
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="设备管理 (开发中)"
+            android:textColor="#FFFFFF"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp"/>
+            
+        <Button
+            android:id="@+id/btnAddDevice"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="添加设备" />
+            
+    </LinearLayout>
 
 </FrameLayout>

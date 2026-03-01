@@ -1,5 +1,7 @@
-﻿package com.example.roomxxx0102.ui.activities
+package com.example.roomxxx0102.ui.activities
 
+import com.example.roomxxx0102.data.model.BoundaryVertex
+import android.widget.CheckBox
 import android.Manifest
 import android.app.AlertDialog
 import android.content.Intent
@@ -14,11 +16,14 @@ import android.os.Bundle
 import android.util.Log
 import android.util.Size
 import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -39,6 +44,14 @@ import com.example.roomxxx0102.data.repository.RoomRepository
 import com.example.roomxxx0102.logic.analyzer.RoiTracker
 import com.example.roomxxx0102.logic.analyzer.YoloAnalyzer
 import com.example.roomxxx0102.logic.analyzer.YoloPoseAnalyzer
+import com.example.roomxxx0102.logic.presence.PresenceOutsideMode
+import com.example.roomxxx0102.logic.presence.PresencePoint
+import com.example.roomxxx0102.logic.presence.PresenceRoomSnapshot
+import com.example.roomxxx0102.logic.presence.PresenceStrength
+import com.example.roomxxx0102.logic.presence.PresenceTrackObservation
+import com.example.roomxxx0102.logic.presence.PresenceDoorSnapshot
+import com.example.roomxxx0102.logic.presence.RoomPresenceChangeLogger
+import com.example.roomxxx0102.logic.presence.RoomTransitionEstimator
 import com.example.roomxxx0102.logic.video.VideoFeeder
 import com.example.roomxxx0102.ui.views.DetectionOverlayView
 import com.example.roomxxx0102.ui.views.LivingRoomEditorView
@@ -63,6 +76,10 @@ class MainActivity : ComponentActivity() {
     private val flRadarContainer: FrameLayout by lazy { findViewById(R.id.flRadarContainer) }
     private val tacticalMapView: TacticalMapView by lazy { findViewById(R.id.tacticalMapView) }
     private val btnCloseRadar: ImageButton by lazy { findViewById(R.id.btnCloseRadar) }
+    
+    // 🔥 设备设置 View
+    private val llDeviceSettings: LinearLayout by lazy { findViewById(R.id.llDeviceSettings) }
+    private val btnAddDevice: Button by lazy { findViewById(R.id.btnAddDevice) }
 
     // 🔥 ROI Tracker
     private val roiTracker = RoiTracker()
@@ -73,9 +90,17 @@ class MainActivity : ComponentActivity() {
     private var videoFeeder: VideoFeeder? = null
 
     private var isVideoMode = true
-    private var isPaused = false
     private var currentLivingRoomBoundary: List<PointF> = emptyList()
     private var lastVideoSourceKey: String? = null
+
+    // 播放状态机
+    private enum class PlayState { PLAYING, STILL, PAUSED }
+    private var currentPlayState = PlayState.PLAYING
+    private var isDebugPanelEnabled = false
+
+    // Presence 估计引擎（位置判定/房间切换事件）
+    private val roomTransitionEstimator = RoomTransitionEstimator()
+    private val roomPresenceChangeLogger = RoomPresenceChangeLogger("ROOM_PRESENCE_CHANGE")
 
     private var isAddSubRoomMode = false
     private var btnAddSubRoom: Button? = null
@@ -83,6 +108,11 @@ class MainActivity : ComponentActivity() {
     private var isRoomAreaEditMode = false
     private var btnSelectDoor: Button? = null
     private var btnEditRoomArea: Button? = null
+    
+    // 🔥 模式切换 Spinner
+    private var spnEditMode: Spinner? = null
+    
+    // 编辑状态机
     private var editorMenuState = EditorMenuState.LIVING_ROOM
 
     private enum class EditorMenuState {
@@ -91,7 +121,8 @@ class MainActivity : ComponentActivity() {
         SUBROOM_ADD,
         SUBROOM_SELECTED,
         SUBROOM_DOOR_SELECT,
-        SUBROOM_AREA_EDIT
+        SUBROOM_AREA_EDIT,
+        DEVICE_SETTINGS // 🔥 新增设备设置状态
     }
 
     private val requestPermissionsLauncher = registerForActivityResult(
@@ -112,81 +143,99 @@ class MainActivity : ComponentActivity() {
 
         yoloAnalyzer = YoloAnalyzer(this, overlayView)
         poseAnalyzer = YoloPoseAnalyzer(this) { results, bitmap, time ->
-            // 获取所有房间引用
+            // 过滤有效目标
+            val logicResults = results.filter { result ->
+                val kpts = result.keypoints
+                val shouldersTrusted = if (kpts.size > 6) {
+                    val leftShoulder = kpts[5]
+                    val rightShoulder = kpts[6]
+                    leftShoulder.conf >= com.example.roomxxx0102.data.model.POSE_HIGH_CONFIDENCE_THRESHOLD &&
+                        rightShoulder.conf >= com.example.roomxxx0102.data.model.POSE_HIGH_CONFIDENCE_THRESHOLD
+                } else {
+                    false
+                }
+                val isWeakTarget = !result.isConfirmed && !shouldersTrusted
+                !isWeakTarget
+            }
+
             val allRooms = RoomRepository.getAllRooms()
+            val livingRoom = allRooms.find { it.isSovereignTerritory }
             
-            // 重置计数
+            // 重置瞬时人数
             allRooms.forEach { it.personCount = 0 }
 
-            // 收集所有人的位置，用于雷达图
             val personLocations = ArrayList<PointF>()
 
-            // 遍历每个人，判断他在哪个房间
-            for (pose in results) {
-                personLocations.add(pose.landingPoint) // 收集位置
-                for (room in allRooms) {
-                    if (room.boundaryPoints.size >= 3) {
-                        if (GeometryUtils.isPointInPolygon(pose.landingPoint, room.boundaryPoints)) {
-                            room.personCount++
-                        }
-                    }
+            for (pose in logicResults) {
+                personLocations.add(pose.landingPoint)
+
+                val currentRoom = findRoomForPoint(pose.landingPoint, allRooms)
+                if (currentRoom != null) {
+                    currentRoom.personCount++
                 }
             }
 
-            // 更新 UI
-            val livingRoom = allRooms.find { it.isSovereignTerritory }
+            // Presence 估计：独立工具类统一处理“位置判定/房间切换事件/持久化人数”
+            val observedTargets = results.map { pose ->
+                PresenceTrackObservation(
+                    trackId = pose.id,
+                    landingPoint = PresencePoint(
+                        x = pose.landingPoint.x.toDouble(),
+                        y = pose.landingPoint.y.toDouble()
+                    ),
+                    strength = toPresenceStrength(pose)
+                )
+            }
+            val presenceResult = roomTransitionEstimator.processFrame(
+                rooms = buildPresenceRoomSnapshots(allRooms),
+                doors = buildPresenceDoorSnapshots(allRooms),
+                observations = observedTargets,
+                outsideMode = PresenceOutsideMode.INVISIBLE
+            )
+            allRooms.forEach { room ->
+                room.persistentPersonCount = presenceResult.presenceCounts[room.id] ?: 0
+            }
+            roomPresenceChangeLogger.buildLogLineIfChanged(
+                timestampMs = System.currentTimeMillis(),
+                events = presenceResult.events,
+                counts = presenceResult.presenceCounts,
+                roomNameById = allRooms.associate { it.id to it.name }
+            )?.let { line ->
+                Log.d("RoomPresence", line)
+            }
+
             val livingRoomCount = livingRoom?.personCount ?: 0
 
-            // 🔥 ROI 计算与状态机逻辑
+            // ROI 计算
             val srcW = if (bitmap != null) bitmap.width else 1920
             val srcH = if (bitmap != null) bitmap.height else 1080
-            val targetBox = if (results.isNotEmpty()) results[0].box else null
+            val targetBox = if (logicResults.isNotEmpty()) logicResults[0].box else null
 
-            // 状态流转
             if (targetBox != null) {
-                // 找到目标 -> 重置丢失计数
                 roiMissingFrameCount = 0
             } else {
-                // 丢失目标 -> 计数++
                 roiMissingFrameCount++
             }
 
             val isSearching = roiMissingFrameCount >= 10
             val roi = if (isSearching) {
-                // 超过阈值，全屏搜索，不给 ROI (RoiTracker 内部虽然会算，但我们传 null 给 Analyzer)
+                roiTracker.resetSmoothing()
                 null
             } else {
-                // 还在追踪或丢失缓冲期，计算 ROI
                 roiTracker.calculate(srcW, srcH, targetBox)
             }
             
-            // 决定是否启用真实裁剪
-            // 1. 如果还在 Searching 阶段，或者 ROI 为 null，强制全屏 (不裁剪)
-            // 2. 如果开关没开，强制全屏 (不裁剪)
-            val useRealCrop = AppSettings.isRoiRealCropEnabled && roi != null
-            val cropRoi = if (useRealCrop) roi else null
-            
+            val cropRoi = if (AppSettings.isRoiRealCropEnabled && roi != null) roi else null
             videoFeeder?.nextFrameRoi = cropRoi
 
-            // UI 显示逻辑
             val isTracking = roiMissingFrameCount < 10 && targetBox != null
-            val showRoiBox = roi != null
-            val displayRoi = if (showRoiBox) roi else null
-            
-            // 🔥 如果启用了真实裁剪，说明我们真的很关注这个区域，虚线可以密集一点（或者实线）
-            // 如果没启用真实裁剪（useRealCrop == false），说明只是“模拟追踪”，给用户看个大概，所以虚线要稀疏
-            // 参数名是 isSparse (是否稀疏)，所以：开启裁剪 -> 不稀疏；关闭裁剪 -> 稀疏
             val isSparse = !AppSettings.isRoiRealCropEnabled
             
-            Log.d("ROI_DEBUG", "Main ROI: $displayRoi, Tracking: $isTracking, Lost: $roiMissingFrameCount, Crop: $useRealCrop, Sparse: $isSparse")
-
             val roiRatio = if (roi != null && targetBox != null) {
                 val personW = targetBox.width() * srcW
                 val personH = targetBox.height() * srcH
                 val maxPersonSide = kotlin.math.max(personW, personH)
-                val roiW = roi.width() * srcW
-                val roiH = roi.height() * srcH
-                val roiSize = kotlin.math.min(roiW, roiH)
+                val roiSize = kotlin.math.min(roi.width() * srcW, roi.height() * srcH)
                 if (roiSize > 0f) maxPersonSide / roiSize else null
             } else {
                 null
@@ -194,18 +243,18 @@ class MainActivity : ComponentActivity() {
 
             runOnUiThread {
                 overlayView.updatePoseData(results, bitmap, time)
-                // 强制刷新 overlayView 以重新绘制房间人数
                 overlayView.postInvalidate() 
                 tvRoomCount.text = getString(R.string.room_people_count, livingRoomCount)
                 
-                // 🔥 如果雷达图可见，更新雷达数据
                 if (flRadarContainer.visibility == View.VISIBLE) {
                     tacticalMapView.updateData(allRooms, personLocations)
                 }
 
-                // 🔥 更新 ROI 显示 (传入 isSparse)
-                overlayView.updateRoiBox(displayRoi, isTracking, isSparse)
+                overlayView.updateRoiBox(roi, isTracking, isSparse)
                 overlayView.setRoiRatio(roiRatio)
+                poseAnalyzer?.consumeUnlockMessage()?.let { msg ->
+                    overlayView.showUnlockBanner(msg)
+                }
             }
         }
 
@@ -219,39 +268,197 @@ class MainActivity : ComponentActivity() {
         refreshOverlayDisplay()
     }
 
+    private fun findRoomForPoint(point: PointF, rooms: List<RoomConfig>): RoomConfig? {
+        val subRoom = rooms.firstOrNull {
+            !it.isSovereignTerritory && it.boundaryPoints.size >= 3 && GeometryUtils.isPointInPolygon(point, it.boundaryPoints)
+        }
+        if (subRoom != null) return subRoom
+        return rooms.firstOrNull {
+            it.isSovereignTerritory && it.boundaryPoints.size >= 3 && GeometryUtils.isPointInPolygon(point, it.boundaryPoints)
+        }
+    }
+
+    /**
+     * 将当前 Pose 目标映射为 Presence 模块的强度分层。
+     * - CONFIRMED：已 lock
+     * - STRONG：未 lock 但双肩可信
+     * - WEAK：其余目标
+     */
+    private fun toPresenceStrength(pose: com.example.roomxxx0102.data.model.PoseResult): PresenceStrength {
+        if (pose.isConfirmed) {
+            return PresenceStrength.CONFIRMED
+        }
+        val kpts = pose.keypoints
+        val shouldersTrusted = if (kpts.size > 6) {
+            val leftShoulder = kpts[5]
+            val rightShoulder = kpts[6]
+            leftShoulder.conf >= com.example.roomxxx0102.data.model.POSE_HIGH_CONFIDENCE_THRESHOLD &&
+                rightShoulder.conf >= com.example.roomxxx0102.data.model.POSE_HIGH_CONFIDENCE_THRESHOLD
+        } else {
+            false
+        }
+        return if (shouldersTrusted) PresenceStrength.STRONG else PresenceStrength.WEAK
+    }
+
+    /**
+     * 构建 Presence 房间快照。
+     * 说明：
+     * 1) 盲区房间按不可视处理（polygon 传空），避免被粗判直接命中。
+     * 2) 非盲区房间只有 >=3 点时才视为可视 polygon。
+     */
+    private fun buildPresenceRoomSnapshots(rooms: List<RoomConfig>): List<PresenceRoomSnapshot> {
+        return rooms.map { room ->
+            val polygon = if (!room.isLivingBlindZone && room.boundaryPoints.size >= 3) {
+                room.boundaryPoints.map { p ->
+                    PresencePoint(p.x.toDouble(), p.y.toDouble())
+                }
+            } else {
+                emptyList()
+            }
+            PresenceRoomSnapshot(
+                roomId = room.id,
+                roomName = room.name,
+                polygon = polygon,
+                isLivingRoom = room.isSovereignTerritory,
+                isBlindZone = room.isLivingBlindZone,
+                isEntranceRoom = room.isEntranceDoor
+            )
+        }
+    }
+
+    /**
+     * 基于“客厅边ID + 子房间 occupiedWallIds”构建门线快照。
+     * 每条门线连接：客厅 <-> 子房间。
+     */
+    private fun buildPresenceDoorSnapshots(rooms: List<RoomConfig>): List<PresenceDoorSnapshot> {
+        val livingRoom = rooms.find { it.isSovereignTerritory } ?: return emptyList()
+        val vertices = livingRoom.boundaryVertices
+        if (vertices.size < 2) return emptyList()
+
+        val doors = mutableListOf<PresenceDoorSnapshot>()
+        val subRooms = rooms.filter { !it.isSovereignTerritory }
+        for (room in subRooms) {
+            for (edgeId in room.occupiedWallIds.distinct()) {
+                val index = vertices.indexOfFirst { it.id == edgeId }
+                if (index == -1) continue
+                val a = vertices[index].point
+                val b = vertices[(index + 1) % vertices.size].point
+                doors.add(
+                    PresenceDoorSnapshot(
+                        doorId = "${room.id}#$edgeId",
+                        a = PresencePoint(a.x.toDouble(), a.y.toDouble()),
+                        b = PresencePoint(b.x.toDouble(), b.y.toDouble()),
+                        roomAId = livingRoom.id,
+                        roomBId = room.id,
+                        isEntranceDoor = room.isEntranceDoor
+                    )
+                )
+            }
+        }
+        return doors
+    }
+
     private fun setupButtons() {
-        findViewById<Button>(R.id.btnPause).setOnClickListener { togglePause(it as Button) }
-        findViewById<Button>(R.id.btnRewind).setOnClickListener { videoFeeder?.seekBackward(5) }
-        findViewById<Button>(R.id.btnForward).setOnClickListener { videoFeeder?.seekForward(5) }
+        val btnPause = findViewById<Button>(R.id.btnPause)
+        btnPause.setOnClickListener { togglePause(it as Button) }
+        btnPause.setOnLongClickListener {
+            hardRestartPlayback()
+            true
+        }
+        findViewById<Button>(R.id.btnRewind).setOnClickListener { onSeekBackwardRequested() }
+        findViewById<Button>(R.id.btnForward).setOnClickListener { onSeekForwardRequested() }
+        findViewById<Button>(R.id.btnDebugPanel).setOnClickListener {
+            isDebugPanelEnabled = !isDebugPanelEnabled
+            overlayView.setDebugPanelEnabled(isDebugPanelEnabled)
+            refreshDebugPanelButton()
+        }
         findViewById<Button>(R.id.btnSettings).setOnClickListener {
             captureCurrentFrame()
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+        refreshSeekButtons()
+        refreshDebugPanelButton()
 
         findViewById<Button>(R.id.btnSetupRoom).setOnClickListener { enterEditMode() }
         
-        // 🔥 雷达入口
         findViewById<Button>(R.id.btnRadar).setOnClickListener {
             flRadarContainer.visibility = View.VISIBLE
             llNormalControls.visibility = View.GONE
-            cardCounter.visibility = View.GONE // 也可以隐藏计数器，因为雷达图很干净
+            cardCounter.visibility = View.GONE
         }
         
-        // 🔥 关闭雷达
         btnCloseRadar.setOnClickListener {
             flRadarContainer.visibility = View.GONE
             llNormalControls.visibility = View.VISIBLE
             cardCounter.visibility = View.VISIBLE
         }
+        
+        // 🔥 关闭编辑按钮 (通用)
+        findViewById<ImageButton>(R.id.btnClose).setOnClickListener { 
+            exitEditMode(save = false) 
+        }
+        
+        // 🔥 初始化 Spinner
+        spnEditMode = findViewById(R.id.spnEditMode)
+        val modes = arrayOf("主房间设置", "次房间设置", "设备设置")
+        // 🔥 使用自定义布局 spinner_item_dark
+        val adapter = ArrayAdapter(this, R.layout.spinner_item_dark, modes)
+        // 设置下拉列表的 item 样式 (可以使用 android.R.layout.simple_spinner_dropdown_item, 因为背景是 dark theme)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spnEditMode?.adapter = adapter
+        
+        spnEditMode?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (llEditorControls.visibility == View.VISIBLE) {
+                    when (position) {
+                        0 -> applyModeSelection(LivingRoomEditorView.EditorMode.LIVING_ROOM_HULL)
+                        1 -> applyModeSelection(LivingRoomEditorView.EditorMode.SUB_ROOM_ANCHOR)
+                        2 -> enterDeviceSettingsMode()
+                    }
+                }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
 
-        findViewById<Button>(R.id.btnModeSwitcher).setOnClickListener { toggleRoomMode(it as Button) }
-        findViewById<Button>(R.id.btnUndo).setOnClickListener { editorView.undo() }
-        findViewById<Button>(R.id.btnClear).setOnClickListener { editorView.clear() }
+        findViewById<Button>(R.id.btnUndo).setOnClickListener {
+            if (editorMenuState == EditorMenuState.SUBROOM_AREA_EDIT) {
+                editorView.restoreRegionEdit()
+            }
+        }
+        findViewById<Button>(R.id.btnClear).setOnClickListener {
+            if (editorMenuState == EditorMenuState.SUBROOM_AREA_EDIT) {
+                val roomId = editorView.getRegionEditRoomId()
+                val room = RoomRepository.getSubRooms().firstOrNull { it.id == roomId }
+                if (room != null) {
+                    room.boundaryVertices.clear()
+                    RoomRepository.updateRoom(room)
+                }
+                editorView.deleteRegionEdit()
+                editorView.endSubRoomRegionEdit()
+                refreshOverlayDisplay()
+                transitionTo(EditorMenuState.SUBROOM_SELECTED)
+            } else {
+                editorView.clear()
+            }
+        }
         findViewById<Button>(R.id.btnCancel).setOnClickListener {
             when (editorMenuState) {
-                EditorMenuState.SUBROOM_DOOR_SELECT -> editorView.clearPendingDoorSelection()
+                EditorMenuState.SUBROOM_DOOR_SELECT -> {
+                    editorView.clearPendingDoorSelection()
+                    transitionTo(EditorMenuState.SUBROOM_SELECTED)
+                }
+                EditorMenuState.SUBROOM_AREA_EDIT -> {
+                    editorView.endSubRoomRegionEdit()
+                    refreshOverlayDisplay()
+                    transitionTo(EditorMenuState.SUBROOM_SELECTED)
+                }
                 EditorMenuState.SUBROOM_ADD -> setAddSubRoomMode(false)
-                else -> exitEditMode(save = false)
+                EditorMenuState.DEVICE_SETTINGS -> {}
+                else -> {
+                    refreshOverlayDisplay()
+                    applyModeSelection(editorView.currentMode)
+                    Toast.makeText(this, "已还原未保存的修改", Toast.LENGTH_SHORT).show()
+                }
             }
         }
         findViewById<Button>(R.id.btnFinish).setOnClickListener {
@@ -262,8 +469,26 @@ class MainActivity : ComponentActivity() {
                     return@setOnClickListener
                 }
                 transitionTo(EditorMenuState.SUBROOM_SELECTED)
+            } else if (editorMenuState == EditorMenuState.SUBROOM_AREA_EDIT) {
+                val roomId = editorView.getRegionEditRoomId()
+                val room = RoomRepository.getSubRooms().firstOrNull { it.id == roomId }
+                if (room != null) {
+                    val points = editorView.getRegionEditPoints()
+                    if (points.size >= 3) {
+                        val vertices = buildVerticesFromPoints(points)
+                        room.boundaryVertices.clear()
+                        room.boundaryVertices.addAll(vertices)
+                        RoomRepository.updateRoom(room)
+                    }
+                }
+                editorView.endSubRoomRegionEdit()
+                transitionTo(EditorMenuState.SUBROOM_SELECTED)
+            } else if (editorMenuState == EditorMenuState.DEVICE_SETTINGS) {
+                Toast.makeText(this, "设备设置已保存", Toast.LENGTH_SHORT).show()
             } else {
-                exitEditMode(save = true)
+                // 保存不退出
+                performSave()
+                Toast.makeText(this, "设置已保存", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -280,8 +505,13 @@ class MainActivity : ComponentActivity() {
                 editorView.clearSelection()
             }
         }
+        
+        // 设备管理按钮 (占位)
+        btnAddDevice.setOnClickListener {
+            Toast.makeText(this, "添加设备功能开发中...", Toast.LENGTH_SHORT).show()
+        }
 
-        val editorControls = llEditorControls as? LinearLayout
+        val editorControls = findViewById<LinearLayout>(R.id.llEditorLeft)
         btnAddSubRoom = Button(this).apply {
             text = getString(R.string.btn_add_sub_room)
             backgroundTintList = ColorStateList.valueOf(Color.parseColor("#4CAF50"))
@@ -309,28 +539,50 @@ class MainActivity : ComponentActivity() {
         }
         btnEditRoomArea?.let { editorControls?.addView(it) }
     }
+    
+    // 🔥 抽取保存逻辑，供 btnFinish 调用且不退出
+    private fun buildVerticesFromPoints(points: List<PointF>): MutableList<BoundaryVertex> {
+        val vertices = ArrayList<BoundaryVertex>(points.size)
+        var nextVertexId = 1
+        var nextEdgeId = 1
+        for (p in points) {
+            vertices.add(BoundaryVertex(nextVertexId++, PointF(p.x, p.y), nextEdgeId++))
+        }
+        return vertices
+    }
+
+    private fun performSave() {
+        if (editorView.currentMode == LivingRoomEditorView.EditorMode.LIVING_ROOM_HULL) {
+            val vertices = editorView.getResult()
+            if (vertices.size >= 3) {
+                RoomRepository.saveRoomBoundary("living_room", vertices)
+                val removedEdges = editorView.consumeRemovedEdgeIds()
+                unbindRoomsFromRemovedEdges(removedEdges)
+            }
+        }
+        // SubRoom 模式下的修改大多是即时保存的，或者在 finish 子状态时保存
+        refreshOverlayDisplay()
+    }
 
     private fun enterEditMode() {
-        // 保持视频播放 (不调用 pause)
-        // 关键逻辑：
-        // 1. 截取当前帧，仅用于让 EditorView 计算正确的宽高比和坐标 (dstRect)
         captureCurrentFrame()
         editorView.backgroundBitmap = BitmapTransfer.capturedFrame
-        
-        // 2. 设置不绘制背景，从而透视到底层的 TextureView (视频)
         editorView.drawBackground = false
-
+        // 默认进入主房间模式
+        spnEditMode?.setSelection(0)
         applyModeSelection(LivingRoomEditorView.EditorMode.LIVING_ROOM_HULL)
         toggleEditModeUI(true)
     }
+    
+    private fun enterDeviceSettingsMode() {
+        transitionTo(EditorMenuState.DEVICE_SETTINGS)
+        // 隐藏 EditorView, 显示设备 UI
+        editorView.visibility = View.GONE
+        llDeviceSettings.visibility = View.VISIBLE
+    }
 
     private fun toggleRoomMode(btn: Button) {
-        val nextMode = if (editorView.currentMode == LivingRoomEditorView.EditorMode.LIVING_ROOM_HULL) {
-            LivingRoomEditorView.EditorMode.SUB_ROOM_ANCHOR
-        } else {
-            LivingRoomEditorView.EditorMode.LIVING_ROOM_HULL
-        }
-        applyModeSelection(nextMode)
+        // 已弃用，由 Spinner 接管
     }
     private fun enterAddSubRoomMode() {
         setAddSubRoomMode(true)
@@ -344,7 +596,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun enterRoomAreaEditMode() {
-        if (editorView.selectedRoomId == null) return
+        val selectedId = editorView.selectedRoomId ?: return
+        val room = RoomRepository.getSubRooms().firstOrNull { it.id == selectedId } ?: return
+        val started = editorView.startSubRoomRegionEdit(room)
+        if (!started) {
+            return
+        }
         setSubRoomActionMode(doorSelect = false, roomAreaEdit = true)
         Toast.makeText(this, getString(R.string.toast_edit_area), Toast.LENGTH_SHORT).show()
     }
@@ -393,27 +650,31 @@ class MainActivity : ComponentActivity() {
         editorView.setRoomAreaEditArmed(nextArea)
         if (prev == EditorMenuState.SUBROOM_DOOR_SELECT && state != EditorMenuState.SUBROOM_DOOR_SELECT) {
             editorView.discardPendingDoorSelection()
+        editorView.endSubRoomRegionEdit()
+        }
+        if (prev == EditorMenuState.SUBROOM_AREA_EDIT && state != EditorMenuState.SUBROOM_AREA_EDIT) {
+            editorView.endSubRoomRegionEdit()
         }
         renderEditorMenu(state)
     }
 
     private fun renderEditorMenu(state: EditorMenuState) {
-        val btnSwitcher = findViewById<Button>(R.id.btnModeSwitcher)
         val btnUndo = findViewById<Button>(R.id.btnUndo)
         val btnClear = findViewById<Button>(R.id.btnClear)
         val btnRename = findViewById<Button>(R.id.btnRenameRoom)
         val btnDelete = findViewById<Button>(R.id.btnDeleteRoom)
         val btnCancel = findViewById<Button>(R.id.btnCancel)
         val btnFinish = findViewById<Button>(R.id.btnFinish)
-        val colorPrimary = ColorStateList.valueOf(Color.parseColor("#2196F3"))
-        val colorSubRoom = ColorStateList.valueOf(Color.parseColor("#9C27B0"))
+
+        btnRename.text = "属性"
+        btnCancel.text = "不保存"
+        btnFinish.text = "保存"
+        btnUndo.text = getString(R.string.undo)
+        btnClear.text = getString(R.string.clear)
 
         when (state) {
             EditorMenuState.LIVING_ROOM -> {
-                btnSwitcher.visibility = View.VISIBLE
-                btnSwitcher.text = getString(R.string.switch_to_sub_room)
-                btnSwitcher.backgroundTintList = colorPrimary
-                btnUndo.visibility = View.VISIBLE
+                btnUndo.visibility = View.GONE
                 btnClear.visibility = View.VISIBLE
                 btnAddSubRoom?.visibility = View.GONE
                 btnSelectDoor?.visibility = View.GONE
@@ -421,13 +682,9 @@ class MainActivity : ComponentActivity() {
                 btnRename.visibility = View.GONE
                 btnDelete.visibility = View.GONE
                 btnCancel.visibility = View.VISIBLE
-                btnCancel.text = getString(R.string.cancel)
                 btnFinish.visibility = View.VISIBLE
             }
             EditorMenuState.SUBROOM_IDLE -> {
-                btnSwitcher.visibility = View.VISIBLE
-                btnSwitcher.text = getString(R.string.switch_to_living_room)
-                btnSwitcher.backgroundTintList = colorSubRoom
                 btnUndo.visibility = View.GONE
                 btnClear.visibility = View.GONE
                 btnAddSubRoom?.visibility = View.VISIBLE
@@ -435,12 +692,10 @@ class MainActivity : ComponentActivity() {
                 btnEditRoomArea?.visibility = View.GONE
                 btnRename.visibility = View.GONE
                 btnDelete.visibility = View.GONE
-                btnCancel.visibility = View.VISIBLE
-                btnCancel.text = getString(R.string.cancel)
-                btnFinish.visibility = View.VISIBLE
+                btnCancel.visibility = View.GONE
+                btnFinish.visibility = View.GONE
             }
             EditorMenuState.SUBROOM_ADD -> {
-                btnSwitcher.visibility = View.GONE
                 btnUndo.visibility = View.GONE
                 btnClear.visibility = View.GONE
                 btnAddSubRoom?.visibility = View.GONE
@@ -448,15 +703,10 @@ class MainActivity : ComponentActivity() {
                 btnEditRoomArea?.visibility = View.GONE
                 btnRename.visibility = View.GONE
                 btnDelete.visibility = View.GONE
-                btnCancel.visibility = View.VISIBLE
-                btnCancel.text = getString(R.string.cancel)
+                btnCancel.visibility = View.GONE
                 btnFinish.visibility = View.GONE
             }
-            EditorMenuState.SUBROOM_SELECTED,
-            EditorMenuState.SUBROOM_AREA_EDIT -> {
-                btnSwitcher.visibility = View.VISIBLE
-                btnSwitcher.text = getString(R.string.switch_to_living_room)
-                btnSwitcher.backgroundTintList = colorSubRoom
+            EditorMenuState.SUBROOM_SELECTED -> {
                 btnUndo.visibility = View.GONE
                 btnClear.visibility = View.GONE
                 btnAddSubRoom?.visibility = View.GONE
@@ -464,12 +714,23 @@ class MainActivity : ComponentActivity() {
                 btnEditRoomArea?.visibility = View.VISIBLE
                 btnRename.visibility = View.VISIBLE
                 btnDelete.visibility = View.VISIBLE
+                btnCancel.visibility = View.GONE
+                btnFinish.visibility = View.GONE
+            }
+            EditorMenuState.SUBROOM_AREA_EDIT -> {
+                btnUndo.visibility = View.VISIBLE
+                btnClear.visibility = View.VISIBLE
+                btnUndo.text = "还原"
+                btnClear.text = "删除区域"
+                btnAddSubRoom?.visibility = View.GONE
+                btnSelectDoor?.visibility = View.GONE
+                btnEditRoomArea?.visibility = View.GONE
+                btnRename.visibility = View.GONE
+                btnDelete.visibility = View.GONE
                 btnCancel.visibility = View.VISIBLE
-                btnCancel.text = getString(R.string.cancel)
                 btnFinish.visibility = View.VISIBLE
             }
             EditorMenuState.SUBROOM_DOOR_SELECT -> {
-                btnSwitcher.visibility = View.GONE
                 btnUndo.visibility = View.GONE
                 btnClear.visibility = View.GONE
                 btnAddSubRoom?.visibility = View.GONE
@@ -478,13 +739,27 @@ class MainActivity : ComponentActivity() {
                 btnRename.visibility = View.GONE
                 btnDelete.visibility = View.GONE
                 btnCancel.visibility = View.VISIBLE
-                btnCancel.text = "解除房门绑定"
                 btnFinish.visibility = View.VISIBLE
+            }
+            EditorMenuState.DEVICE_SETTINGS -> {
+                btnUndo.visibility = View.GONE
+                btnClear.visibility = View.GONE
+                btnAddSubRoom?.visibility = View.GONE
+                btnSelectDoor?.visibility = View.GONE
+                btnEditRoomArea?.visibility = View.GONE
+                btnRename.visibility = View.GONE
+                btnDelete.visibility = View.GONE
+                btnCancel.visibility = View.GONE
+                btnFinish.visibility = View.GONE
             }
         }
     }
 
     private fun applyModeSelection(mode: LivingRoomEditorView.EditorMode) {
+        // 恢复 EditorView 显示 (如果之前在设备模式)
+        editorView.visibility = View.VISIBLE
+        llDeviceSettings.visibility = View.GONE
+        
         editorView.currentMode = mode
         transitionTo(
             if (mode == LivingRoomEditorView.EditorMode.LIVING_ROOM_HULL)
@@ -524,11 +799,43 @@ class MainActivity : ComponentActivity() {
     }
     private fun showAddSubRoomDialog(point: PointF) {
         val input = EditText(this).apply { hint = getString(R.string.hint_room_name) }
-        AlertDialog.Builder(this).setTitle(getString(R.string.dialog_title_new_room)).setView(input)
+        val checkbox = CheckBox(this).apply { text = "入户门" }
+        val blindCheckbox = CheckBox(this).apply { text = "主房间盲区" }
+        checkbox.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked && blindCheckbox.isChecked) {
+                blindCheckbox.isChecked = false
+            }
+        }
+        blindCheckbox.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked && checkbox.isChecked) {
+                checkbox.isChecked = false
+            }
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 0)
+            addView(input)
+            addView(checkbox)
+            addView(blindCheckbox)
+        }
+        AlertDialog.Builder(this).setTitle(getString(R.string.dialog_title_new_room)).setView(layout)
             .setPositiveButton(getString(R.string.confirm)) { _, _ ->
                 val name = input.text.toString().trim()
                 if (name.isNotEmpty()) {
-                    RoomRepository.addNewRoom(name, point)
+                    val isEntrance = checkbox.isChecked
+                    val isBlindZone = blindCheckbox.isChecked
+                    if (isEntrance && isBlindZone) {
+                        Toast.makeText(this, "入户门与主房间盲区互斥,无法保存.", Toast.LENGTH_SHORT).show()
+                        return@setPositiveButton
+                    }
+                    if (isEntrance) {
+                        val existed = RoomRepository.getSubRooms().firstOrNull { it.isEntranceDoor }
+                        if (existed != null) {
+                            Toast.makeText(this, "已经选择${existed.name}房间作为入户门,无法保存.", Toast.LENGTH_SHORT).show()
+                            return@setPositiveButton
+                        }
+                    }
+                    RoomRepository.addNewRoom(name, point, isEntrance, isBlindZone)
                     editorView.setSubRooms(RoomRepository.getSubRooms())
                 }
             }.setNegativeButton(getString(R.string.cancel), null).show()
@@ -536,9 +843,50 @@ class MainActivity : ComponentActivity() {
 
     private fun showRenameDialog(room: RoomConfig) {
         val input = EditText(this).apply { setText(room.name) }
-        AlertDialog.Builder(this).setTitle(getString(R.string.dialog_title_rename)).setView(input)
+        val checkbox = CheckBox(this).apply {
+            text = "入户门"
+            isChecked = room.isEntranceDoor
+        }
+        val blindCheckbox = CheckBox(this).apply {
+            text = "主房间盲区"
+            isChecked = room.isLivingBlindZone
+        }
+        checkbox.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked && blindCheckbox.isChecked) {
+                blindCheckbox.isChecked = false
+            }
+        }
+        blindCheckbox.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked && checkbox.isChecked) {
+                checkbox.isChecked = false
+            }
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 0)
+            addView(input)
+            addView(checkbox)
+            addView(blindCheckbox)
+        }
+        AlertDialog.Builder(this).setTitle(getString(R.string.dialog_title_rename)).setView(layout)
             .setPositiveButton(getString(R.string.confirm)) { _, _ ->
-                room.name = input.text.toString()
+                val name = input.text.toString().trim()
+                val isEntrance = checkbox.isChecked
+                val isBlindZone = blindCheckbox.isChecked
+                if (isEntrance && isBlindZone) {
+                    Toast.makeText(this, "入户门与主房间盲区互斥,无法保存.", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                if (isEntrance) {
+                    val existed = RoomRepository.getSubRooms().firstOrNull { it.id != room.id && it.isEntranceDoor }
+                    if (existed != null) {
+                        Toast.makeText(this, "已经选择${existed.name}房间作为入户门,无法保存.", Toast.LENGTH_SHORT).show()
+                        return@setPositiveButton
+                    }
+                }
+                room.name = name
+                room.isEntranceDoor = isEntrance
+                room.isLivingBlindZone = isBlindZone
                 RoomRepository.updateRoom(room)
                 editorView.setSubRooms(RoomRepository.getSubRooms())
             }.show()
@@ -588,11 +936,7 @@ class MainActivity : ComponentActivity() {
         cardCounter.visibility = if (isEditing) View.GONE else View.VISIBLE
         editorView.visibility = if (isEditing) View.VISIBLE else View.GONE
         
-        // 🔥 修改：在编辑模式下，强制保持 overlayView 可见 (VISIBLE)
-        // 之前是：overlayView.visibility = if (isEditing) View.GONE else View.VISIBLE
         overlayView.visibility = View.VISIBLE
-        
-        // 🔥 新增：同步编辑模式状态给 overlayView，消除重影
         overlayView.setEditMode(isEditing)
     }
 
@@ -610,7 +954,7 @@ class MainActivity : ComponentActivity() {
             val desiredKey = resolveVideoSourceKey()
             if (desiredKey != lastVideoSourceKey) {
                 startVideoMode()
-            } else if (!isPaused) {
+            } else if (currentPlayState == PlayState.PLAYING) {
                 videoFeeder?.resume()
             }
         }
@@ -629,14 +973,96 @@ class MainActivity : ComponentActivity() {
         if (!isVideoMode) { unbindCamera(); startCameraMode() }
     }
 
-    private fun togglePause(btn: Button) {
-        isPaused = !isPaused
-        btn.text = if (isPaused) getString(R.string.video_play) else getString(R.string.video_pause)
-        if (isVideoMode) {
-            if (isPaused) videoFeeder?.pause() else videoFeeder?.resume()
+    private fun onSeekBackwardRequested() {
+        if (currentPlayState == PlayState.STILL) {
+            videoFeeder?.seekBackwardFrame()
         } else {
-            btnAddSubRoom?.visibility = View.VISIBLE
-            if (isPaused) unbindCamera() else startCameraMode()
+            videoFeeder?.seekBackward(5)
+        }
+    }
+
+    private fun onSeekForwardRequested() {
+        if (currentPlayState == PlayState.STILL) {
+            videoFeeder?.seekForwardFrame()
+        } else {
+            videoFeeder?.seekForward(5)
+        }
+    }
+
+    private fun refreshSeekButtons() {
+        val btnRewind = findViewById<Button>(R.id.btnRewind)
+        val btnForward = findViewById<Button>(R.id.btnForward)
+        if (currentPlayState == PlayState.STILL) {
+            btnRewind.text = "-1帧"
+            btnForward.text = "+1帧"
+        } else {
+            btnRewind.text = "-5s"
+            btnForward.text = "+5s"
+        }
+    }
+
+    private fun refreshDebugPanelButton() {
+        val btn = findViewById<Button>(R.id.btnDebugPanel)
+        btn.text = if (isDebugPanelEnabled) "调试面板:开" else "调试面板:关"
+    }
+
+    private fun togglePause(btn: Button) {
+        currentPlayState = when (currentPlayState) {
+            PlayState.PLAYING -> PlayState.STILL
+            PlayState.STILL -> PlayState.PAUSED
+            PlayState.PAUSED -> PlayState.PLAYING
+        }
+        
+        when (currentPlayState) {
+            PlayState.PLAYING -> {
+                btn.text = "[ 播放中 ]"
+                videoFeeder?.setStillMode(false)
+                videoFeeder?.resume()
+            }
+            PlayState.STILL -> {
+                btn.text = "[ 静止中 ]"
+                videoFeeder?.pause()
+                videoFeeder?.setStillMode(true)
+            }
+            PlayState.PAUSED -> {
+                btn.text = "[ 暂停中 ]"
+                videoFeeder?.setStillMode(false)
+                videoFeeder?.pause()
+            }
+        }
+        refreshSeekButtons()
+    }
+
+    /**
+     * 长按播放键：执行一次“接近重启 App”的重置并从头播放视频。
+     * 目标是清除追踪/ROI/Presence/人数等运行期状态，避免历史状态污染。
+     */
+    private fun hardRestartPlayback() {
+        yoloAnalyzer?.reset()
+        poseAnalyzer?.resetTrackingState()
+        roomTransitionEstimator.reset()
+        roomPresenceChangeLogger.reset()
+        roiTracker.resetSmoothing()
+        roiMissingFrameCount = 0
+        videoFeeder?.nextFrameRoi = null
+        overlayView.updateRoiBox(null, isTracking = false, isSparse = false)
+        overlayView.setRoiRatio(null)
+
+        val allRooms = RoomRepository.getAllRooms()
+        allRooms.forEach { room ->
+            room.personCount = 0
+            room.persistentPersonCount = 0
+        }
+        refreshOverlayDisplay()
+        tvRoomCount.text = getString(R.string.room_people_count, 0)
+
+        currentPlayState = PlayState.PLAYING
+        findViewById<Button>(R.id.btnPause).text = "[ 播放中 ]"
+        refreshSeekButtons()
+
+        if (isVideoMode) {
+            startVideoMode()
+            Toast.makeText(this, "已重置并从头播放", Toast.LENGTH_SHORT).show()
         }
     }
 

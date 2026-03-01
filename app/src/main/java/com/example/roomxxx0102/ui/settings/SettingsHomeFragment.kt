@@ -3,9 +3,12 @@ package com.example.roomxxx0102.ui.settings
 import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
 import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,6 +17,8 @@ import com.example.roomxxx0102.R
 import com.example.roomxxx0102.data.repository.AppSettings
 import com.example.roomxxx0102.data.repository.RoomRepository
 import com.example.roomxxx0102.databinding.FragmentSettingsHomeBinding
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.text.SimpleDateFormat
@@ -28,7 +33,48 @@ import java.util.Locale
 class SettingsHomeFragment : Fragment() {
 
     private var _binding: FragmentSettingsHomeBinding? = null
+    private val statusHandler = Handler(Looper.getMainLooper())
+    private var statusRunnable: Runnable? = null
+    private val httpClient = OkHttpClient()
     private val binding get() = _binding!!
+
+
+    private fun startTrackerStatusPolling() {
+        stopTrackerStatusPolling()
+        statusRunnable = object : Runnable {
+            override fun run() {
+                fetchTrackerStatus()
+                statusHandler.postDelayed(this, 3000L)
+            }
+        }
+        statusHandler.post(statusRunnable!!)
+    }
+
+    private fun stopTrackerStatusPolling() {
+        statusRunnable?.let { statusHandler.removeCallbacks(it) }
+        statusRunnable = null
+    }
+
+    private fun fetchTrackerStatus() {
+        val request = Request.Builder()
+            .url("http://192.168.50.161:8000/health")
+            .get()
+            .build()
+        httpClient.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                val label = "ByteTrack：不可用"
+                statusHandler.post { _binding?.tvTrackerStatus?.text = label }
+            }
+
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                response.use {
+                    val ok = it.isSuccessful
+                    val label = if (ok) "ByteTrack：可用" else "ByteTrack：不可用"
+                    statusHandler.post { _binding?.tvTrackerStatus?.text = label }
+                }
+            }
+        })
+    }
 
     // --- SAF Launchers ---
 
@@ -100,6 +146,17 @@ class SettingsHomeFragment : Fragment() {
         binding.switchShowPoint.isChecked = AppSettings.isCenterPointShown
         binding.switchPoseMode.isChecked = AppSettings.isPoseModeEnabled
         binding.switchRoiCrop.isChecked = AppSettings.isRoiRealCropEnabled
+        binding.switchNewTracker.isChecked = AppSettings.isNewTrackerPredictionEnabled
+        binding.tvTrackerStatus.text = if (AppSettings.isNewTrackerPredictionEnabled) "ByteTrack：检测中" else "ByteTrack：未启用"
+
+        binding.spnRoiLogMode.setSelection(AppSettings.roiLogMode)
+        binding.spnRoiLogMode.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                AppSettings.setRoiLogMode(position)
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
 
         // 开关监听
         binding.switchShowBox.setOnCheckedChangeListener { _, isChecked ->
@@ -116,6 +173,12 @@ class SettingsHomeFragment : Fragment() {
 
         binding.switchRoiCrop.setOnCheckedChangeListener { _, isChecked ->
             AppSettings.setRoiRealCropEnabled(isChecked)
+        }
+
+        binding.switchNewTracker.setOnCheckedChangeListener { _, isChecked ->
+            AppSettings.setNewTrackerPredictionEnabled(isChecked)
+            binding.tvTrackerStatus.text = if (isChecked) "ByteTrack：检测中" else "ByteTrack：未启用"
+            if (isChecked) startTrackerStatusPolling() else stopTrackerStatusPolling()
         }
 
         // 区域设置入口
@@ -167,6 +230,16 @@ class SettingsHomeFragment : Fragment() {
             selectVideoLauncher.launch(arrayOf("video/*"))
         }
 
+        binding.btnClearRoomCounts.setOnClickListener {
+            val rooms = RoomRepository.getAllRooms()
+            rooms.forEach { room ->
+                room.personCount = 0
+                room.persistentPersonCount = 0
+                RoomRepository.updateRoom(room)
+            }
+            Toast.makeText(context, "已清空所有房间人数", Toast.LENGTH_SHORT).show()
+        }
+
         // 重置按钮
         binding.btnResetTrackers.setOnClickListener {
             RoomRepository.resetAllStatus() 
@@ -174,8 +247,19 @@ class SettingsHomeFragment : Fragment() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (AppSettings.isNewTrackerPredictionEnabled) startTrackerStatusPolling() else stopTrackerStatusPolling()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        stopTrackerStatusPolling()
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
+        stopTrackerStatusPolling()
         _binding = null
     }
 }

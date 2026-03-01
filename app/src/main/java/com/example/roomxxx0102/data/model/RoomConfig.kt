@@ -50,7 +50,14 @@ data class RoomConfig(
     var labelPoint: PointF? = null,
 
     // Theme color for sub room (null = unassigned / no door).
-    var themeColor: Int? = null
+    var themeColor: Int? = null,
+    
+    // Entrance door (only one allowed across sub rooms).
+    var isEntranceDoor: Boolean = false,
+
+    // Whether this sub room is a blind zone of living room.
+    // Mutually exclusive with entrance door.
+    var isLivingBlindZone: Boolean = false
 ) {
     // 🔥 新增：当前识别到的人数 (瞬时值，不持久化)
     var personCount: Int = 0
