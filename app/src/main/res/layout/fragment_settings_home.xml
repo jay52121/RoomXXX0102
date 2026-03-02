@@ -74,6 +74,24 @@
                     android:textColor="#FF9800"
                     android:paddingVertical="8dp" />
 
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switch_still_standard_frame"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="静止时使用标准帧"
+                    android:textSize="16sp"
+                    android:textColor="#333333"
+                    android:paddingVertical="8dp" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switch_clipboard_debug"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="调试信息写入剪贴板"
+                    android:textSize="16sp"
+                    android:textColor="#333333"
+                    android:paddingVertical="8dp" />
+
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -94,6 +112,28 @@
                     android:spinnerMode="dropdown"
                     android:entries="@array/roi_log_mode_labels" />
 
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="人数算法版本"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#333333"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="4dp"/>
+
+                <Button
+                    android:id="@+id/btn_presence_algorithm_version"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="自动(最新)"
+                    android:textAllCaps="false"
+                    android:gravity="start|center_vertical"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:backgroundTint="#FFFFFF"
+                    android:textColor="#333333" />
+
 
                 <TextView
                     android:id="@+id/tv_tracker_status"
@@ -109,6 +149,15 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="使用新追踪预测模式"
+                    android:textSize="16sp"
+                    android:textColor="#333333"
+                    android:paddingVertical="8dp" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switch_pause_on_room_switch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="切换房间后暂停播放"
                     android:textSize="16sp"
                     android:textColor="#333333"
                     android:paddingVertical="8dp" />

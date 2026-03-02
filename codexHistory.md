@@ -1,5 +1,661 @@
 # Codex History
 
+## [179] 2026-03-02 23:36:42 - V1.2.1现有参数收敛（进更稳/出更早）
+
+**用户指令**：
+> 不要再加变量，先用现有参数收敛；调整为减少“进入太早、出来太晚”。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：不新增参数，仅用现有参数与判定项收敛进入/离开时机
+    *   PresenceAlgorithmV1_1_0_B03021639.kt：
+        - 可视进入分支 `VISIBLE_DOOR_MOTION` 由 `emp` 单条件改为：
+          - `emp && dps>=enterAMin && scs>=enterThreshold`
+    *   PresenceAlgorithmRegistry.kt：
+        - 新增版本 `V1.2.1(B03022335)` 并设为最新
+        - 参数微调：
+          - `enterDoorDynamicRatio = 0.08`（原 0.10）
+          - `exitOutsidePoseScoreThreshold = 0.10`（原 0.12）
+    *   wiki.md：
+        - 新增 `V1.2.1` 说明与参数变更记录
+
+---
+
+## [178] 2026-03-02 23:22:12 - Presence日志压缩与去重
+
+**用户指令**：
+> 日志字符数太长；presenceRecent 与 presence recent 有重复帧；变量名重复过多需压缩。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：减少调试日志体积，降低复制与分析成本
+    *   RoiLogAggregator.kt：
+        - `snapshotForPanel` 增加 `includePresenceHistory` 参数
+        - `snapshotPresenceHistory` 增加连续相同内容合并输出（区间帧 + 次数）
+        - 同帧重复更新仅保留最后一条
+        - 合并行增加短 hash（用于区分“看似相同但内容不同”）
+    *   MainActivity.kt：
+        - 调试导出报告只保留一份 `presenceRecent`（移除重复区块）
+        - `presence decision` 字段名压缩为短键（dd/dps/scs 等）
+        - 报告新增 `presence legend` 一行用于短键对照
+    *   wiki.md：
+        - 新增 `1.6 Presence 调试日志压缩` 说明
+
+---
+
+## [177] 2026-03-02 23:12:07 - 新增“切换房间后暂停播放”开关
+
+**用户指令**：
+> 设置中加一个开关“切换房间后暂停播放”，打开后遇到房间切换自动点击一次暂停。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在房间切换事件发生时自动暂停，便于逐事件观察
+    *   AppSettings.kt：
+        - 新增配置项 `isPauseOnRoomSwitchEnabled`
+        - 新增持久化键 `pause_on_room_switch`
+        - 新增 `setPauseOnRoomSwitchEnabled(...)`
+    *   fragment_settings_home.xml：
+        - 新增设置开关 `switch_pause_on_room_switch`
+    *   SettingsHomeFragment.kt：
+        - 初始化并监听 `switchPauseOnRoomSwitch`
+        - 与 `AppSettings.isPauseOnRoomSwitchEnabled` 双向绑定
+    *   MainActivity.kt：
+        - 在 Presence 切换事件处理处新增自动暂停：
+          - 条件：有切换事件 + 开关开启 + 当前 `PLAYING`
+          - 动作：调用一次 `togglePause(btnPause)`（等效点击一次暂停）
+          - 横幅提示：`检测到房间切换，已自动暂停`
+        - 调试快照设置行新增 `pauseOnSwitch` 字段
+    *   wiki.md：
+        - 新增 `1.5 切换房间自动暂停开关` 说明
+
+---
+
+## [176] 2026-03-02 23:02:12 - V1.2.0可视房间进入改为门洞法向穿越
+
+**用户指令**：
+> 采用“肩+脚+全身框”估计地面点，进入判定走门洞法向推进，区分贴门经过；并去掉日志重复帧。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：减少“经过门口却误判进入”的问题，保持退出逻辑分流不变
+    *   PresenceAlgorithmV1_1_0_B03021639.kt：
+        - 新增地面点估计与历史：
+          - `estimateGroundPoint(...)`
+          - `appendGroundPointHistory(...)`
+          - `computeDoorMotionStats(...)`
+        - 可视房间进入改为门洞法向穿越主判定：
+          - `doorAdvanceDelta(Δs)`
+          - `doorLateralDelta(Δq)`
+          - `doorAdvanceLateralRatio`
+          - `enterMotionPass`
+        - 可视进入使用 `enterMotionPass`；退出继续沿用 `V1.1.9` 分流
+        - 调试文案新增穿越字段与阈值字段
+    *   RoomTransitionEstimator.kt：
+        - 新增进入运动参数：
+          - `enterMotionWindowFrames`
+          - `enterNormalAdvanceMin`
+          - `enterLateralRatioMin`
+          - `enterGroundFootBlendStartConfidence`
+    *   PresenceAlgorithmRegistry.kt：
+        - 新增版本 `V1.2.0(B03022300)` 并设为最新
+    *   RoiLogAggregator.kt：
+        - `presenceRecent` 同一帧仅保留最后一条，去除重复帧
+    *   wiki.md：
+        - 新增 `V1.2.0` 规则与参数说明
+
+---
+
+## [175] 2026-03-02 22:07:00 - V1.1.9可视/非可视退出逻辑分流
+
+**用户指令**：
+> 只有可视房间使用新增的退出规则，非可视房间仍然走之前逻辑。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：解决“可视子房间出来不减人”，同时保持盲区等非可视房间旧行为不变
+    *   PresenceAlgorithmV1_1_0_B03021639.kt：
+        - 在 `evaluateVisibleEnterByScore(...)` 增加分流：
+          - 可视子房间 -> 客厅：仅使用 `sourceRoomOutsidePoseScore` 与 `poseAverageConfidence` 判定
+          - 非可视房间 -> 客厅：保持旧逻辑（`sourceRoomStayScore + doorProximityScore`）
+        - 可视退出分支不再被 `AMBIGUOUS_DOOR` 提前拦截
+        - 调试字段新增 `exitRule=VISIBLE_OUTSIDE_POSE|LEGACY`
+    *   PresenceAlgorithmRegistry.kt：
+        - 新增版本 `V1.1.9(B03022207)` 并设为最新
+    *   wiki.md：
+        - 新增 `V1.1.9` 规则说明（可视/非可视退出分流）
+
+---
+
+## [174] 2026-03-02 21:56:06 - V1.1.8子房间离开改为可视区外关键点评分
+
+**用户指令**：
+> 先解决“从可视房间出来人数没减少”；新增“处于可视区域外的综合得分”，暂不区分身体部位权重，用于判定离开房间并区分房间内消失。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“子房间->客厅”离开漏判，改用关键点可视区外评分驱动离开判定
+    *   RoomTransitionEstimator.kt：
+        - `PresenceTrackObservation` 新增 `keypoints`
+        - 新增 `PresenceKeypoint` 数据结构
+        - `PresenceEstimatorParams` 新增：
+          - `exitOutsidePoseScoreThreshold`
+          - `exitPosePointMinConfidence`
+          - `exitPoseMinConfidence`
+    *   MainActivity.kt：
+        - 构建 `PresenceTrackObservation` 时传入 `pose.keypoints`（x/y/conf）
+    *   PresenceAlgorithmV1_1_0_B03021639.kt：
+        - `evaluateVisibleEnterByScore(...)` 新增退出相关指标：
+          - `sourceRoomOutsidePoseScore`
+          - `poseAverageConfidence`
+        - `子房间->客厅` 判定改为：
+          - `sourceRoomOutsidePoseScore >= exitOutsidePoseScoreThreshold`
+          - `poseAverageConfidence >= exitPoseMinConfidence`
+          - `doorProximityScore >= enterAMin`
+        - 新增方法：
+          - `computeOutsidePoseScore(...)`
+          - `computeAveragePoseConfidence(...)`
+        - 调试文案增加退出评分与置信度字段，便于排查
+    *   PresenceAlgorithmRegistry.kt：
+        - 新增版本 `V1.1.8(B03022153)` 并设为最新
+    *   wiki.md：
+        - 新增 `V1.1.8` 规则说明与参数定义
+
+---
+
+## [173] 2026-03-02 20:15:52 - V1.1.7门口接近度改为0~0.1身高线性衰减
+
+**用户指令**：
+> 门口证据分按“距离=0且置信=1为满分；超过0.1×身高为0分”来实现。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将门口证据分规则与现场调试口径严格对齐，减少进入判定偏激进
+    *   RoomTransitionEstimator.kt：
+        - `PresenceEstimatorParams` 简化动态门距参数，仅保留 `enterDoorDynamicRatio`
+    *   PresenceAlgorithmV1_1_0_B03021639.kt：
+        - `doorProximityScore` 计算改为单段线性：
+          - `doorProximityScore = max(0, 1 - doorDist / dynamicNearDist)`
+          - `dynamicNearDist = personBoxHeight * enterDoorDynamicRatio`
+        - 去除旧的 `d0/d1` 平台映射
+        - 保留 `doorEvidenceScore = doorProximityScore * groundPointConfidence`
+    *   PresenceAlgorithmRegistry.kt：
+        - 新增版本 `V1.1.7(B03022014)` 并设为最新
+    *   wiki.md：
+        - 新增 `V1.1.7` 规则说明，明确“0.1*身高内有效，超过即0”
+
+---
+
+## [172] 2026-03-02 19:58:25 - V1.1.6门距阈值改为按人框高度动态计算
+
+**用户指令**：
+> 先看数据合理性；建议门距阈值参考人的身高（约十分之一）。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：降低固定门距阈值带来的尺度失配，缓解“进入过于激进”
+    *   RoomTransitionEstimator.kt：
+        - `PresenceEstimatorParams` 新增动态门距参数：
+          - `enterDoorDynamicRatio`
+          - `enterDoorDynamicMin`
+          - `enterDoorDynamicMax`
+    *   PresenceAlgorithmV1_1_0_B03021639.kt：
+        - 新增 `computeDynamicNearDoorDistance(personBox)`：
+          - `dynamicNearDist = clamp(personBoxHeight * ratio, min, max)`
+        - `doorProximityScore` 映射改为动态区间：
+          - `d0 = 0.5 * dynamicNearDist`
+          - `d1 = 1.5 * dynamicNearDist`
+        - 调试字段增加 `dynamicNearDist`
+    *   PresenceAlgorithmRegistry.kt：
+        - 新增版本 `V1.1.6(B03021957)` 并设为最新
+        - 默认参数：`ratio=0.10`、`min=0.01`、`max=0.06`
+    *   wiki.md：
+        - 新增 `V1.1.6` 规则说明与参数定义
+
+---
+
+## [171] 2026-03-02 19:47:31 - +1帧长按遇房间切换自动停止
+
+**用户指令**：
+> 新增逻辑：按住 `+1帧` 时如果发生房间转移，就终止继续走；需要重新按下才继续。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：避免长按 `+1帧` 在发生切换后继续推进，便于逐事件观察
+    *   MainActivity.kt：
+        - 在 Pose 分析回调的 `runOnUiThread` 中新增门控：
+          - 条件：`presenceResult.events.isNotEmpty() && seekHoldActive && seekHoldDirection > 0 && currentPlayState == STILL`
+          - 命中后执行 `stopSeekHold()`，等效自动抬手
+          - 显示横幅：`检测到房间切换，已停止+1帧长按`
+        - 范围限定：仅影响 `+1帧` 长按；单击 `+1帧`、`-1帧`、`±5s` 不受影响
+
+---
+
+## [170] 2026-03-02 18:53:35 - V1.1.5新增通用polygon恢复候选
+
+**用户指令**：
+> 入户到厨房的判定问题先单独解决；逻辑要通用，不要入户特判。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“状态卡在旧房间导致无法迁移到当前可视房间”的通用问题，不添加入户专属分支
+    *   RoomTransitionEstimator.kt：
+        - `PresenceEstimatorParams` 新增 `recoveryTargetContainmentMin`（默认 `0.60`）
+    *   PresenceAlgorithmV1_1_0_B03021639.kt：
+        - `evaluateVisibleEnterByScore(...)` 入参新增 `polygonRoomId`
+        - 在门候选之外新增 `POLYGON_RECOVERY` 通用候选（基于 polygon 命中，不依赖门邻接）
+        - `POLYGON_RECOVERY` 通过条件：
+          - `targetRoomContainmentRatio >= recoveryTargetContainmentMin`
+          - `sourceRoomStayScore <= exitSourceRoomScoreThreshold`
+          - 连续帧计数沿用 `enterConfirmFrames`
+        - 调试文案新增 `mode=POLYGON_RECOVERY:*` 与 `recoveryTargetContainmentMin`
+    *   PresenceAlgorithmRegistry.kt：
+        - 新增版本 `V1.1.5(B03021852)` 并设为最新默认
+        - 参数：沿用 V1.1.4 + `recoveryTargetContainmentMin=0.60`
+    *   wiki.md：
+        - 新增 `1.4.9 V1.1.5` 说明，强调“通用恢复候选”语义与触发门槛
+
+---
+
+## [169] 2026-03-02 18:39:38 - 修复长按播放时MediaPlayer并发读取崩溃
+
+**用户指令**：
+> 长按播放崩了（`MediaPlayer.getCurrentPosition` 抛 `IllegalStateException`）。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：消除长按“重启播放”时 `MediaPlayer` 释放与并发读取位置导致的崩溃
+    *   VideoFeeder.kt：
+        - `getCurrentPositionMs()` 改为安全读取：捕获 `IllegalStateException` 并返回 `null`，同时记录轻量 `Log.w`
+        - `stop()` 调整为先摘除共享引用（`val mp = mediaPlayer; mediaPlayer = null`），再对旧实例执行 `stop/release`，降低并发窗口
+
+---
+
+## [168] 2026-03-02 18:33:04 - V1.1.4出房间改为源房间保留分阈值判定
+
+**用户指令**：
+> 先试试（按“进入/离开双阈值和统一分数语义”方向推进）。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：减少门口反复横跳，避免“子房间->客厅”仅靠目标分数过线就提前触发
+    *   RoomTransitionEstimator.kt：
+        - `PresenceEstimatorParams` 新增 `exitSourceRoomScoreThreshold`（默认 0.40）
+    *   PresenceAlgorithmV1_1_0_B03021639.kt：
+        - `evaluateVisibleEnterByScore(...)` 新增源房间指标：
+          - `sourceRoomContainmentRatio`
+          - `sourceRoomStayScore = wA*doorEvidenceScore + wC*sourceRoomContainmentRatio`
+        - 判定分支调整：
+          - `客厅->子房间`：沿用 `switchConfidenceScore >= switchThreshold`
+          - `子房间->客厅`：改为 `sourceRoomStayScore <= exitSourceRoomScoreThreshold` 且 `doorProximityScore >= enterAMin`
+        - 调试字段新增并可读化：`sourceRoomContainmentRatio/sourceRoomStayScore/exitSourceRoomScoreThreshold/mode`
+    *   PresenceAlgorithmRegistry.kt：
+        - 新增版本 `V1.1.4(B03021831)` 并设为最新
+        - 默认参数：沿用 V1.1.3 + `exitSourceRoomScoreThreshold=0.40`
+    *   wiki.md：
+        - 新增 `V1.1.4` 规则说明
+        - 补充 `sourceRoomContainmentRatio/sourceRoomStayScore/exitSourceRoomScoreThreshold` 指标定义
+
+---
+
+## [167] 2026-03-02 18:21:07 - Presence指标命名与调试文案可读化
+
+**用户指令**：
+> C 又是啥玩意儿，看不懂；变量命名要一眼可懂，且 wiki 里能找到定义。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：提升 Presence 调试可读性，仅重构命名与文案，不改变判定逻辑
+    *   PresenceAlgorithmV1_1_0_B03021639.kt：
+        - 候选指标重命名：
+          - `aPos -> doorProximityScore`
+          - `aConf -> groundPointConfidence`
+          - `aScore -> doorEvidenceScore`
+          - `cScore -> targetRoomContainmentRatio`
+          - `score -> switchConfidenceScore`
+        - 调试文本字段改名：
+          - `Apos/Aconf/A/C/Score/th`
+          - 改为 `doorProximityScore/groundPointConfidence/doorEvidenceScore/targetRoomContainmentRatio/switchConfidenceScore/switchThreshold`
+        - 额外补充 `doorDist`，便于直接查看门口距离
+    *   wiki.md：
+        - `1.4.2` 改为使用新命名描述判定流程
+        - 新增 `1.4.7 Presence 指标定义表`，逐条定义调试面板字段含义与关系
+
+---
+
+## [166] 2026-03-02 18:14:35 - Presence调试面板精简并新增判定历史
+
+**用户指令**：
+> 多补充前几次产生判定时的情况，然后没用的全部清理掉。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：提升 Presence 排查可读性，减少 ROI 噪声信息，支持回看“最近几次判定”上下文
+    *   RoiLogAggregator.kt：
+        - `updatePresenceDebug(...)` 增加 `posMs` 参数
+        - 新增 Presence 判定历史缓存（最多 8 条），仅记录关键判定（`ENTER_ / SCORE_REJECT / AMBIGUOUS_DOOR / NO_VISIBLE_DOOR / VISIBLE_SYNC` 或有事件）
+        - `snapshotForPanel()` 精简：移除本次排查无关的 `frameDigest/top/clamp/dx-dy` 等冗余行，保留 Presence 核心信息
+        - 新增 `snapshotPresenceHistory()` 供调试面板与剪贴板复用
+    *   MainActivity.kt：
+        - 调用 `RoiLogAggregator.updatePresenceDebug(...)` 时传入 `videoPosMs`
+        - 长按“调试面板”复制内容改为 `presenceRecent`（最近判定历史），不再附加 `recentFrames`
+        - 去掉 `presence event/decision` 里的 `track=数字`，避免阅读干扰
+        - 额外修复：将 3 处双肩阈值比较临时改为 `0.7f`，规避当前 `MainActivity` 对 `POSE_HIGH_CONFIDENCE_THRESHOLD` 解析异常导致的编译失败
+    *   PresenceAlgorithmV1_1_0_B03021639.kt：
+        - 判定文本补充 `dist(门距)` 与 `th(阈值)`，便于直接看出为何触发/拒绝
+
+---
+
+## [165] 2026-03-02 18:04:26 - 新增V1.1.3关闭可视区兜底并设为默认最新
+
+**用户指令**：
+> 刚才不是说先关了兜底吗?
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：先关闭 `VISIBLE_POLYGON_SYNC`，只看门口 AC 主判定，定位“厨房/客厅反复横跳”
+    *   PresenceAlgorithmV1_1_0_B03021639.kt：
+        - 增加 `visibleSyncEnabled = params.visiblePolygonSyncFrames > 0`
+        - 仅在 `visibleSyncEnabled` 为 true 时执行可视区兜底同步分支
+    *   PresenceAlgorithmRegistry.kt：
+        - 新增版本 `V1.1.3(B03021801)`
+        - 该版本参数沿用 V1.1.2，并设置 `visiblePolygonSyncFrames = 0`
+        - 版本列表追加 V1.1.3，`AUTO_LATEST` 自动指向该版本
+    *   wiki.md：
+        - 新增 V1.1.3 条目与参数说明
+        - 更新“当前最新版本”为 `V1.1.3(B03021801)`
+
+---
+
+## [164] 2026-03-02 17:50:01 - +1帧补偿扩展为两次并增加横幅提示
+
+**用户指令**：
+> lock 还是会掉；把之前 +10ms 再多执行一次，并且每次都要有明显提示。只改横幅提示，不要 toast。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：降低 +1帧落在重复帧导致的静态误判，且让每次补偿都可见
+    *   VideoFeeder.kt：
+        - `applyOneTimeForwardNudgeIfNeeded` 改为最多两次 `+10ms`（总计最多 +20ms）
+        - 新增 `StepSeekDebug.nudgeCount` 与累计 `nudgeDeltaMs`
+        - 新增 `onStepNudge` 回调，每次补偿触发时发送 `步进补偿 +10ms (第N次)`
+    *   MainActivity.kt：接入 `videoFeeder.onStepNudge`，通过 `overlayView.showUnlockBanner(...)` 显示右上角横幅提示
+    *   说明：按要求未新增 Toast，仅横幅提示
+
+---
+
+## [163] 2026-03-02 17:43:44 - 新增V1.1.2门口主判定参数放宽版本
+
+**用户指令**：
+> 确认日志时机正确后，按讨论先修门口主判定：放宽门口评分参数并继续迭代，不依赖兜底来掩盖问题。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：优先提升“门口主路径”触发率，减少人眼已进入但事件未触发的情况
+    *   PresenceAlgorithmV1_1_0_B03021639.kt：算法实现支持外部注入 `versionId`（便于同实现多版本并行）
+    *   PresenceAlgorithmRegistry.kt：新增 `V1.1.2(B03021736)` 并设为最新；在 `create()` 中为该版本注入放宽参数：
+        - `enterDoorD0 = 0.015`
+        - `enterDoorD1 = 0.08`
+        - `enterThreshold = 0.52`
+    *   wiki.md：同步 `V1.1.2` 版本与参数调整说明
+
+---
+
+## [162] 2026-03-02 17:31:04 - V1.1.1可读化面板与可视区连续帧兜底同步
+
+**用户指令**：
+> 日志里不要长ID；解释门口事件失败原因；并在可视区连续命中时做人数兜底同步。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：解决“面板可读性差 + 可视进入漏更新”
+    *   PresenceAlgorithmV1_1_0_B03021639.kt（实现已升级为 `V1.1.1(B03021717)`）：
+        - 每帧 AC 判定保留
+        - 新增 `enterConfirmedGraceFrames` 掉锁容忍生效路径
+        - 新增 `VISIBLE_POLYGON_SYNC` 兜底：连续 `visiblePolygonSyncFrames=3` 帧命中同一可视房间且 `C>=0.55` 时更新 persistent 人数
+        - decision 持续输出 `VISIBLE_SYNC_WAIT/REJECT/OK` 等原因
+    *   RoomTransitionEstimator.kt：新增参数 `visiblePolygonSyncFrames / visiblePolygonSyncMinContainment`，新增事件类型 `VISIBLE_POLYGON_SYNC`
+    *   PresenceAlgorithmRegistry.kt：新增版本 `V1.1.1(B03021717)` 并作为最新版本
+    *   MainActivity.kt：调试面板 presence 文本改为房间名（去除长 UUID/doorId）；`event/decision/counts` 均做可读化；位置切换横幅继续保留
+    *   RoiLogAggregator.kt：`updatePresenceDebug` 改为接收格式化后的字符串（由 MainActivity 统一生成）
+    *   wiki.md：同步记录 V1.1.1 与 `VISIBLE_POLYGON_SYNC` 规则
+
+---
+
+## [161] 2026-03-02 17:17:10 - V1.1改为每帧AC判定并增加掉锁容忍与位置切换提示
+
+**用户指令**：
+> 不应只在消失时判定；分数超过阈值就应判定进入。并要求：每帧都可计算、decision持续可见、掉锁遮挡场景容忍更长、人数命中时右上角显示“位置切换(原因)”。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：解决“门中消失未刷新”与“decision长期为空”问题，提高可视房间进入判定可解释性与可达性
+    *   RoomTransitionEstimator.kt：`PresenceEstimatorParams` 新增 `enterConfirmedGraceFrames`（默认24）
+    *   PresenceAlgorithmV1_1_0_B03021639.kt：
+        - 去除“先命中目标房间 polygon 才计算”的前置，改为每帧对当前房间可达的可视门线计算 AC 分数
+        - 新增近期CONFIRMED容忍窗口：掉锁后在 grace 帧内继续判定进入
+        - `rejectedReasons` 持续输出（含 `NO_OBSERVATION / NOT_CONFIRMED / SCORE_REJECT / ENTER_WAIT / ENTER_OK`），避免面板 `presence decision` 为空
+        - pending 计数改为“只要该 track 本帧被观测到就不推进”，避免非CONFIRMED时误累加
+    *   MainActivity.kt：Presence 事件触发时在右上角提示 `位置切换: from->to (reason)`
+    *   wiki.md：同步记录 V1.1 新规则和参数
+
+---
+
+## [160] 2026-03-02 17:01:16 - 调试面板按钮长按复制即时快照
+
+**用户指令**：
+> 长按测试面板按钮复制调试信息，并说明最佳复制时机。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：降低现场排查成本，支持一键导出“当前面板+最近帧”上下文
+    *   MainActivity.kt：`btnDebugPanel` 新增 `setOnLongClickListener`
+    *   MainActivity.kt：新增 `buildDebugPanelClipboardReport()`，导出内容包含 `playState/videoPosMs/settings/presenceAlgo + panel + recentFrames`
+    *   MainActivity.kt：复用 `copyTextToClipboard()` 写入剪贴板，成功后 toast 提示
+
+---
+
+## [159] 2026-03-02 16:53:16 - 调试面板新增Presence判因四行信息
+
+**用户指令**：
+> 这次表现很糟糕，把需要的东西放到调试面板里，并说明如何判断问题；尽量少放必要信息。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将 Presence 判定核心因子直接放进右侧调试面板，减少反复抓 log 定位成本
+    *   RoiLogAggregator.kt：新增 `updatePresenceDebug()`；面板追加 4 行 `presence algo/event/decision/counts`
+    *   MainActivity.kt：每帧 Presence 计算后调用 `RoiLogAggregator.updatePresenceDebug(...)` 注入算法版本、事件、判定原因、人数快照
+    *   说明：`presence decision` 直接显示算法拒绝原因文本（在 V1.1 下包含 A/C/Score 等关键数值）
+
+---
+
+## [158] 2026-03-02 16:46:39 - V1.1可视房间进入改为AC评分判定
+
+**用户指令**：
+> 判定人是否进入带可视区域房间较差，经常出现人消失在门中但未刷新；参考 A(门口接近)+C(人框被可视区包含) 的加权思路，落地到项目里。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：提升“门中消失但未切房”的判定稳定性，在不破坏盲区流程前提下增强可视房间进入识别
+    *   RoomTransitionEstimator.kt：扩展 `PresenceTrackObservation`（新增 `groundConfidence/personBox`）、新增 `PresenceRect`、补充 AC 评分参数（`enterDoorD0/D1`、`enterWeightA/C`、`enterThreshold`、`enterConfirmFrames` 等）
+    *   PresenceAlgorithmV1_1_0_B03021639.kt：新增 `V1.1.0(B03021639)` 算法实现；可视房间进入改为 `A=A_pos*A_conf` + `C=containment` + `Score` 连续帧确认；低置信度走 `C_strict + A_min_strict` 兜底；盲区 pending 逻辑保持兼容
+    *   PresenceAlgorithmRegistry.kt：注册 `V1.1.0(B03021639)`，并作为 `AUTO_LATEST` 默认落点
+    *   MainActivity.kt：构建 Presence 观测时传入 `personBox` 与 `estimateGroundConfidence()`
+    *   wiki.md：新增 Presence 版本与 V1.1 AC 判定规则/默认参数文档
+
+---
+
+## [157] 2026-03-02 16:39:31 - 引入人数算法版本管理与设置切换
+
+**用户指令**：
+> 从现在开始要进行人数计算匹配算法迭代维护，支持版本管理并可在设置中切换；默认使用最新版本。先生成第一个版本：V1.0.0(B03011413)。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：把 Presence 算法从“硬编码单实现”升级为“可版本切换”，为后续迭代做低风险对照
+    *   PresenceAlgorithmEngine.kt：新增 `PresenceAlgorithmEngine` 接口，统一 `processFrame/reset/versionId` 能力
+    *   PresenceAlgorithmRegistry.kt：新增算法注册表；首版注册 `V1.0.0(B03011413)`；提供 `AUTO_LATEST`、`resolveVersionId()`、`buildOptions()`、`create()`
+    *   AppSettings.kt：新增 `presenceAlgorithmVersion` 持久化配置与 `setPresenceAlgorithmVersion()`；默认 `AUTO_LATEST`
+    *   fragment_settings_home.xml：新增“人数算法版本”下拉控件 `spn_presence_algorithm_version`
+    *   SettingsHomeFragment.kt：接入版本下拉初始化、回填与保存逻辑（基于注册表动态选项）
+    *   MainActivity.kt：将 `RoomTransitionEstimator` 直接实例替换为版本引擎；新增 `ensurePresenceAlgorithmVersion()` 在 `onCreate/onResume` 同步设置；Presence 日志追加 `algo=版本号`
+
+---
+
+## [156] 2026-03-02 15:53:13 - 支持+-1帧长按连续步进
+
+**用户指令**：
+> 将 +-1 帧改为可长按，长按速度约为正常播放的 0.5x。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在静止模式下提供更顺滑的慢放排查方式，减少反复点击成本
+    *   VideoFeeder.kt：新增 `getFrameStepMs()` 只读接口，供 UI 计算连续步进频率
+    *   MainActivity.kt：为 `btnRewind/btnForward` 增加 `OnTouchListener` 长按处理
+    *   MainActivity.kt：新增 `startSeekHold/stopSeekHold/seekHoldRunnable`，`ACTION_DOWN` 后 500ms 启动连续步进
+    *   MainActivity.kt：连续步进间隔采用 `frameStepMs * 2`（约 0.5x 正常播放速度）；仅在 `STILL` 状态启用
+    *   MainActivity.kt：`onPause()` 时主动 `stopSeekHold()`，防止切后台后残留触发
+
+---
+
+## [155] 2026-03-02 03:28:52 - +1帧重复帧自动补一次+10ms
+
+**用户指令**：
+> 不改 lock 规则；当 +1 帧出现“切到同一帧”时，最多自动再加 10ms，而且仅一次。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在不调整 lock/unlock 规则前提下，降低 `+1帧` 落在重复解码帧导致的误触发
+    *   VideoFeeder.kt：扩展 `StepSeekDebug`（增加 baseDigest / nudgeApplied / nudgeDelta / nudgeBefore / nudgeAfter）
+    *   VideoFeeder.kt：`seekForwardFrame()` 记录 seek 前摘要并挂起一次性补偿任务g
+    *   VideoFeeder.kt：分析循环中若检测到“当前摘要 == seek前摘要”，执行一次 `+10ms` 补偿并跳过当轮分析
+    *   VideoFeeder.kt：`stop()` 补充清理补偿相关状态，防止跨会话串扰
+    *   MainActivity.kt：unlock 剪贴板报告新增 `stepNudge` 行，显示补偿是否触发与前后位置
+
+---
+
+## [154] 2026-03-02 03:18:23 - 增强+1帧重复取帧诊断快照
+
+**用户指令**：
+> 在不改 lock 规则前提下，先定位“正常播放与 +1 帧行为差异”；把 seek 前后位置与帧级线索写入 unlock 剪贴板快照。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：定位 `+1帧` 是否出现重复取帧/近似取帧，解释与正常播放行为差异
+    *   VideoFeeder.kt：新增 `StepSeekDebug`；`seekForwardFrame/seekBackwardFrame` 返回 step seek 诊断；记录 `seekComplete` 位置与时间；新增 `getCurrentPositionMs/getLastSeekCompletePositionMs/getLastSeekCompleteAtMs/peekLastStepSeekDebug`
+    *   VideoFeeder.kt：在分析循环计算轻量帧摘要哈希（8x8 亮度采样 FNV-1a），并通过 `RoiLogAggregator.updateFrameDigest(...)` 汇总
+    *   RoiLogAggregator.kt：新增 `updateFrameDigest`；将 `frameDigest + positionMs + temporalAdvanced` 写入 `snapshotForPanel`、`recentFrames` 与统一 `RF_ROI` 日志
+    *   MainActivity.kt：静止态 `+1帧` 时缓存本次 `StepSeekDebug`；在 unlock 剪贴板快照中追加 `stepSeek` 与 `seekState` 行（before/target/after/current/seekComplete）
+
+---
+
+## [153] 2026-03-02 03:03:26 - 修复暂停瞬间误解锁与unlock日志ID插值
+
+**用户指令**：
+> 点击暂停一瞬间 lock 被取消；同时修复 unlock 日志里的 id 模板未展开问题。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：避免切换到静止状态的临界帧误触发 `PoseStagnant` 解锁，并修复 unlock 消息 ID 显示异常
+    *   TrackerEngine.kt：`track(...)` 新增参数 `suppressStagnantUnlock`（默认 `false`）
+    *   SimpleTrackerEngine.kt：修复 `unlock` 消息字符串插值（`id=$currentId`）；`PoseStagnant` 判定增加 `!suppressStagnantUnlock`
+    *   RemoteByteTrackEngine.kt：修复 `unlock` 消息字符串插值（`id=$trackId`）；在 `track/PendingRequest/applyTrackingState/fallback` 全链路透传 `suppressStagnantUnlock` 并用于 `PoseStagnant` 判定
+    *   YoloPoseAnalyzer.kt：`analyzeBitmapAndTrackPoses(...)` 增加 `suppressStagnantUnlock` 参数并透传至 tracker
+    *   VideoFeeder.kt：切到 `静止` 时设置 500ms 短保护窗，仅抑制 `PoseStagnant` 解锁；同时在分析调用中透传该抑制标记
+
+---
+
+## [152] 2026-03-02 02:39:19 - +1帧触发 unlock 自动复制调试快照
+
+**用户指令**：
+> 把 unlock 诊断日志绑定到 +1帧；点击后如果发生 unlock，把所需日志写入剪贴板，并增加设置开关“调试信息写入剪贴板”（默认关）。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在慢放排障时一键捕获 unlock 现场，减少手动筛 logcat 的成本
+    *   AppSettings.kt：新增 `isClipboardDebugOnStepEnabled` 与持久化键 `clipboard_debug_on_step`
+    *   fragment_settings_home.xml：新增开关 `switch_clipboard_debug`
+    *   SettingsHomeFragment.kt：接入开关初始化与保存；开启时提示说明
+    *   RoiLogAggregator.kt：新增最近帧摘要缓存与 `snapshotRecentFrames()` 接口
+    *   MainActivity.kt：在静止态 `+1帧` 先武装抓取窗口；若随后发生 unlock，自动将“unlock原因+关键设置+面板快照+最近8帧摘要”写入系统剪贴板并提示
+
+---
+
+## [151] 2026-03-02 02:15:46 - 统一 seek 基准修复 ±5s 累计偏移
+
+**用户指令**：
+> 现在时间前后=-5S功能出了问题，点击后回到的不是当前的-5s，而是每次点击越来越往前。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复 `-5s/+5s` 与 `±1帧` 的 seek 基准串扰，统一为“当前时间偏移”
+    *   VideoFeeder.kt：删除 `lastSeekTargetMs` 游标逻辑
+    *   VideoFeeder.kt：`seekByMs` 改为统一使用 `currentPosition + deltaMs` 计算目标时间
+    *   VideoFeeder.kt：同步清理 `setupMediaPlayer/setStillMode/stop` 中对旧游标的重置代码
+
+---
+
+## [150] 2026-03-02 01:58:40 - 新增“静止时使用标准帧”设置与静止跳帧喂帧控制
+
+**用户指令**：
+> 增加设置项“静止时使用标准帧”；开启后静止状态下画面不变就不喂帧。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：减少静止同帧重复分析导致的锁定状态抖动，支持在“持续分析”和“标准帧喂入”之间切换
+    *   AppSettings.kt：新增 `KEY_STILL_STANDARD_FRAME`、`isStillStandardFrameEnabled`、`setStillStandardFrameEnabled()` 并持久化加载
+    *   fragment_settings_home.xml：新增开关 `switch_still_standard_frame`
+    *   SettingsHomeFragment.kt：接入开关初始化与监听保存
+    *   VideoFeeder.kt：在静止模式下，若开启该开关且 `currentPosition` 未变化，则跳过本轮喂帧
+
+---
+
+## [149] 2026-03-02 01:49:49 - 静止模式下仅按时间推进 lock/unlock 状态机
+
+**用户指令**：
+> 静止中会掉 lock，但又不能牺牲静止时 YOLO/ROI 调试能力；要求只在时间真正前进时推进状态机。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：保留静止调试能力，同时避免“同一帧重复分析”触发假解锁
+    *   TrackerEngine.kt：`track(...)` 增加 `temporalAdvanced` 参数
+    *   VideoFeeder.kt：新增 `lastAnalyzedPositionMs` 与 `computeTemporalAdvanced()`，将“时间是否前进”传给姿态分析
+    *   YoloPoseAnalyzer.kt：`analyzeBitmapAndTrackPoses(...)` 增加 `temporalAdvanced` 并透传给 tracker
+    *   SimpleTrackerEngine.kt / RemoteByteTrackEngine.kt：仅当 `temporalAdvanced=true` 时推进 `recentPositions/recentKeypoints`、`ShoulderLow`、`PoseStagnant`、`missingFrames` 等会改变 lock/unlock 的状态计数
+
+---
+
 ## [148] 2026-03-02 01:34:25 - 长按播放键执行全量重置并从头播放
 
 **用户指令**：
@@ -2049,6 +2705,248 @@ ROI抖动日志:
     *   任务目的：新增项目规则与历史日志文件
     *   修改文件：AGENTS.md、codexHistory.md
     *   涉及方法：无
+
+---
+
+## [009] 2026-03-02 23:59:00 - 人数算法联调：灰色人体不参与切换，进入更稳、退出更早
+
+**用户指令**：
+> 我觉得的关键是,当人体还是灰色时不要参与判断,这样就不会因为乱飘的pose点影响判断了.  
+> GeminiHistory暂时不用检查了.你现在只做了灰色,但是其他我说的阈值前后问题也要一起调节吖
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：联调 Presence 切换判定，抑制灰色低质姿态误判，同时优化“进入偏早/退出偏晚”。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、wiki.md、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmRegistry.create
+    *   关键改动：
+      * 在可视切换评估入口新增灰色门禁：`poseAverageConfidence < 0.55` 直接 `SKIP_GRAY_POSE`，不参与切换判定。
+      * 新增版本 `V1.2.2(B03022359)`，并作为 `AUTO_LATEST` 默认最新。
+      * 参数联调（不新增新参数）：
+        * `enterThreshold = 0.58`
+        * `enterAMin = 0.35`
+        * `exitOutsidePoseScoreThreshold = 0.08`
+
+---
+
+## [010] 2026-03-03 00:20:00 - 人数算法迭代：进出统一为关键点置信度加权分（脚踝高权重）
+
+**用户指令**：
+> 置信度不应该只是个门槛,还应该参与加权计算.(进出都是),脚应该权重很大(前提算上置信度)  
+> 我们还是用分,不是用比例.进出都靠分,而且理论上这个分能统一.
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：把可视房间进出判定统一到“关键点置信度加权分”，降低人框面积先入门导致的提前误判。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、wiki.md、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.processFrame、PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.computeRoomPoseScore、PresenceAlgorithmRegistry.create
+    *   关键改动：
+      * 新增房间归属分 `computeRoomPoseScore`：按“关键点置信度 × 部位权重”计算房间内得分占比。
+      * 脚踝权重提升为最高（3.0），膝/髋/肩次之，其他点为基础权重。
+      * 进入与离开统一使用该分：`targetRoomContainmentRatio` 与 `sourceRoomContainmentRatio` 均改为关键点加权归属分；`sourceRoomOutsidePoseScore = 1 - sourceRoomContainmentRatio`。
+      * `POLYGON_RECOVERY` 与可视区同步分支改为使用关键点加权分，不再以人框网格面积比例作为主证据。
+      * 发布新版本 `V1.2.3(B03030020)` 并设为 `AUTO_LATEST`。
+
+---
+
+## [011] 2026-03-03 01:16:00 - 人数算法V1.3.0：唯一综合分标准（主体分+法向辅助分）
+
+**用户指令**：
+> 我再说一次,我们应该用一个唯一标准:人在房间内综合分.这个综合分应该主要由pose点和可是区域的关系来计算.辅助是法线向量,主要是为了规避路过门的误判.有这两个来综合计算出一个分值.  
+> 用1.3.0做版本号,进出都是这个分.没问题就开始
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将进/出房间统一到同一个综合分，避免门候选与恢复候选来回切换导致的计数延迟与抖动。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、wiki.md、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.processFrame、PresenceAlgorithmRegistry.create
+    *   关键改动：
+      * DOOR 模式切换分统一为：`0.35*poseTransitionScore + 0.65*doorAssistScore`。
+      * `poseTransitionScore` 由源/目标房间关键点加权归属分计算；`doorAssistScore` 由门法向通过后的门接近度提供。
+      * DOOR 模式统一门槛：门法向通过 + 门接近度门槛 + 姿态置信门槛 + 综合分门槛。
+      * 对“可视子房间 -> 客厅”禁用 `POLYGON_RECOVERY` 候选，防止与门候选交替造成 `ENTER_WAIT` 被反复重置。
+      * 发布 `V1.3.0(B03030116)` 并设为 `AUTO_LATEST`。
+
+---
+
+## [012] 2026-03-03 01:30:00 - 修复调试面板开关崩溃（RoiLogAggregator 方法兼容）
+
+**用户指令**：
+> 点击调试面板开关挂了
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复 `NoSuchMethodError: snapshotForPanel()` 导致的主线程崩溃。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、codexHistory.md
+    *   涉及方法：RoiLogAggregator.snapshotForPanel
+    *   关键改动：
+      * 增加无参重载 `snapshotForPanel()`，内部转调带参版本 `snapshotForPanel(includePresenceHistory = true)`。
+      * 保持原有带参接口不变，兼容旧调用路径与热更新/overlay 场景。
+
+---
+
+## [013] 2026-03-03 01:46:00 - 增强门口法向链路调试日志（仅定位，不改判定）
+
+**用户指令**：
+> 关键是分数为什么这么低？特别是门口分数为什么会是零？... 你不知道原因就好好重新改日志我们重新去抓。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：补齐“门口接近已命中但门辅助分仍为 0”的全链路定位信息，便于确认法向符号、历史窗取样和地面点是否异常。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.computeDoorMotionStats
+    *   关键改动：
+      * 扩展 `DoorMotionStats` 与候选 `Candidate` 调试字段，新增并透出：
+        * 法向/横向投影：`pastSignedDistance`、`currentSignedDistance`、`pastLateralDistance`、`currentLateralDistance`
+        * 几何上下文：`doorNormalX/Y`、`doorMidX/Y`、`targetCentroidX/Y`
+        * 地面点轨迹：`pastGroundX/Y`、`currentGroundX/Y`
+        * 历史窗状态：`motionHistorySize`、`motionNearDoorPassed`
+      * 在 `SCORE_REJECT / ENTER_WAIT / ENTER_OK` 的 `presence decision` 文本中统一输出上述字段。
+      * 保持判定逻辑与阈值不变，仅增强可观测性。
+
+---
+
+## [014] 2026-03-03 02:10:00 - 修复V1.3.0远离门口误触发进入（仅限客厅->可视房间）
+
+**用户指令**：
+> 这次效果也很差,来回跳,很远就算进去了... 检查下有没有显著错误...  
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：阻止“客厅->可视子房间”在未靠近门口时，仅凭房间综合分触发 `ENTER_WAIT/ENTER_OK`。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore
+    *   关键改动：
+      * 新增近门前置 `enterVisibleNearDoorPass`，仅在 `VISIBLE_DOOR_MOTION` 规则下生效。
+      * 通过条件补充为：`poseAverageConfidence` 达标 + `enterVisibleNearDoorPass` + `switchConfidenceScore` 达标。
+      * `SCORE_REJECT / ENTER_WAIT / ENTER_OK` 日志新增 `enterVisibleNearDoorPass` 字段，便于确认是否因“未近门”被拒绝。
+      * 退出方向（可视房间->客厅）与统一分公式保持不变，本次不触碰。
+
+---
+
+## [015] 2026-03-03 02:22:00 - 抑制客厅进子房间提前判定并补充关键点贡献日志
+
+**用户指令**：
+> 这里还有一大堆点在外面呢,怎么就进厨房了?  
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：降低“客厅->可视子房间”提前触发，补齐“哪些点把目标房间分拉高”的可观测性。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.buildTopPoseContributors
+    *   关键改动：
+      * 对 `VISIBLE_DOOR_MOTION`（客厅->可视房间）新增双门槛：
+        * `targetRoomContainmentRatio >= 0.75`
+        * `sourceRoomContainmentRatio <= 0.20`
+      * 对 `VISIBLE_OUTSIDE_POSE`（可视房间->客厅）补充近门前置，避免离门较远时仅靠分值误触发。
+      * 调试日志新增：
+        * `enterVisibleContainmentPass`
+        * `enterVisibleTargetContainmentMin`
+        * `enterVisibleSourceContainmentMax`
+        * `targetTopPoseContributors`（目标房间内贡献最高关键点 Top5，格式 `k{idx}:{加权值}@{置信度}`）
+
+---
+
+## [016] 2026-03-03 02:35:00 - Presence日志短键扩展与退出近门阈值放宽
+
+**用户指令**：
+> 日志里面还是有currentGroundX...这些很长的占用... 用尽量短的变量名... 缩写写在wiki。  
+> 然后这次从厨房出来很远才触发出门.
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：压缩 Presence 日志长度并修正“可视房间->客厅”偏晚触发。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、wiki.md、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、MainActivity.toReadablePresenceDecision、MainActivity.buildUnlockClipboardReport、MainActivity.buildDebugPanelClipboardReport
+    *   关键改动：
+      * 退出近门前置放宽：
+        * `exitVisibleNearDoorPass = (doorDist <= max(dynamicNearDist * 1.4, 0.025)) || motionNearDoorPassed`
+      * 日志新增阈值字段：`exitVisibleNearDoorLimit`（后续短键 `xvnl`）。
+      * 短键映射扩展：新增 `upw/ptm/tpc/evnp/xvnp/xvnl/evcp/evtm/evsm/psd/csd/pld/cld/dnx/dny/dmx/dmy/tcx/tcy/pgx/pgy/cgx/cgy/mhs/mnp`。
+      * 剪贴板快照中移除每次重复的 `presence legend` 行。
+      * 在 `wiki.md` 固化完整短键对照，作为唯一参考口径。
+
+---
+
+## [017] 2026-03-03 02:48:00 - 进入近门锁存修复（1帧）与短键补齐
+
+**用户指令**：
+> 这是一次新状态,但是没有成功触发客厅进入厨房.
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“ENTER_WAIT 1/2 后因近门瞬时抖动被重置”的漏触发问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、wiki.md、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、MainActivity.toReadablePresenceDecision、MainActivity.buildPresenceShortKeyLegend
+    *   关键改动：
+      * 客厅->可视房间近门判定从 `dps>0 || mnp` 改为：
+        * `dd <= max(dnd * 1.4, 0.025) || mnp`
+      * 增加 1 帧近门锁存：
+        * 当同一候选已进入 `ENTER_WAIT`（`frames>=1`）时，下一帧近门不满足可继续一次，不立即清零。
+      * 新增日志字段：
+        * `enterVisibleNearDoorRawPass`
+        * `enterVisibleNearDoorLatchPass`
+        * `enterVisibleNearDoorLimit`
+      * 对应短键与 wiki 对照补齐：
+        * `evrp` / `evlp` / `evnl`
+
+---
+
+## [018] 2026-03-03 03:20:00 - 设置页算法选择可见性修复与Presence日志序列化省流
+
+**用户指令**：
+> 设置页不是新增一行,是现在的控件有问题,所以看不到,你就直接用日志更新频率那个控件应该就没问题  
+> 顺序说明不需要放在wiki,写在日志里面就行.
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“人数算法版本”下拉当前值不可见，并将 Presence 决策日志改为固定顺序短值串，顺序说明直接写入日志。
+    *   修改文件：app/src/main/res/values/arrays.xml、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、codexHistory.md
+    *   涉及方法：SettingsHomeFragment.onViewCreated、SettingsHomeFragment.onResume、SettingsHomeFragment.buildPresenceOptionsInStableOrder、SettingsHomeFragment.syncPresenceSpinnerSelection、MainActivity.toReadablePresenceDecision、MainActivity.buildPresenceShortKeyLegend、RoiLogAggregator.snapshotForPanel
+    *   关键改动：
+      * 设置页新增 `presence_algorithm_labels` 资源数组，并让“人数算法版本”Spinner采用与“日志更新频率”同款绑定方式（`ArrayAdapter.createFromResource`）。
+      * 统一版本选项顺序（`AUTO + allVersionIds`），并在 `onResume` 强制同步 Spinner 当前选中，确保不展开下拉也能看到当前算法。
+      * `presence decision` 改为固定头字段 + 固定指标序列：
+        * 头字段：`h=[f,t,fr,md,er,lc,sg]`
+        * 指标序列：`m=[dd,dps,gpc,des,trc,src,sops,pac,srss,pts,das,scs,scsTh,srssTh,sopsTh,dnd,dad,dld,dalr]`
+        * 附加字段：`x=[pacMin,gpm]`
+      * 在调试面板日志中新增 `presence schema=...`，用于直接解释序列顺序，不再依赖 wiki。
+
+---
+
+## [019] 2026-03-03 03:45:00 - 更换算法选择控件并压缩Presence日志为纯值序列
+
+**用户指令**：
+> 设置页不是新增一行,是现在的控件有问题,所以看不到,你就直接用日志更新频率那个控件应该就没问题  
+> 日志冗余还是很多啊,理论上应该每条里面只有参数没有变量名了啊,然后用格式来组织.
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“当前算法看不到”并将 Presence 日志进一步压缩到“值序列”级别。
+    *   修改文件：app/src/main/res/layout/fragment_settings_home.xml、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、codexHistory.md
+    *   涉及方法：SettingsHomeFragment.onViewCreated、SettingsHomeFragment.onResume、SettingsHomeFragment.syncPresenceSelector、MainActivity.toReadablePresenceDecision、RoiLogAggregator.appendPresenceSnapshotIfNeeded、RoiLogAggregator.parsePresenceHistoryEntry、RoiLogAggregator.formatCompressedEntry
+    *   关键改动：
+      * 将 `spn_presence_algorithm_version` 替换为 `btn_presence_algorithm_version`，采用“按钮 + 单选弹窗”方式选算法，避免 Spinner 在当前主题下不可见。
+      * 每次进入设置页与切换后都刷新按钮文本，保证当前算法始终直观可见。
+      * `presence decision` 输出改为纯值序列：
+        * `REASON|h[...值...]|m[...值...]|x[...值...]`
+        * 其中 `h/m/x` 的顺序定义仅保留在 `presence schema` 一行。
+      * `presenceRecent` 历史项改为纯值分段格式：
+        * `[{frame},{ms},{hash}]|{event}|{decision}|{counts}`
+        * 去掉 `event=/decision=/counts=` 等字段名冗余。
 
 ---
 

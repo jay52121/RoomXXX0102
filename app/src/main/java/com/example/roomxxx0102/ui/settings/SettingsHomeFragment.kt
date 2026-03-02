@@ -9,6 +9,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +18,7 @@ import com.example.roomxxx0102.R
 import com.example.roomxxx0102.data.repository.AppSettings
 import com.example.roomxxx0102.data.repository.RoomRepository
 import com.example.roomxxx0102.databinding.FragmentSettingsHomeBinding
+import com.example.roomxxx0102.logic.presence.PresenceAlgorithmRegistry
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.BufferedReader
@@ -37,6 +39,33 @@ class SettingsHomeFragment : Fragment() {
     private var statusRunnable: Runnable? = null
     private val httpClient = OkHttpClient()
     private val binding get() = _binding!!
+    private var presenceAlgoOptions: List<PresenceAlgorithmRegistry.AlgorithmOption> = emptyList()
+
+    private fun buildPresenceOptionsInStableOrder(): List<PresenceAlgorithmRegistry.AlgorithmOption> {
+        val options = mutableListOf(
+            PresenceAlgorithmRegistry.AlgorithmOption(
+                PresenceAlgorithmRegistry.AUTO_LATEST,
+                "自动(最新)"
+            )
+        )
+        PresenceAlgorithmRegistry.allVersionIds().forEach { versionId ->
+            options.add(PresenceAlgorithmRegistry.AlgorithmOption(versionId, versionId))
+        }
+        return options
+    }
+
+    private fun resolvePresenceSelectionIndex(): Int {
+        val currentVersion = AppSettings.presenceAlgorithmVersion
+        return presenceAlgoOptions.indexOfFirst { it.id == currentVersion }
+            .takeIf { it >= 0 } ?: 0
+    }
+
+    private fun syncPresenceSelector() {
+        if (_binding == null || presenceAlgoOptions.isEmpty()) return
+        val selected = presenceAlgoOptions.getOrNull(resolvePresenceSelectionIndex())
+            ?: presenceAlgoOptions.first()
+        binding.btnPresenceAlgorithmVersion.text = selected.label
+    }
 
 
     private fun startTrackerStatusPolling() {
@@ -146,7 +175,10 @@ class SettingsHomeFragment : Fragment() {
         binding.switchShowPoint.isChecked = AppSettings.isCenterPointShown
         binding.switchPoseMode.isChecked = AppSettings.isPoseModeEnabled
         binding.switchRoiCrop.isChecked = AppSettings.isRoiRealCropEnabled
+        binding.switchStillStandardFrame.isChecked = AppSettings.isStillStandardFrameEnabled
+        binding.switchClipboardDebug.isChecked = AppSettings.isClipboardDebugOnStepEnabled
         binding.switchNewTracker.isChecked = AppSettings.isNewTrackerPredictionEnabled
+        binding.switchPauseOnRoomSwitch.isChecked = AppSettings.isPauseOnRoomSwitchEnabled
         binding.tvTrackerStatus.text = if (AppSettings.isNewTrackerPredictionEnabled) "ByteTrack：检测中" else "ByteTrack：未启用"
 
         binding.spnRoiLogMode.setSelection(AppSettings.roiLogMode)
@@ -156,6 +188,28 @@ class SettingsHomeFragment : Fragment() {
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+
+        // 人数算法版本选择（按钮 + 单选弹窗，避免 Spinner 在当前主题下显示异常）
+        presenceAlgoOptions = buildPresenceOptionsInStableOrder()
+        syncPresenceSelector()
+        binding.btnPresenceAlgorithmVersion.setOnClickListener {
+            val labels = presenceAlgoOptions.map { option -> option.label }.toTypedArray()
+            var selectedIndex = resolvePresenceSelectionIndex()
+            AlertDialog.Builder(requireContext())
+                .setTitle("人数算法版本")
+                .setSingleChoiceItems(labels, selectedIndex) { _, which ->
+                    selectedIndex = which
+                }
+                .setPositiveButton("确定") { _, _ ->
+                    val option = presenceAlgoOptions.getOrNull(selectedIndex)
+                    if (option != null) {
+                        AppSettings.setPresenceAlgorithmVersion(option.id)
+                        syncPresenceSelector()
+                    }
+                }
+                .setNegativeButton("取消", null)
+                .show()
         }
 
         // 开关监听
@@ -175,10 +229,25 @@ class SettingsHomeFragment : Fragment() {
             AppSettings.setRoiRealCropEnabled(isChecked)
         }
 
+        binding.switchStillStandardFrame.setOnCheckedChangeListener { _, isChecked ->
+            AppSettings.setStillStandardFrameEnabled(isChecked)
+        }
+
+        binding.switchClipboardDebug.setOnCheckedChangeListener { _, isChecked ->
+            AppSettings.setClipboardDebugOnStepEnabled(isChecked)
+            if (isChecked) {
+                Toast.makeText(context, "已开启：+1帧触发后若发生unlock将写入剪贴板", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         binding.switchNewTracker.setOnCheckedChangeListener { _, isChecked ->
             AppSettings.setNewTrackerPredictionEnabled(isChecked)
             binding.tvTrackerStatus.text = if (isChecked) "ByteTrack：检测中" else "ByteTrack：未启用"
             if (isChecked) startTrackerStatusPolling() else stopTrackerStatusPolling()
+        }
+
+        binding.switchPauseOnRoomSwitch.setOnCheckedChangeListener { _, isChecked ->
+            AppSettings.setPauseOnRoomSwitchEnabled(isChecked)
         }
 
         // 区域设置入口
@@ -249,6 +318,7 @@ class SettingsHomeFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
+        syncPresenceSelector()
         if (AppSettings.isNewTrackerPredictionEnabled) startTrackerStatusPolling() else stopTrackerStatusPolling()
     }
 

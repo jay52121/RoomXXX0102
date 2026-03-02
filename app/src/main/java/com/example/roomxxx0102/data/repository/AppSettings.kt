@@ -17,6 +17,10 @@ object AppSettings {
     private const val KEY_TEST_VIDEO_URI = "test_video_uri"
     private const val KEY_ENABLE_NEW_TRACKER = "enable_new_tracker"
     private const val KEY_ROI_LOG_MODE = "roi_log_mode"
+    private const val KEY_STILL_STANDARD_FRAME = "still_standard_frame"
+    private const val KEY_CLIPBOARD_DEBUG_ON_STEP = "clipboard_debug_on_step"
+    private const val KEY_PRESENCE_ALGO_VERSION = "presence_algorithm_version"
+    private const val KEY_PAUSE_ON_ROOM_SWITCH = "pause_on_room_switch"
 
     private lateinit var prefs: SharedPreferences
 
@@ -35,10 +39,19 @@ object AppSettings {
         private set
     var roiLogMode: Int = ROI_LOG_MODE_TIME
         private set
+    var isStillStandardFrameEnabled: Boolean = false
+        private set
+    var isClipboardDebugOnStepEnabled: Boolean = false
+        private set
+    var presenceAlgorithmVersion: String = PRESENCE_ALGO_AUTO
+        private set
+    var isPauseOnRoomSwitchEnabled: Boolean = false
+        private set
 
     const val ROI_LOG_MODE_TIME = 0
     const val ROI_LOG_MODE_MOVE = 1
     const val ROI_LOG_MODE_OFF = 2
+    const val PRESENCE_ALGO_AUTO = "AUTO_LATEST"
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -50,6 +63,10 @@ object AppSettings {
         testVideoUri = prefs.getString(KEY_TEST_VIDEO_URI, null)
         isNewTrackerPredictionEnabled = prefs.getBoolean(KEY_ENABLE_NEW_TRACKER, false)
         roiLogMode = prefs.getInt(KEY_ROI_LOG_MODE, ROI_LOG_MODE_TIME)
+        isStillStandardFrameEnabled = prefs.getBoolean(KEY_STILL_STANDARD_FRAME, false)
+        isClipboardDebugOnStepEnabled = prefs.getBoolean(KEY_CLIPBOARD_DEBUG_ON_STEP, false)
+        presenceAlgorithmVersion = prefs.getString(KEY_PRESENCE_ALGO_VERSION, PRESENCE_ALGO_AUTO) ?: PRESENCE_ALGO_AUTO
+        isPauseOnRoomSwitchEnabled = prefs.getBoolean(KEY_PAUSE_ON_ROOM_SWITCH, false)
     }
 
     fun setDebugBoxShown(show: Boolean) {
@@ -89,5 +106,25 @@ object AppSettings {
     fun setRoiLogMode(mode: Int) {
         roiLogMode = mode
         prefs.edit().putInt(KEY_ROI_LOG_MODE, mode).apply()
+    }
+
+    fun setStillStandardFrameEnabled(enable: Boolean) {
+        isStillStandardFrameEnabled = enable
+        prefs.edit().putBoolean(KEY_STILL_STANDARD_FRAME, enable).apply()
+    }
+
+    fun setClipboardDebugOnStepEnabled(enable: Boolean) {
+        isClipboardDebugOnStepEnabled = enable
+        prefs.edit().putBoolean(KEY_CLIPBOARD_DEBUG_ON_STEP, enable).apply()
+    }
+
+    fun setPresenceAlgorithmVersion(version: String) {
+        presenceAlgorithmVersion = if (version.isBlank()) PRESENCE_ALGO_AUTO else version
+        prefs.edit().putString(KEY_PRESENCE_ALGO_VERSION, presenceAlgorithmVersion).apply()
+    }
+
+    fun setPauseOnRoomSwitchEnabled(enable: Boolean) {
+        isPauseOnRoomSwitchEnabled = enable
+        prefs.edit().putBoolean(KEY_PAUSE_ON_ROOM_SWITCH, enable).apply()
     }
 }

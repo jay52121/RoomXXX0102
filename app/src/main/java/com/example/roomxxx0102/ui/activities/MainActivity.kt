@@ -4,6 +4,8 @@ import com.example.roomxxx0102.data.model.BoundaryVertex
 import android.widget.CheckBox
 import android.Manifest
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
@@ -13,8 +15,11 @@ import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.util.Size
+import android.view.MotionEvent
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
@@ -41,17 +46,21 @@ import com.example.roomxxx0102.R
 import com.example.roomxxx0102.data.model.RoomConfig
 import com.example.roomxxx0102.data.repository.AppSettings
 import com.example.roomxxx0102.data.repository.RoomRepository
+import com.example.roomxxx0102.logic.analyzer.RoiLogAggregator
 import com.example.roomxxx0102.logic.analyzer.RoiTracker
 import com.example.roomxxx0102.logic.analyzer.YoloAnalyzer
 import com.example.roomxxx0102.logic.analyzer.YoloPoseAnalyzer
 import com.example.roomxxx0102.logic.presence.PresenceOutsideMode
+import com.example.roomxxx0102.logic.presence.PresenceKeypoint
 import com.example.roomxxx0102.logic.presence.PresencePoint
+import com.example.roomxxx0102.logic.presence.PresenceRect
 import com.example.roomxxx0102.logic.presence.PresenceRoomSnapshot
 import com.example.roomxxx0102.logic.presence.PresenceStrength
 import com.example.roomxxx0102.logic.presence.PresenceTrackObservation
 import com.example.roomxxx0102.logic.presence.PresenceDoorSnapshot
+import com.example.roomxxx0102.logic.presence.PresenceAlgorithmEngine
+import com.example.roomxxx0102.logic.presence.PresenceAlgorithmRegistry
 import com.example.roomxxx0102.logic.presence.RoomPresenceChangeLogger
-import com.example.roomxxx0102.logic.presence.RoomTransitionEstimator
 import com.example.roomxxx0102.logic.video.VideoFeeder
 import com.example.roomxxx0102.ui.views.DetectionOverlayView
 import com.example.roomxxx0102.ui.views.LivingRoomEditorView
@@ -97,9 +106,18 @@ class MainActivity : ComponentActivity() {
     private enum class PlayState { PLAYING, STILL, PAUSED }
     private var currentPlayState = PlayState.PLAYING
     private var isDebugPanelEnabled = false
+    private var unlockClipboardArmedUntilMs = 0L
+    private var unlockClipboardCaptured = false
+    private var unlockClipboardTrigger: String = ""
+    private val unlockClipboardWindowMs = 1500L
+    private var lastPlusOneSeekDebug: VideoFeeder.StepSeekDebug? = null
+    private val seekHoldHandler = Handler(Looper.getMainLooper())
+    private var seekHoldActive = false
+    private var seekHoldDirection = 0 // -1: 后退, +1: 前进
+    private val seekHoldStartDelayMs = 500L
 
     // Presence 估计引擎（位置判定/房间切换事件）
-    private val roomTransitionEstimator = RoomTransitionEstimator()
+    private lateinit var roomPresenceAlgorithm: PresenceAlgorithmEngine
     private val roomPresenceChangeLogger = RoomPresenceChangeLogger("ROOM_PRESENCE_CHANGE")
 
     private var isAddSubRoomMode = false
@@ -137,6 +155,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         RoomRepository.init(applicationContext)
         AppSettings.init(applicationContext)
+        ensurePresenceAlgorithmVersion()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         hideSystemUI()
         setContentView(R.layout.activity_main)
@@ -149,8 +168,8 @@ class MainActivity : ComponentActivity() {
                 val shouldersTrusted = if (kpts.size > 6) {
                     val leftShoulder = kpts[5]
                     val rightShoulder = kpts[6]
-                    leftShoulder.conf >= com.example.roomxxx0102.data.model.POSE_HIGH_CONFIDENCE_THRESHOLD &&
-                        rightShoulder.conf >= com.example.roomxxx0102.data.model.POSE_HIGH_CONFIDENCE_THRESHOLD
+                    leftShoulder.conf >= 0.7f &&
+                        rightShoulder.conf >= 0.7f
                 } else {
                     false
                 }
@@ -177,20 +196,46 @@ class MainActivity : ComponentActivity() {
 
             // Presence 估计：独立工具类统一处理“位置判定/房间切换事件/持久化人数”
             val observedTargets = results.map { pose ->
+                val box = pose.box
                 PresenceTrackObservation(
                     trackId = pose.id,
                     landingPoint = PresencePoint(
                         x = pose.landingPoint.x.toDouble(),
                         y = pose.landingPoint.y.toDouble()
                     ),
-                    strength = toPresenceStrength(pose)
+                    strength = toPresenceStrength(pose),
+                    groundConfidence = estimateGroundConfidence(pose),
+                    personBox = PresenceRect(
+                        left = minOf(box.left, box.right).toDouble(),
+                        top = minOf(box.top, box.bottom).toDouble(),
+                        right = maxOf(box.left, box.right).toDouble(),
+                        bottom = maxOf(box.top, box.bottom).toDouble()
+                    ),
+                    keypoints = pose.keypoints.map { keypoint ->
+                        PresenceKeypoint(
+                            x = keypoint.x.toDouble(),
+                            y = keypoint.y.toDouble(),
+                            confidence = keypoint.conf.toDouble()
+                        )
+                    }
                 )
             }
-            val presenceResult = roomTransitionEstimator.processFrame(
+            val presenceResult = roomPresenceAlgorithm.processFrame(
                 rooms = buildPresenceRoomSnapshots(allRooms),
                 doors = buildPresenceDoorSnapshots(allRooms),
                 observations = observedTargets,
                 outsideMode = PresenceOutsideMode.INVISIBLE
+            )
+            val roomNameById = allRooms.associate { it.id to it.name }
+            RoiLogAggregator.updatePresenceDebug(
+                algoVersion = roomPresenceAlgorithm.versionId,
+                eventText = buildPresenceEventText(presenceResult.events, roomNameById),
+                decisionText = toReadablePresenceDecision(
+                    presenceResult.rejectedReasons.firstOrNull() ?: "NO_DECISION",
+                    roomNameById
+                ),
+                countsText = buildPresenceCountsText(presenceResult.presenceCounts, roomNameById),
+                posMs = videoFeeder?.getCurrentPositionMs()
             )
             allRooms.forEach { room ->
                 room.persistentPersonCount = presenceResult.presenceCounts[room.id] ?: 0
@@ -199,9 +244,14 @@ class MainActivity : ComponentActivity() {
                 timestampMs = System.currentTimeMillis(),
                 events = presenceResult.events,
                 counts = presenceResult.presenceCounts,
-                roomNameById = allRooms.associate { it.id to it.name }
+                roomNameById = roomNameById
             )?.let { line ->
-                Log.d("RoomPresence", line)
+                Log.d("RoomPresence", "$line algo=${roomPresenceAlgorithm.versionId}")
+            }
+            val presenceSwitchBanner = presenceResult.events.lastOrNull()?.let { event ->
+                val fromName = roomNameById[event.fromRoomId] ?: event.fromRoomId
+                val toName = roomNameById[event.toRoomId] ?: event.toRoomId
+                "位置切换: $fromName->$toName (${event.reason})"
             }
 
             val livingRoomCount = livingRoom?.personCount ?: 0
@@ -242,6 +292,22 @@ class MainActivity : ComponentActivity() {
             }
 
             runOnUiThread {
+                if (presenceResult.events.isNotEmpty() &&
+                    seekHoldActive &&
+                    seekHoldDirection > 0 &&
+                    currentPlayState == PlayState.STILL
+                ) {
+                    stopSeekHold()
+                    overlayView.showUnlockBanner("检测到房间切换，已停止+1帧长按")
+                }
+                if (presenceResult.events.isNotEmpty() &&
+                    AppSettings.isPauseOnRoomSwitchEnabled &&
+                    currentPlayState == PlayState.PLAYING
+                ) {
+                    val pauseButton = findViewById<Button>(R.id.btnPause)
+                    togglePause(pauseButton)
+                    overlayView.showUnlockBanner("检测到房间切换，已自动暂停")
+                }
                 overlayView.updatePoseData(results, bitmap, time)
                 overlayView.postInvalidate() 
                 tvRoomCount.text = getString(R.string.room_people_count, livingRoomCount)
@@ -254,6 +320,10 @@ class MainActivity : ComponentActivity() {
                 overlayView.setRoiRatio(roiRatio)
                 poseAnalyzer?.consumeUnlockMessage()?.let { msg ->
                     overlayView.showUnlockBanner(msg)
+                    tryCaptureUnlockDebugToClipboard(msg)
+                }
+                if (presenceSwitchBanner != null) {
+                    overlayView.showUnlockBanner(presenceSwitchBanner)
                 }
             }
         }
@@ -261,6 +331,9 @@ class MainActivity : ComponentActivity() {
         videoFeeder = VideoFeeder(this, textureView).apply {
             this.yoloAnalyzer = this@MainActivity.yoloAnalyzer
             this.poseAnalyzer = this@MainActivity.poseAnalyzer
+            this.onStepNudge = { msg ->
+                overlayView.showUnlockBanner(msg)
+            }
         }
 
         setupButtons()
@@ -292,12 +365,50 @@ class MainActivity : ComponentActivity() {
         val shouldersTrusted = if (kpts.size > 6) {
             val leftShoulder = kpts[5]
             val rightShoulder = kpts[6]
-            leftShoulder.conf >= com.example.roomxxx0102.data.model.POSE_HIGH_CONFIDENCE_THRESHOLD &&
-                rightShoulder.conf >= com.example.roomxxx0102.data.model.POSE_HIGH_CONFIDENCE_THRESHOLD
+            leftShoulder.conf >= 0.7f &&
+                rightShoulder.conf >= 0.7f
         } else {
             false
         }
         return if (shouldersTrusted) PresenceStrength.STRONG else PresenceStrength.WEAK
+    }
+
+    /**
+     * 估算地面落点可信度（A_conf）。
+     *
+     * 说明：
+     * 1) 优先依赖脚踝关键点置信度。
+     * 2) 脚踝弱时，退化参考 lock 状态与双肩可信度。
+     * 3) 该值仅用于 Presence 进入评分，不影响现有框绘制与 lock 逻辑。
+     */
+    private fun estimateGroundConfidence(pose: com.example.roomxxx0102.data.model.PoseResult): Double {
+        val kpts = pose.keypoints
+        if (kpts.size < 17) return 0.25
+
+        val leftAnkle = kpts[15].conf
+        val rightAnkle = kpts[16].conf
+        val bothAnklesHigh = leftAnkle >= 0.50f && rightAnkle >= 0.50f
+        val oneAnkleHigh = leftAnkle >= 0.50f || rightAnkle >= 0.50f
+        val oneAnkleMedium = leftAnkle >= 0.20f || rightAnkle >= 0.20f
+
+        val shouldersTrusted = if (kpts.size > 6) {
+            val leftShoulder = kpts[5]
+            val rightShoulder = kpts[6]
+            leftShoulder.conf >= 0.7f &&
+                rightShoulder.conf >= 0.7f
+        } else {
+            false
+        }
+
+        val conf = when {
+            bothAnklesHigh -> 1.00
+            oneAnkleHigh -> 0.85
+            oneAnkleMedium -> 0.65
+            pose.isConfirmed && shouldersTrusted -> 0.50
+            shouldersTrusted -> 0.40
+            else -> 0.25
+        }
+        return conf.coerceIn(0.0, 1.0)
     }
 
     /**
@@ -358,19 +469,161 @@ class MainActivity : ComponentActivity() {
         return doors
     }
 
+    private fun buildPresenceEventText(
+        events: List<com.example.roomxxx0102.logic.presence.PresenceSwitchEvent>,
+        roomNameById: Map<String, String>
+    ): String {
+        val event = events.lastOrNull() ?: return "-"
+        val fromName = roomNameById[event.fromRoomId] ?: event.fromRoomId
+        val toName = roomNameById[event.toRoomId] ?: event.toRoomId
+        return "$fromName->$toName (${event.reason})"
+    }
+
+    private fun buildPresenceCountsText(
+        counts: Map<String, Int>,
+        roomNameById: Map<String, String>
+    ): String {
+        val nonZero = counts
+            .filterValues { it > 0 }
+            .map { (roomId, value) ->
+                val roomName = roomNameById[roomId] ?: roomId
+                roomName to value
+            }
+            .sortedBy { it.first }
+        if (nonZero.isEmpty()) return "{}"
+        return nonZero.joinToString(prefix = "{", postfix = "}") { "${it.first}:${it.second}" }
+    }
+
+    private fun toReadablePresenceDecision(
+        raw: String,
+        roomNameById: Map<String, String>
+    ): String {
+        var text = raw
+        val sortedIds = roomNameById.keys.sortedByDescending { it.length }
+        for (id in sortedIds) {
+            val name = roomNameById[id] ?: continue
+            text = text.replace(id, name)
+        }
+        // 门ID一般包含房间UUID，调试面板里去掉可读性更高。
+        text = text.replace(Regex("door=[^\\s]+\\s*"), "")
+        // 去掉 track ID，避免阅读时干扰。
+        text = text.replace(Regex("track=\\d+\\s*"), "")
+        val shortKeyMap = linkedMapOf(
+            "from" to "f",
+            "to" to "t",
+            "frames" to "fr",
+            "mode" to "md",
+            "exitRule" to "er",
+            "lowConf" to "lc",
+            "scoreGap" to "sg",
+            "doorDist" to "dd",
+            "doorProximityScore" to "dps",
+            "groundPointConfidence" to "gpc",
+            "doorEvidenceScore" to "des",
+            "targetRoomContainmentRatio" to "trc",
+            "sourceRoomContainmentRatio" to "src",
+            "sourceRoomOutsidePoseScore" to "sops",
+            "exitOutsidePoseScoreThreshold" to "sopsTh",
+            "poseAverageConfidence" to "pac",
+            "sourceRoomStayScore" to "srss",
+            "poseTransitionScore" to "pts",
+            "doorAssistScore" to "das",
+            "switchConfidenceScore" to "scs",
+            "switchThreshold" to "scsTh",
+            "exitSourceRoomScoreThreshold" to "srssTh",
+            "dynamicNearDist" to "dnd",
+            "doorAdvanceDelta" to "dad",
+            "doorLateralDelta" to "dld",
+            "doorAdvanceLateralRatio" to "dalr",
+            "exitPoseMinConfidence" to "pacMin",
+            "grayPoseMinConfidence" to "gpm"
+        )
+        for ((longKey, shortKey) in shortKeyMap) {
+            text = text.replace("$longKey=", "$shortKey=")
+        }
+
+        val tokens = text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (tokens.isEmpty()) return "-"
+
+        val reason = tokens.first()
+        val kv = linkedMapOf<String, String>()
+        for (token in tokens.drop(1)) {
+            val idx = token.indexOf('=')
+            if (idx <= 0 || idx >= token.length - 1) continue
+            val key = token.substring(0, idx).trim()
+            val value = token.substring(idx + 1).trim()
+            if (key.isNotEmpty() && value.isNotEmpty()) {
+                kv[key] = value
+            }
+        }
+        if (kv.isEmpty()) return reason
+
+        val headerKeys = listOf("f", "t", "fr", "md", "er", "lc", "sg")
+        val headValues = headerKeys.map { key -> kv[key] ?: "-" }
+
+        val metricKeys = listOf(
+            "dd", "dps", "gpc", "des", "trc", "src", "sops",
+            "pac", "srss", "pts", "das", "scs", "scsTh",
+            "srssTh", "sopsTh", "dnd", "dad", "dld", "dalr"
+        )
+        val metrics = metricKeys.joinToString(
+            separator = ",",
+            prefix = "[",
+            postfix = "]"
+        ) { key ->
+            kv[key] ?: "-"
+        }
+
+        val extraKeys = listOf("pacMin", "gpm")
+        val extraValues = extraKeys.joinToString(
+            separator = ",",
+            prefix = "[",
+            postfix = "]"
+        ) { key ->
+            kv[key] ?: "-"
+        }
+
+        return buildString {
+            append(reason)
+            append("|h[")
+            append(headValues.joinToString(","))
+            append("]|m")
+            append(metrics)
+            append("|x")
+            append(extraValues)
+        }
+    }
+
+    private fun buildPresenceShortKeyLegend(): String {
+        return "h=[f,t,fr,md,er,lc,sg] m=[dd,dps,gpc,des,trc,src,sops,pac,srss,pts,das,scs,scsTh,srssTh,sopsTh,dnd,dad,dld,dalr] x=[pacMin,gpm]"
+    }
+
     private fun setupButtons() {
         val btnPause = findViewById<Button>(R.id.btnPause)
+        val btnRewind = findViewById<Button>(R.id.btnRewind)
+        val btnForward = findViewById<Button>(R.id.btnForward)
         btnPause.setOnClickListener { togglePause(it as Button) }
         btnPause.setOnLongClickListener {
             hardRestartPlayback()
             true
         }
-        findViewById<Button>(R.id.btnRewind).setOnClickListener { onSeekBackwardRequested() }
-        findViewById<Button>(R.id.btnForward).setOnClickListener { onSeekForwardRequested() }
-        findViewById<Button>(R.id.btnDebugPanel).setOnClickListener {
+        btnRewind.setOnClickListener { onSeekBackwardRequested() }
+        btnForward.setOnClickListener { onSeekForwardRequested() }
+        btnRewind.setOnTouchListener(createSeekHoldTouchListener(direction = -1))
+        btnForward.setOnTouchListener(createSeekHoldTouchListener(direction = 1))
+        val btnDebugPanel = findViewById<Button>(R.id.btnDebugPanel)
+        btnDebugPanel.setOnClickListener {
             isDebugPanelEnabled = !isDebugPanelEnabled
             overlayView.setDebugPanelEnabled(isDebugPanelEnabled)
             refreshDebugPanelButton()
+        }
+        btnDebugPanel.setOnLongClickListener {
+            val report = buildDebugPanelClipboardReport(System.currentTimeMillis())
+            val copied = copyTextToClipboard("debug_panel_report", report)
+            if (copied) {
+                Toast.makeText(this, "已复制调试面板信息", Toast.LENGTH_SHORT).show()
+            }
+            true
         }
         findViewById<Button>(R.id.btnSettings).setOnClickListener {
             captureCurrentFrame()
@@ -948,6 +1201,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        ensurePresenceAlgorithmVersion()
         applySettings()
         refreshOverlayDisplay()
         if (isVideoMode) {
@@ -962,7 +1216,22 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
+        stopSeekHold()
         if (isVideoMode) videoFeeder?.pause()
+    }
+
+    /**
+     * 同步设置中的 Presence 算法版本。
+     * 仅当版本变化时重建引擎，避免运行中状态被频繁打断。
+     */
+    private fun ensurePresenceAlgorithmVersion() {
+        val selectedId = AppSettings.presenceAlgorithmVersion
+        val resolvedId = PresenceAlgorithmRegistry.resolveVersionId(selectedId)
+        if (!::roomPresenceAlgorithm.isInitialized || roomPresenceAlgorithm.versionId != resolvedId) {
+            roomPresenceAlgorithm = PresenceAlgorithmRegistry.create(selectedId)
+            roomPresenceChangeLogger.reset()
+            Log.i("RoomPresence", "Presence算法已切换: ${roomPresenceAlgorithm.versionId}")
+        }
     }
 
     private fun applySettings() {
@@ -983,9 +1252,179 @@ class MainActivity : ComponentActivity() {
 
     private fun onSeekForwardRequested() {
         if (currentPlayState == PlayState.STILL) {
-            videoFeeder?.seekForwardFrame()
+            if (AppSettings.isClipboardDebugOnStepEnabled) {
+                armUnlockClipboardCapture("+1帧")
+            }
+            lastPlusOneSeekDebug = videoFeeder?.seekForwardFrame()
         } else {
             videoFeeder?.seekForward(5)
+        }
+    }
+
+    /**
+     * 武装一次 unlock 调试抓取窗口：
+     * 在 +1帧 后的短时间内，如果发生 unlock，就把快照复制到剪贴板。
+     */
+    private fun armUnlockClipboardCapture(trigger: String) {
+        unlockClipboardArmedUntilMs = System.currentTimeMillis() + unlockClipboardWindowMs
+        unlockClipboardCaptured = false
+        unlockClipboardTrigger = trigger
+        lastPlusOneSeekDebug = null
+    }
+
+    private fun tryCaptureUnlockDebugToClipboard(unlockMessage: String) {
+        if (!AppSettings.isClipboardDebugOnStepEnabled) return
+        val now = System.currentTimeMillis()
+        if (unlockClipboardCaptured) return
+        if (unlockClipboardArmedUntilMs <= 0L || now > unlockClipboardArmedUntilMs) return
+
+        val report = buildUnlockClipboardReport(unlockMessage, now)
+        val copied = copyTextToClipboard("unlock_debug", report)
+        if (copied) {
+            unlockClipboardCaptured = true
+            unlockClipboardArmedUntilMs = 0L
+            Toast.makeText(this, "已复制 unlock 调试信息到剪贴板", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun buildUnlockClipboardReport(unlockMessage: String, nowMs: Long): String {
+        val panelLines = RoiLogAggregator.snapshotForPanel(includePresenceHistory = false)
+        val presenceHistory = RoiLogAggregator.snapshotPresenceHistory(8)
+        val recentLines = RoiLogAggregator.snapshotRecentFrames(8)
+        val currentPos = videoFeeder?.getCurrentPositionMs()
+        val seekDonePos = videoFeeder?.getLastSeekCompletePositionMs()
+        val seekDoneTs = videoFeeder?.getLastSeekCompleteAtMs() ?: 0L
+        val step = lastPlusOneSeekDebug ?: videoFeeder?.peekLastStepSeekDebug()
+        val builder = StringBuilder()
+        builder.appendLine("=== RoomFlow Unlock 调试快照 ===")
+        builder.appendLine("timeMs=$nowMs")
+        builder.appendLine("trigger=$unlockClipboardTrigger")
+        builder.appendLine("playState=$currentPlayState")
+        builder.appendLine(
+            "settings newTracker=${AppSettings.isNewTrackerPredictionEnabled} " +
+                "stillStandard=${AppSettings.isStillStandardFrameEnabled} " +
+                "roiCrop=${AppSettings.isRoiRealCropEnabled} " +
+                "roiLogMode=${AppSettings.roiLogMode} " +
+                "pauseOnSwitch=${AppSettings.isPauseOnRoomSwitchEnabled}"
+        )
+        if (step != null) {
+            builder.appendLine(
+                "stepSeek before=${step.beforeMs} target=${step.targetMs} afterCall=${step.afterCallMs} " +
+                    "delta=${step.deltaMs} issuedAt=${step.issuedAtMs}"
+            )
+            builder.appendLine(
+                "stepNudge applied=${step.nudgeApplied} delta=${step.nudgeDeltaMs} " +
+                    "before=${step.nudgeBeforeMs ?: -1} afterCall=${step.nudgeAfterCallMs ?: -1} " +
+                    "baseDigest=${step.baseDigest ?: "null"}"
+            )
+        } else {
+            builder.appendLine("stepSeek unavailable")
+        }
+        builder.appendLine("seekState currentPos=${currentPos ?: -1} seekCompletePos=${seekDonePos ?: -1} seekCompleteAt=$seekDoneTs")
+        builder.appendLine("unlock=$unlockMessage")
+        builder.appendLine("--- panel ---")
+        panelLines.forEach { builder.appendLine(it) }
+        builder.appendLine("--- presenceRecent ---")
+        if (presenceHistory.isEmpty()) {
+            builder.appendLine("(empty)")
+        } else {
+            presenceHistory.forEach { builder.appendLine(it) }
+        }
+        builder.appendLine("--- recentFrames ---")
+        recentLines.forEach { builder.appendLine(it) }
+        return builder.toString()
+    }
+
+    /**
+     * 长按“调试面板”按钮时导出的即时快照。
+     * 用于排查 Presence/ROI 状态，不依赖 unlock 触发。
+     */
+    private fun buildDebugPanelClipboardReport(nowMs: Long): String {
+        val panelLines = RoiLogAggregator.snapshotForPanel(includePresenceHistory = false)
+        val presenceHistory = RoiLogAggregator.snapshotPresenceHistory(8)
+        val currentPos = videoFeeder?.getCurrentPositionMs()
+        val builder = StringBuilder()
+        builder.appendLine("=== RoomFlow 调试面板快照 ===")
+        builder.appendLine("timeMs=$nowMs")
+        builder.appendLine("playState=$currentPlayState")
+        builder.appendLine("videoPosMs=${currentPos ?: -1}")
+        builder.appendLine(
+            "settings newTracker=${AppSettings.isNewTrackerPredictionEnabled} " +
+                "stillStandard=${AppSettings.isStillStandardFrameEnabled} " +
+                "roiCrop=${AppSettings.isRoiRealCropEnabled} " +
+                "roiLogMode=${AppSettings.roiLogMode} " +
+                "pauseOnSwitch=${AppSettings.isPauseOnRoomSwitchEnabled} " +
+                "presenceAlgo=${roomPresenceAlgorithm.versionId}"
+        )
+        builder.appendLine("--- panel ---")
+        panelLines.forEach { builder.appendLine(it) }
+        builder.appendLine("--- presenceRecent ---")
+        if (presenceHistory.isEmpty()) {
+            builder.appendLine("(empty)")
+        } else {
+            presenceHistory.forEach { builder.appendLine(it) }
+        }
+        return builder.toString()
+    }
+
+    private fun copyTextToClipboard(label: String, content: String): Boolean {
+        return try {
+            val clipboard = getSystemService(ClipboardManager::class.java)
+            if (clipboard == null) {
+                Toast.makeText(this, "剪贴板不可用", Toast.LENGTH_SHORT).show()
+                false
+            } else {
+                clipboard.setPrimaryClip(ClipData.newPlainText(label, content))
+                true
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "写入剪贴板失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            false
+        }
+    }
+
+    private fun createSeekHoldTouchListener(direction: Int): View.OnTouchListener {
+        return View.OnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    if (currentPlayState == PlayState.STILL) {
+                        startSeekHold(direction)
+                    }
+                }
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    stopSeekHold()
+                }
+            }
+            false
+        }
+    }
+
+    private fun startSeekHold(direction: Int) {
+        stopSeekHold()
+        if (currentPlayState != PlayState.STILL) return
+        seekHoldActive = true
+        seekHoldDirection = direction
+        seekHoldHandler.postDelayed(seekHoldRunnable, seekHoldStartDelayMs)
+    }
+
+    private fun stopSeekHold() {
+        seekHoldActive = false
+        seekHoldDirection = 0
+        seekHoldHandler.removeCallbacks(seekHoldRunnable)
+    }
+
+    private val seekHoldRunnable = object : Runnable {
+        override fun run() {
+            if (!seekHoldActive || currentPlayState != PlayState.STILL) return
+            if (seekHoldDirection > 0) {
+                onSeekForwardRequested()
+            } else if (seekHoldDirection < 0) {
+                onSeekBackwardRequested()
+            }
+            val stepMs = videoFeeder?.getFrameStepMs() ?: 33
+            val interval = (stepMs * 2).coerceAtLeast(16)
+            seekHoldHandler.postDelayed(this, interval.toLong())
         }
     }
 
@@ -1040,7 +1479,7 @@ class MainActivity : ComponentActivity() {
     private fun hardRestartPlayback() {
         yoloAnalyzer?.reset()
         poseAnalyzer?.resetTrackingState()
-        roomTransitionEstimator.reset()
+        roomPresenceAlgorithm.reset()
         roomPresenceChangeLogger.reset()
         roiTracker.resetSmoothing()
         roiMissingFrameCount = 0

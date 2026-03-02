@@ -160,7 +160,13 @@ class YoloPoseAnalyzer(
      * @param roi 可选的感兴趣区域 (0.0~1.0)。如果不为 null，将裁剪该区域进行推理。
      * @param drawOnOverlay 是否将原图传递给回调用于绘制背景 (调试用)。
      */
-    fun analyzeBitmapAndTrackPoses(bitmap: Bitmap, roi: RectF? = null, drawOnOverlay: Boolean = true) {
+    fun analyzeBitmapAndTrackPoses(
+        bitmap: Bitmap,
+        roi: RectF? = null,
+        drawOnOverlay: Boolean = true,
+        temporalAdvanced: Boolean = true,
+        suppressStagnantUnlock: Boolean = false
+    ) {
         val frameId = ++heartbeatFrameId
         if (interpreter == null) {
             if (drawOnOverlay) onPoseAnalysisResultsUpdated(emptyList(), bitmap, 0L)
@@ -211,7 +217,13 @@ class YoloPoseAnalyzer(
             val detections = nmsFilteredCandidates.map {
                 toPixelDetection(it, bitmap.width, bitmap.height)
             }
-            val tracked = trackerEngine.track(detections, bitmap.width, bitmap.height)
+            val tracked = trackerEngine.track(
+                detections = detections,
+                frameWidth = bitmap.width,
+                frameHeight = bitmap.height,
+                temporalAdvanced = temporalAdvanced,
+                suppressStagnantUnlock = suppressStagnantUnlock
+            )
             lastUnlockMessage = trackerEngine.consumeUnlockMessage()
             lastShieldZones = trackerEngine.getShieldZones().map { toNormalizedRect(it, bitmap.width, bitmap.height) }
             val finalTrackedSubjects = tracked.map {
