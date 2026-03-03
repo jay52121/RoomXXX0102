@@ -31,6 +31,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
         android:layout_margin="16dp"
+        android:visibility="gone"
         app:cardBackgroundColor="#AA000000"
         app:cardCornerRadius="8dp"
         app:cardElevation="0dp">
@@ -118,6 +119,47 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="调试面板:关" />
+    </LinearLayout>
+
+    <!-- 5.5 事件标注工具栏（仅静止/暂停 + 调试面板开启时显示） -->
+    <LinearLayout
+        android:id="@+id/llEventMarkerControls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="100dp"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:background="#66000000"
+        android:padding="8dp"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/btnMarkEnterEvent"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="记录进子房间事件"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnMarkExitEvent"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="记录出子房间事件"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnJumpNextEvent"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="跳转到下一个事件"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnDeleteCurrentEvent"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="删除当前事件" />
     </LinearLayout>
 
     <!-- 6. 编辑工具栏 (顶部) -->

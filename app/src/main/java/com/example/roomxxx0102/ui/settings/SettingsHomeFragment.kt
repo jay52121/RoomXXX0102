@@ -11,6 +11,7 @@ import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.EditText
+import android.widget.SeekBar
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
@@ -182,6 +183,10 @@ class SettingsHomeFragment : Fragment() {
         binding.switchNewTracker.isChecked = AppSettings.isNewTrackerPredictionEnabled
         binding.switchPauseOnRoomSwitch.isChecked = AppSettings.isPauseOnRoomSwitchEnabled
         binding.switchPauseDecisionLogOnSwitch.isChecked = AppSettings.isPauseDecisionLogOnSwitchEnabled
+        binding.switchSmartMatchPause.isChecked = AppSettings.isSmartMatchPauseEnabled
+        val initialWindowMs = AppSettings.eventMissPauseWindowMs
+        binding.sbEventMissPauseWindow.progress = ((initialWindowMs - 100) / 100).coerceIn(0, 9)
+        binding.tvEventMissPauseWindowValue.text = "${initialWindowMs} ms"
         binding.tvTrackerStatus.text = if (AppSettings.isNewTrackerPredictionEnabled) "ByteTrack：检测中" else "ByteTrack：未启用"
 
         binding.spnRoiLogMode.setSelection(AppSettings.roiLogMode)
@@ -258,6 +263,23 @@ class SettingsHomeFragment : Fragment() {
             AppSettings.setPauseDecisionLogOnSwitchEnabled(isChecked)
         }
 
+        binding.switchSmartMatchPause.setOnCheckedChangeListener { _, isChecked ->
+            AppSettings.setSmartMatchPauseEnabled(isChecked)
+        }
+
+        binding.sbEventMissPauseWindow.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val windowMs = 100 + progress.coerceIn(0, 9) * 100
+                binding.tvEventMissPauseWindowValue.text = "${windowMs} ms"
+                if (fromUser) {
+                    AppSettings.setEventMissPauseWindowMs(windowMs)
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+
         // 区域设置入口
         binding.cardRoomSetup.setOnClickListener {
             parentFragmentManager.beginTransaction()
@@ -327,6 +349,10 @@ class SettingsHomeFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         syncPresenceSpinnerSelection()
+        binding.switchSmartMatchPause.isChecked = AppSettings.isSmartMatchPauseEnabled
+        val windowMs = AppSettings.eventMissPauseWindowMs
+        binding.sbEventMissPauseWindow.progress = ((windowMs - 100) / 100).coerceIn(0, 9)
+        binding.tvEventMissPauseWindowValue.text = "${windowMs} ms"
         if (AppSettings.isNewTrackerPredictionEnabled) startTrackerStatusPolling() else stopTrackerStatusPolling()
     }
 

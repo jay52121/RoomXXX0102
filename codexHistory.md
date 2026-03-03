@@ -1,5 +1,584 @@
 # Codex History
 
+## [216] 2026-03-04 04:38:00 - 增加EventValidation链路诊断日志并支持长按匹配信息区复制
+
+**用户指令**：
+> 解释为什么500~600ms期间没触发漏匹配；看不出来就加定位日志。  
+> 另外再次强调：编译通过后先发出声音。  
+> 并新增：timeMs后追加北京时间、长按匹配信息区复制日志。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：定位“运行时分支提前返回导致漏匹配扫描未执行”的时序问题；并完善日志可读性与匹配信息区交互复制。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt
+      * codexHistory.md
+    *   涉及方法：
+      * MainActivity.maybeRunSmartMatchValidation
+      * MainActivity.logValidationTick（新增）
+      * MainActivity.formatBeijingTime（新增）
+      * MainActivity.onValidationBannerLongPressed（新增）
+      * MainActivity.buildSmartMatchDiagnosticReport
+      * MainActivity.buildUnlockClipboardReport
+      * MainActivity.buildDebugPanelClipboardReport
+      * DetectionOverlayView.setOnUnlockBannerLongPressListener（新增）
+      * DetectionOverlayView.onTouchEvent（新增）
+      * DetectionOverlayView.drawUnlockBannerBelowMarker
+    *   关键改动：
+      * 新增 `EventValidationTick` 日志，输出：`nowMs/windowMs/runtimeEventsCount/markedEventsCount/didReturnByRuntimeBranch/didScanOverdueBranch/overdueTriggered/playState`。
+      * 智能匹配、unlock快照、调试面板快照三类复制日志统一 `timeMs=... (北京时间=...)`。
+      * 匹配信息条支持长按识别（命中条幅区域），长按后静默复制“智能匹配诊断快照”。
+      * 本次编译通过后已执行提示音命令（`[console]::beep(...)`）。
+      * 编译校验通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [215] 2026-03-04 04:15:00 - 匹配异常文案分流：漏匹配显示实际等待，无合理匹配显示最近合理偏差
+
+**用户指令**：
+> 漏匹配还是有的，这次这个改名。  
+> 不用窗口值，要显示实际等了多久（应>=窗口）。  
+> 运行时未命中改成“无合理匹配 … 最近合理匹配XXms”。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修正文案语义，避免把两类异常混在一起；同时让漏匹配时长可反映真实等待。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * codexHistory.md
+    *   涉及方法：
+      * MainActivity.buildMissMatchMessage
+      * MainActivity.buildNoReasonableMatchMessage（新增）
+      * MainActivity.maybeRunSmartMatchValidation
+      * MainActivity.handleRuntimeEventMatching
+    *   关键改动：
+      * 标注超窗未命中：保留“漏匹配”，文案改为 `实际等待=+XXXms`（`nowMs - markedMs`）。
+      * 运行时无匹配：改为 `无合理匹配:类型 路径, 最近合理匹配=±XXXms`。
+      * 最近合理匹配无可比事件时显示 `无可比事件`。
+      * 编译校验通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [214] 2026-03-04 04:02:00 - 快照增加北京时间并支持长按匹配信息区复制诊断
+
+**用户指令**：
+> 1. 日志里在 `timeMs=...` 后面增加北京时间。  
+> 2. 长按匹配信息区时也执行一次日志复制。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：提升日志可读性（直接看到北京时间）并增强复盘效率（长按匹配信息区即复制诊断）。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * codexHistory.md
+    *   涉及方法：
+      * DetectionOverlayView.setOnUnlockBannerLongPressListener（新增）
+      * DetectionOverlayView.drawUnlockBannerBelowMarker
+      * DetectionOverlayView.onTouchEvent（新增）
+      * MainActivity.setupButtons
+      * MainActivity.onValidationBannerLongPressed（新增）
+      * MainActivity.formatBeijingTime（新增）
+      * MainActivity.buildSmartMatchDiagnosticReport
+      * MainActivity.buildUnlockClipboardReport
+      * MainActivity.buildDebugPanelClipboardReport
+    *   关键改动：
+      * 三类复制日志的 `timeMs` 行改为：`timeMs=... (北京时间=yyyy-MM-dd HH:mm:ss.SSS)`。
+      * 匹配信息条（unlock banner）支持长按识别，仅在命中信息条区域时触发。
+      * 长按匹配信息条时自动复制“智能匹配诊断快照”（静默复制，无新增toast）。
+      * 编译校验通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [213] 2026-03-04 03:42:00 - 无匹配提示文案统一为“漏匹配:…,+xxxms”
+
+**用户指令**：
+> 无匹配时信息窗应写成“漏匹配:XXXX,+500ms”。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让无匹配提示直接可读、统一格式，避免“无匹配事件”语义不清。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * codexHistory.md
+    *   涉及方法：
+      * MainActivity.buildMissMatchMessage（新增）
+      * MainActivity.nearestRuntimeDeltaMs（新增）
+      * MainActivity.buildNearestOffsetForRuntime
+      * MainActivity.maybeRunSmartMatchValidation
+      * MainActivity.handleRuntimeEventMatching
+    *   关键改动：
+      * 新增统一漏匹配文案构造：`漏匹配:事件类型 [可选路径],偏差`。
+      * 标注超窗未匹配改为：`漏匹配:进/出子房间,+windowMs`（例如 `+500ms`）。
+      * 运行时无匹配改为：`漏匹配:进/出子房间 from->to,+deltaMs`（优先最近同类型事件偏差，缺失时回退 `+windowMs`）。
+      * 自动复制的诊断日志内容保持不变，仅更新信息窗提示文本。
+      * 编译校验通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [212] 2026-03-04 03:28:00 - 智能诊断已匹配状态补充房间路径
+
+**用户指令**：
+> 已匹配日志里要看出匹配的事件到底是什么，比如从哪个房间到哪个房间。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让自动复制的智能匹配诊断日志可直接定位“匹配到的房间切换路径”。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * codexHistory.md
+    *   涉及方法：
+      * MainActivity.handleRuntimeEventMatching
+      * MainActivity.buildSmartMatchDiagnosticReport
+    *   关键改动：
+      * 将 `matchedRuntimeByMarkedKey` 的缓存对象从 `RuntimeRoomEvent` 提升为 `ValidationRuntimeEvent`，保留 `fromName/toName`。
+      * 诊断日志 `markedEvents(all)` 中 `state=已匹配(...)` 新增：
+        * `路径=fromName->toName`
+      * 其他匹配逻辑不变，偏差定义保持 `runtimeMs - markedMs`。
+      * 编译校验通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [211] 2026-03-04 03:16:00 - 已匹配/重复匹配提示增加具体事件引用
+
+**用户指令**：
+> 已经匹配过的日志里要写清楚匹配的是具体哪个事件，方便盘查。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让“已匹配/异常重复匹配”提示可直接定位到标注列表中的具体事件。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * codexHistory.md
+    *   涉及方法：
+      * MainActivity.markedEventRef（新增）
+      * MainActivity.handleRuntimeEventMatching
+    *   关键改动：
+      * 新增 `markedEventRef`，按当前标注列表生成事件引用文本：
+        * `事件[#序号,type=...,f=...,ms=...]`
+      * “已经匹配”提示改为包含完整事件引用与偏差。
+      * “异常重复匹配”提示改为包含完整事件引用与最近偏差。
+      * 编译校验通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [210] 2026-03-04 03:05:00 - 已匹配刻度改为斜杠并关闭异常复制提示Toast
+
+**用户指令**：
+> 不需要弹出toast。上方信息区已能看到原因。  
+> 已匹配刻度还是竖线，要求改成“/”样式。  
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让“已匹配事件点”视觉样式与未匹配强区分，同时避免异常自动复制时二次打断。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * codexHistory.md
+    *   涉及方法：
+      * DetectionOverlayView.drawEventMarkerBar
+      * MainActivity.copySmartMatchDiagnostic
+    *   关键改动：
+      * 未匹配刻度保持原有竖线色块。
+      * 已匹配刻度改为同色“/”单斜线（45°）绘制，不再使用窄区域条纹。
+      * 异常自动复制智能诊断日志改为静默执行，不再弹“已复制智能匹配诊断日志”Toast。
+      * 编译校验通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [209] 2026-03-04 02:40:00 - 已匹配刻度改45度斜线并在异常时自动复制智能匹配诊断日志
+
+**用户指令**：
+> 颜色区别不够明显：颜色恢复之前方案，已匹配改成45度斜线。  
+> 出现无匹配事件或异常重复匹配时，自动复制日志（包含所有已记录事件点）。  
+> 偏差符号统一：标记1000ms、实际1027ms应显示+27ms。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：提升事件刻度可辨识度，并在智能匹配异常时自动产出可复盘诊断信息；同时统一偏差正负方向。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * codexHistory.md
+    *   涉及方法：
+      * DetectionOverlayView.drawEventMarkerBar
+      * DetectionOverlayView.drawMatchedTickHatch（新增）
+      * MainActivity.maybeRunSmartMatchValidation
+      * MainActivity.handleRuntimeEventMatching
+      * MainActivity.copySmartMatchDiagnostic（新增）
+      * MainActivity.buildSmartMatchDiagnosticReport（新增）
+      * MainActivity.formatSignedOffsetMs
+    *   关键改动：
+      * 事件刻度改为：未匹配=原色实心，已匹配=同色实心+45度斜线覆盖（不再依赖“更亮色”区分）。
+      * 在“无匹配事件（运行时/标注超窗）”与“异常重复匹配”分支，自动复制“智能匹配诊断快照”到剪贴板并提示。
+      * 诊断快照包含：当前运行事件、窗口参数、最近偏差、全部标注事件点及其匹配状态、近期运行时事件列表。
+      * 偏差统一为 `实际触发时间 - 标记时间`，保证示例 `1000ms -> 1027ms` 显示 `+27ms`。
+      * 编译校验通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [208] 2026-03-04 02:12:00 - 智能匹配提示追加±毫秒偏差并取消已匹配刻度减淡
+
+**用户指令**：
+> 第三阶段补充：事件提示末尾显示离匹配事件的正负毫秒数。  
+> 未匹配或重复匹配，显示离最近可匹配事件的时间偏差。  
+> 已匹配事件点不要减淡，保持标准颜色。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：提高事件提示可复盘性（直接看到提前/滞后毫秒），并恢复事件刻度统一可见性。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt
+      * codexHistory.md
+      * dialogueHistory.md
+    *   涉及方法：
+      * MainActivity.formatSignedOffsetMs
+      * MainActivity.buildNearestOffsetForRuntime
+      * MainActivity.buildNearestOffsetForMarked
+      * MainActivity.maybeRunSmartMatchValidation
+      * MainActivity.handleRuntimeEventMatching
+      * DetectionOverlayView.drawEventMarkerBar
+    *   关键改动：
+      * 新增带符号偏差格式：`+Nms / -Nms`。
+      * 匹配成功提示追加：`偏差=±Nms`（实际触发时间 - 标注时间）。
+      * 无匹配/异常重复提示追加：`最近偏差=±Nms`（相对最近同类型标注事件）。
+      * 过期未匹配（标注点超窗）提示追加最近偏差信息。
+      * 进度条事件刻度不再按匹配状态减淡，统一使用 ENTER/EXIT 标准颜色。
+      * 编译校验通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [205] 2026-03-03 20:25:00 - 事件类型命名中文化（进子房间/出子房间）与切换暂停提示联动
+
+**用户指令**：
+> 重新命名：之前的出门改“出子房间”，进门改“进子房间”；提示不要英文。  
+> “切换房间后暂停播放”的提示也要带上新的类型提示。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：统一事件类型对外文案，去除 ENTER/EXIT 英文暴露，并在自动暂停提示中带上中文类型。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/res/layout/activity_main.xml、codexHistory.md
+    *   涉及方法：MainActivity.eventTypeLabel、MainActivity.refreshEventMarkerControls、MainActivity.addMarkedEvent、MainActivity.confirmDeleteCurrentMarkedEvents、MainActivity.maybeRunSmartMatchValidation、MainActivity.handleRuntimeEventMatching、MainActivity pose 回调切换暂停提示分支
+    *   关键改动：
+      * 新增 `eventTypeLabel`：`ENTER -> 进子房间`，`EXIT -> 出子房间`。
+      * 智能匹配提示文案全部替换为中文类型（无匹配/已匹配/异常重复匹配）。
+      * 标注新增成功提示与删除按钮动态文案替换为中文类型。
+      * 自动暂停提示从“检测到房间切换，已自动暂停”改为“检测到房间切换(进子房间/出子房间)，已自动暂停”。
+      * 工具栏按钮文案改为“记录进子房间事件 / 记录出子房间事件”。
+
+---
+
+## [206] 2026-03-03 21:15:00 - 为每个lock目标在ID左侧显示切换分（按进/出着色）
+
+**用户指令**：
+> 对于每个lock的人，在ID左侧加“进房间分/出房间分”，并按进门事件和出门事件颜色区分。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：把 Presence 每帧切换分可视化到人物标签，便于逐人实时观察“进子房间/出子房间”趋势。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/logic/presence/RoomTransitionEstimator.kt
+      * app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt
+      * app/src/main/java/com/example/roomxxx0102/data/model/PoseData.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/drawers/PoseDrawer.kt
+      * codexHistory.md
+      * dialogueHistory.md
+    *   涉及方法：
+      * PresenceFrameResult 数据模型扩展
+      * PresenceAlgorithmV1_1_0_B03021639.processFrame / evaluateVisibleEnterByScore
+      * MainActivity poseAnalyzer 回调中的 `overlayView.updatePoseData(...)` 数据注入
+      * PoseDrawer.draw
+    *   关键改动：
+      * `PresenceFrameResult` 新增 `trackSwitchScores: Map<Int, PresenceTrackSwitchScore>`。
+      * 新增 `PresenceSwitchDisplayType`（`ENTER_SUB_ROOM` / `EXIT_SUB_ROOM` / `UNKNOWN`）与 `PresenceTrackSwitchScore`。
+      * 在 V1.3.1 评估中，把最佳候选的 `switchScore(ss)` 与方向类型写入 `EnterEvalResult`，并在 `processFrame` 汇总到 `trackSwitchScores`（仅 CONFIRMED 目标）。
+      * `PoseResult` 新增 `switchDisplayScore`、`switchDisplayType`（默认空）。
+      * `MainActivity` 把 `presenceResult.trackSwitchScores` 按 `trackId` 注入到对应 `PoseResult` 后再绘制。
+      * `PoseDrawer` 在 `ID` 文本左侧新增分数前缀：
+        * 进子房间：绿色（`#4CAF50`）
+        * 出子房间：橙色（`#FF9800`）
+        * 仅对 `isConfirmed=true` 且存在分数时显示。
+      * 编译校验通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [207] 2026-03-04 01:59:00 - 修复PoseResult签名崩溃并改为侧路分数渲染
+
+**用户指令**：
+> 运行后一秒就崩溃（NoSuchMethodError，PoseResult 构造）。  
+> 分数显示仍要保留，并且是一行长字符串拼接，不要重叠。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：消除 `PoseResult` 构造签名变更引发的运行时崩溃，同时保留“ID左侧切换分”显示。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/data/model/PoseData.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/drawers/PoseDrawer.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * codexHistory.md
+      * dialogueHistory.md
+    *   涉及方法：
+      * PoseResult 数据结构
+      * DetectionOverlayView.updatePoseData / onDraw
+      * PoseDrawer.draw
+      * MainActivity poseAnalyzer 回调（Presence分数映射到UI）
+    *   关键改动：
+      * 回退 `PoseResult` 扩展字段，恢复原始构造签名，修复 `NoSuchMethodError`。
+      * 改为侧路传参：`updatePoseData(..., switchHints)` 传 `trackId -> (score, EventType)`。
+      * `PoseDrawer` 同一基线分段绘制：
+        * 左段：切换分（按事件类型着色）
+        * 右段：`ID:xx 置信度 Lock`
+        * 视觉上是一行长字符串，不重叠。
+      * 编译校验通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [200] 2026-03-03 20:45:00 - 移除旧房间切换提示，仅保留智能匹配提示
+
+**用户指令**：
+> 现在的事件显示还是老的(不是智能判断那个),是每次事件发生时显示的提示信息。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“每次房间切换仍弹旧提示”问题，统一为智能匹配提示链路。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.onCreate 内 poseAnalyzer 回调的 runOnUiThread 分支
+    *   关键改动：
+      * 删除旧提示字符串 `presenceSwitchBanner` 构造逻辑（`位置切换: A->B(...)`）。
+      * 删除旧分支 `if (presenceSwitchBanner != null && !AppSettings.isSmartMatchPauseEnabled) { ... }`。
+      * 保留并继续使用智能匹配提示、异常提示、以及“切换后自动暂停”提示。
+      * 编译校验通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [204] 2026-03-03 20:05:00 - 去除入户特判并统一客厅方向映射
+
+**用户指令**：
+> 影响可以接受，我自己改标注。把入户特判映射去掉，按刚才统一规则来。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：消除“入户->客厅被映射为ENTER”的特殊逻辑，统一所有子房间到客厅均映射为EXIT。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：MainActivity.appendRuntimeEventsForValidation、MainActivity.mapPresenceEventType
+    *   关键改动：
+      * `mapPresenceEventType` 中删除 `fromName.contains("入户") -> ENTER` 的特判。
+      * 统一规则：
+        * `fromRoomId == livingRoomId` => `EventType.ENTER`
+        * `toRoomId == livingRoomId` => `EventType.EXIT`
+      * 同步精简函数签名，去掉不再使用的 `roomNameById` 形参传递。
+
+---
+
+## [203] 2026-03-03 19:45:00 - 第三阶段：智能检测匹配暂停（一一匹配+异常暂停+刻度命中变暗）
+
+**用户指令**：
+> 把漏检自动暂停改为智能检测匹配暂停，并加开关。  
+> 事件点播放前高亮、命中后变暗；要求事件一一匹配。  
+> 若匹配到已命中过的事件或无匹配事件要暂停并提示。  
+> 重置并从头播放需清理匹配状态。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将“漏检自动暂停”升级为“运行时事件与标注事件的一一匹配校验暂停”，并可在设置中开关控制。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt
+      * app/src/main/java/com/example/roomxxx0102/data/repository/AppSettings.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt
+      * app/src/main/res/layout/fragment_settings_home.xml
+      * codexHistory.md
+    *   涉及方法：
+      * `MainActivity.appendRuntimeEventsForValidation`
+      * `MainActivity.maybeRunSmartMatchValidation`
+      * `MainActivity.handleRuntimeEventMatching`
+      * `MainActivity.pauseForSmartMatchAnomaly`
+      * `MainActivity.resetEventValidationTracking`
+      * `MainActivity.hardRestartPlayback`
+      * `DetectionOverlayView.setEventMarkerState`
+      * `DetectionOverlayView.drawEventMarkerBar`
+      * `AppSettings.init/setSmartMatchPauseEnabled`
+      * `SettingsHomeFragment.onViewCreated/onResume`
+    *   关键改动：
+      * 新增开关配置 `isSmartMatchPauseEnabled`（默认开），并在设置页新增 `switch_smart_match_pause`。
+      * 旧漏检扫描逻辑改为一一匹配：
+        * 运行时事件在窗口内优先匹配未匹配的同类型标注点（最近优先）。
+        * 若仅命中已匹配标注点 => `异常重复匹配`，立即暂停并提示。
+        * 若无任何候选标注点 => `无匹配事件`，立即暂停并提示。
+        * 若标注点超出窗口仍未匹配 => `无匹配事件`，立即暂停并提示。
+      * 事件提示统一以 `事件类型:` 开头，并附带匹配结果说明文本。
+      * 进度条刻度新增匹配状态：未匹配高亮，已匹配变暗。
+      * “重置并从头播放”时显式清理全部匹配状态（包括已匹配/已告警集合）。
+      * 智能匹配开关开启时，关闭旧 `presenceSwitchBanner` 覆盖，避免提示文案冲突。
+
+---
+
+## [202] 2026-03-03 19:20:00 - 新增事件后首次漏检校验忽略一次
+
+**用户指令**：
+> 我刚刚记录好一个事件继续播放就马上提醒我未命中事件。  
+> 不如加一个临时状态，新设置后的第一次校验忽略。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：避免“刚新增标注事件后继续播放立即触发未命中暂停”的误报。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：MainActivity.addMarkedEvent、MainActivity.resetEventValidationTracking、MainActivity.maybePauseForMissedMarkedEvents
+    *   关键改动：
+      * 新增一次性标记 `skipNextMissValidationOnce`。
+      * 仅在 `addMarkedEvent` 成功新增事件后置 `true`。
+      * `maybePauseForMissedMarkedEvents()` 首次命中该标记时直接跳过本次校验并清零。
+      * `resetEventValidationTracking()` 时重置该标记，避免跨视频/重置后残留状态。
+
+---
+
+## [201] 2026-03-03 19:05:00 - 隐藏左上角人数卡片并将事件提示移至进度条下方居中
+
+**用户指令**：
+> 首先，现在画面左上角仍然有客厅的人数。其次进门出门的事件不要放在左上角了，放在进度条的下方，画面中间。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：移除左上角客厅人数显示，并把进/出事件提示从顶部左上改为进度条下方居中。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/res/layout/activity_main.xml、codexHistory.md
+    *   涉及方法：DetectionOverlayView.onDraw、drawEventMarkerBar、drawUnlockBannerBelowMarker、MainActivity.setupButtons、MainActivity.toggleEditModeUI
+    *   关键改动：
+      * 事件提示条改为“进度条下方居中”绘制：新增 `drawUnlockBannerBelowMarker(...)`，并将进度条位置固定在顶部。
+      * 原顶部左上整行提示绘制逻辑删除，不再占用左上区域。
+      * `cardCounter` 在布局默认改为 `gone`，并在雷达切换/编辑态切换中均保持 `gone`，避免再次出现左上客厅人数卡片。
+
+---
+
+## [200] 2026-03-03 18:40:00 - 移除左上角Pose日志并在调试面板增加客厅存在/当前人数
+
+**用户指令**：
+> 1.删除左上角的pose日志显示 2.把客厅人数(存在/当前)放到调试面板里面去.
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：清理主画面左上角冗余 Pose 文本，并增强调试面板可读性（直接显示客厅存在/当前人数）。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：DetectionOverlayView.onDraw、RoiLogAggregator.updateLivingRoomCounts、RoiLogAggregator.snapshotForPanel、MainActivity poseAnalyzer 回调
+    *   关键改动：
+      * 删除主画面左上角 `debugInfo` 绘制（不再显示 `Pose: xxms | Count:xx`）。
+      * 在 `RoiLogAggregator` 增加客厅人数字段与 `updateLivingRoomCounts(persistentCount, currentCount)`。
+      * 在调试面板快照中新增一行：`living counts(存在/当前)=x/y`。
+      * 在 `MainActivity` 每帧统计后将 `livingRoom.persistentPersonCount` 与 `livingRoom.personCount` 注入聚合器。
+
+---
+
+## [198] 2026-03-03 09:20:00 - 智能校验阶段1：事件列表管理与顶部刻度UI
+
+**用户指令**：
+> 新增智能校验系统（阶段1：事件列表管理）：  
+> - 独立事件模型与 EventMarkerManager（ENTER/EXIT、frameIndex/timestampMs、按视频绑定）  
+> - 顶部半透明进度条（左右100px）+ ENTER/EXIT tick  
+> - 仅在“暂停/静止 + 调试面板开启”时显示按钮：记录进门/记录出门/跳转下一个/删除当前  
+> - 预留后续漏触发校验接口（window=±1000ms），本阶段不接入自动暂停  
+> - 不修改现有人数/事件算法逻辑，仅播放器/调试UI层接入
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：实现事件标注与可视化管理闭环，支持人工标注回放定位，且不侵入现有 Presence 判定主线。
+    *   修改文件：
+        * app/src/main/java/com/example/roomxxx0102/logic/validation/EventMarkerManager.kt
+        * app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt
+        * app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt
+        * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+        * app/src/main/res/layout/activity_main.xml
+        * codexHistory.md
+    *   涉及方法：
+        * `EventMarkerManager.bindVideo/addEvent/getEvents/findEventsNearFrame/removeEventsNearFrame/findNextEventAfter/isMarkedEventMatched`
+        * `VideoFeeder.seekToMs/getDurationMs`
+        * `DetectionOverlayView.setEventMarkerState/drawEventMarkerBar`
+        * `MainActivity.refreshEventMarkerUi/refreshEventMarkerOverlay/refreshEventMarkerControls/addMarkedEvent/jumpToNextMarkedEvent/confirmDeleteCurrentMarkedEvents`
+    *   关键改动：
+        * 新增 `EventType/MarkedEvent` 与 `EventMarkerManager`（按视频 key 内存隔离，自动排序，去重规则为“同类型同帧忽略”）。
+        * 预留校验常量与接口：
+          * `MATCH_WINDOW_MS = 1000`
+          * `isMarkedEventMatched(markedEvent, runtimeEvents, windowMs)`
+        * `DetectionOverlayView` 新增顶部进度条与事件刻度绘制：
+          * 半透明轨道与进度
+          * ENTER/EXIT 两色 tick
+          * 左右固定 `100px` 边距
+          * 顶部已有 unlock banner 时自动下移，避免重叠
+        * 主界面新增事件工具栏（默认隐藏）：
+          * `记录进门事件`
+          * `记录出门事件`
+          * `跳转到下一个事件`
+          * `删除当前事件`（按 ±1帧容忍，动态文案与置灰）
+        * 显示条件严格限制为：`isVideoMode && debugPanelEnabled && playState != PLAYING`。
+        * 新增 `VideoFeeder.seekToMs` 供“跳转到下一个事件”按毫秒定位；新增 `getDurationMs` 供进度条映射。
+        * UI 仅在播放器/调试层接入，不改动已有房间人数/Presence算法流程。
+
+---
+
+## [197] 2026-03-03 08:55:00 - 新增对话原文归档机制并写入项目规则
+
+**用户指令**：
+> 做一个单独文件把我们的对话记录下来；不要改动原文，尽量不消耗token。  
+> 单独想办法实现，并把调用方法和规则写进规则文件，让其他AI知道去读。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：提供“原文直存”的对话归档能力，并把执行规则固化到 `AGENTS.md`。
+    *   修改文件：tools/dialogue_archive.py、dialogueHistory.md、AGENTS.md、codexHistory.md
+    *   涉及方法：dialogue_archive.py 的 append_turn / format_entry / run_append_turn / main
+    *   关键改动：
+      * 新增 `tools/dialogue_archive.py`：
+        * 命令：`append-turn`
+        * 输入：`--user-file`、`--assistant-file`（UTF-8 原文文件）
+        * 行为：自动编号、自动时间戳（可覆盖）、追加写入 `dialogueHistory.md`。
+      * 新增 `dialogueHistory.md` 作为统一归档文件入口（只存原文，不改写）。
+      * 在 `AGENTS.md` 增加对话归档规则与标准调用命令，并要求新任务前读取最新条目。
+
+---
+
+## [196] 2026-03-03 08:35:00 - 二次修复seek：后退方向兜底与暂停态seek后强制刷新
+
+**用户指令**：
+> 1.没有任何变化. 2.还是不能在暂停时跳转(之前一直是播放后才发现跳转是有效的)
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“首击 -1 帧仍可能前进”与“PAUSED 态 seek 后画面不刷新”。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、codexHistory.md
+    *   涉及方法：VideoFeeder.setOnSeekCompleteListener、VideoFeeder.seekByMs、VideoFeeder.forcePausedFrameRefresh、VideoFeeder.stop
+    *   关键改动：
+      * 新增 `PendingSeekState`，记录每次 seek 的 `before/delta/captureAsStep`。
+      * 对 `-1帧` 增加一次“方向兜底”：
+        * 若 seek 完成位置 `>= before`，立即执行一次 `SEEK_PREVIOUS_SYNC` 校正，避免反向前进。
+      * 在 `PAUSED`（`!isStillMode && !isPlaying`）下 seek 完成后，执行一次 `start()+pause()` 强制刷新当前帧显示。
+      * `stop()` 时补充清空 `pendingSeekState`，避免跨会话残留。
+
+---
+
 ## [195] 2026-03-03 08:20:00 - 修复静止首击-1反向与暂停态±5秒seek不生效
 
 **用户指令**：
@@ -3460,6 +4039,26 @@ ROI抖动日志:
         改为
         `a*pg*ngp*pts + (1-a)*das`。
       * 其余场景（如 EXIT_TO_LIVING）保持原有积分公式不变。
+
+---
+
+## [199] 2026-03-03 18:05:00 - 事件标记按视频名持久化
+
+**用户指令**：
+> 对于。 每一个节点的设置你都要给我做持久化呀。而且这个持久化的文件应该和。 视频名称的文件一致。 也就是说每一个视频都可以对应一个持久化的。 事件标记系统。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将事件标记从内存态升级为“按视频独立持久化”，避免切换视频或重启后丢失。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/validation/EventMarkerManager.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：EventMarkerManager.init、bindVideo、addEvent、removeEventsNearFrame、clearBoundVideoEvents、loadEventsForVideo、saveEventsForVideo、resolveVideoBaseName、MainActivity.onCreate
+    *   关键改动：
+      * `EventMarkerManager` 新增 `init(context)`，在 `filesDir/event_markers/` 目录管理事件文件。
+      * `bindVideo(videoKey)` 时按 `videoKey` 自动加载对应事件文件；未命中则创建空列表。
+      * `addEvent/removeEventsNearFrame/clearBoundVideoEvents` 自动触发保存/删除文件。
+      * 文件命名以视频名为基础：`<videoName>.events.json`；无法提取视频名时回退到稳定哈希名。
+      * `MainActivity.onCreate` 增加 `eventMarkerManager.init(applicationContext)`，确保持久化能力生效。
 
 ---
 

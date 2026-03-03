@@ -11,6 +11,7 @@ import com.example.roomxxx0102.data.model.Keypoint
 import com.example.roomxxx0102.data.model.POSE_HIGH_CONFIDENCE_THRESHOLD
 import com.example.roomxxx0102.data.model.PoseResult
 import com.example.roomxxx0102.data.model.IdSource
+import com.example.roomxxx0102.logic.validation.EventType
 
 class PoseDrawer {
 
@@ -47,11 +48,21 @@ class PoseDrawer {
         typeface = Typeface.DEFAULT_BOLD
         setShadowLayer(3f, 0f, 0f, Color.BLACK)
     }
+
+    private val switchScoreTextPaint = Paint().apply {
+        textSize = 40f
+        isAntiAlias = true
+        style = Paint.Style.FILL
+        typeface = Typeface.DEFAULT_BOLD
+        setShadowLayer(3f, 0f, 0f, Color.BLACK)
+    }
     
     // 虚线效果 (10实, 10虚)
     private val dashedEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
     private val shieldEffect = DashPathEffect(floatArrayOf(20f, 120f), 0f)
     private val shieldColor = Color.parseColor("#B000FF")
+    private val enterSwitchColor = Color.parseColor("#4CAF50")
+    private val exitSwitchColor = Color.parseColor("#FF9800")
 
     private val skeletonConnections = listOf(
         Pair(3, 5), Pair(4, 6),
@@ -94,7 +105,8 @@ class PoseDrawer {
         drawLeft: Float,
         drawTop: Float,
         drawWidth: Float,
-        drawHeight: Float
+        drawHeight: Float,
+        switchHints: Map<Int, Pair<Float, EventType>> = emptyMap()
     ) {
         if (results.isEmpty()) return
 
@@ -195,7 +207,21 @@ class PoseDrawer {
             val lockStatus = if (result.isConfirmed) "Lock" else ""
             val idLabel = if (result.idSource == IdSource.REMOTE) "BID" else "ID"
             val infoText = "$idLabel:${result.id} %.2f %s".format(result.score, lockStatus)
-            canvas.drawText(infoText, screenLeft, screenTop - 15f, scoreTextPaint)
+            val infoX = screenLeft
+            val infoY = screenTop - 15f
+            val switchHint = switchHints[result.id]
+            if (result.isConfirmed && switchHint != null) {
+                val switchText = "%.2f".format(switchHint.first.coerceIn(0f, 1f))
+                val switchColor = when (switchHint.second) {
+                    EventType.ENTER -> enterSwitchColor
+                    EventType.EXIT -> exitSwitchColor
+                }
+                switchScoreTextPaint.color = switchColor
+                val prefix = "$switchText "
+                val prefixWidth = switchScoreTextPaint.measureText(prefix)
+                canvas.drawText(prefix, infoX - prefixWidth, infoY, switchScoreTextPaint)
+            }
+            canvas.drawText(infoText, infoX, infoY, scoreTextPaint)
         }
     }
 }

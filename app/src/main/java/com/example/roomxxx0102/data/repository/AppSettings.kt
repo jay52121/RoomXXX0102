@@ -22,6 +22,8 @@ object AppSettings {
     private const val KEY_PRESENCE_ALGO_VERSION = "presence_algorithm_version"
     private const val KEY_PAUSE_ON_ROOM_SWITCH = "pause_on_room_switch"
     private const val KEY_PAUSE_DECISION_LOG_ON_SWITCH = "pause_decision_log_on_switch"
+    private const val KEY_EVENT_MISS_PAUSE_WINDOW_MS = "event_miss_pause_window_ms"
+    private const val KEY_SMART_MATCH_PAUSE_ENABLED = "smart_match_pause_enabled"
 
     private lateinit var prefs: SharedPreferences
 
@@ -50,6 +52,10 @@ object AppSettings {
         private set
     var isPauseDecisionLogOnSwitchEnabled: Boolean = false
         private set
+    var eventMissPauseWindowMs: Int = 500
+        private set
+    var isSmartMatchPauseEnabled: Boolean = true
+        private set
 
     const val ROI_LOG_MODE_TIME = 0
     const val ROI_LOG_MODE_MOVE = 1
@@ -71,6 +77,8 @@ object AppSettings {
         presenceAlgorithmVersion = prefs.getString(KEY_PRESENCE_ALGO_VERSION, PRESENCE_ALGO_AUTO) ?: PRESENCE_ALGO_AUTO
         isPauseOnRoomSwitchEnabled = prefs.getBoolean(KEY_PAUSE_ON_ROOM_SWITCH, false)
         isPauseDecisionLogOnSwitchEnabled = prefs.getBoolean(KEY_PAUSE_DECISION_LOG_ON_SWITCH, false)
+        eventMissPauseWindowMs = prefs.getInt(KEY_EVENT_MISS_PAUSE_WINDOW_MS, 500).coerceIn(100, 1000)
+        isSmartMatchPauseEnabled = prefs.getBoolean(KEY_SMART_MATCH_PAUSE_ENABLED, true)
     }
 
     fun setDebugBoxShown(show: Boolean) {
@@ -135,5 +143,15 @@ object AppSettings {
     fun setPauseDecisionLogOnSwitchEnabled(enable: Boolean) {
         isPauseDecisionLogOnSwitchEnabled = enable
         prefs.edit().putBoolean(KEY_PAUSE_DECISION_LOG_ON_SWITCH, enable).apply()
+    }
+
+    fun setEventMissPauseWindowMs(windowMs: Int) {
+        eventMissPauseWindowMs = windowMs.coerceIn(100, 1000)
+        prefs.edit().putInt(KEY_EVENT_MISS_PAUSE_WINDOW_MS, eventMissPauseWindowMs).apply()
+    }
+
+    fun setSmartMatchPauseEnabled(enable: Boolean) {
+        isSmartMatchPauseEnabled = enable
+        prefs.edit().putBoolean(KEY_SMART_MATCH_PAUSE_ENABLED, enable).apply()
     }
 }

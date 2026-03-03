@@ -23,6 +23,13 @@ class VideoFeeder(
     private val context: Context,
     private val textureView: TextureView
 ) {
+    private data class PendingSeekState(
+        val beforeMs: Int,
+        val deltaMs: Int,
+        val captureAsStep: Boolean,
+        var backwardGuardRetries: Int
+    )
+
     data class StepSeekDebug(
         val beforeMs: Int,
         val targetMs: Int,
@@ -58,6 +65,7 @@ class VideoFeeder(
     private var pendingForwardNudgeDebug: StepSeekDebug? = null
     private var pendingForwardNudgeBaseDigest: String? = null
     private var pendingForwardNudgeRemain: Int = 0
+    private var pendingSeekState: PendingSeekState? = null
     private var lastSeekCompletePositionMs: Int? = null
     private var lastSeekCompleteAtMs: Long = 0L
     // +1 帧补偿触发时回调给上层 UI，用于显示横幅提示。
@@ -163,8 +171,30 @@ class VideoFeeder(
                         setSurface(surface)
                         isLooping = true
                         setOnSeekCompleteListener { mp ->
+                            val currentPos = mp.currentPosition
                             lastSeekCompletePositionMs = mp.currentPosition
                             lastSeekCompleteAtMs = System.currentTimeMillis()
+                            val pending = pendingSeekState
+                            if (pending != null) {
+                                if (
+                                    pending.captureAsStep &&
+                                    pending.deltaMs < 0 &&
+                                    pending.backwardGuardRetries > 0 &&
+                                    currentPos >= pending.beforeMs
+                                ) {
+                                    pending.backwardGuardRetries -= 1
+                                    val correctedTarget = (pending.beforeMs - 1).coerceAtLeast(0)
+                                    mp.seekTo(
+                                        correctedTarget.toLong(),
+                                        MediaPlayer.SEEK_PREVIOUS_SYNC
+                                    )
+                                    return@setOnSeekCompleteListener
+                                }
+                                pendingSeekState = null
+                            }
+                            if (!isStillMode && !mp.isPlaying) {
+                                forcePausedFrameRefresh(mp)
+                            }
                         }
                         setOnPreparedListener { mp ->
                             Log.d("VideoFeeder", "✅ 视频准备就绪: ${mp.videoWidth}x${mp.videoHeight}")
@@ -264,6 +294,12 @@ class VideoFeeder(
         return seekByMs(-frameStepMs, captureAsStep = true)
     }
 
+    fun seekToMs(positionMs: Int, seekMode: Int = MediaPlayer.SEEK_CLOSEST): StepSeekDebug? {
+        val current = getCurrentPositionMs() ?: return null
+        val delta = positionMs - current
+        return seekByMs(deltaMs = delta, seekMode = seekMode)
+    }
+
     private fun seekByMs(
         deltaMs: Int,
         captureAsStep: Boolean = false,
@@ -273,6 +309,12 @@ class VideoFeeder(
         mediaPlayer?.let { mp ->
             val before = mp.currentPosition
             val target = (before + deltaMs).coerceIn(0, mp.duration)
+            pendingSeekState = PendingSeekState(
+                beforeMs = before,
+                deltaMs = deltaMs,
+                captureAsStep = captureAsStep,
+                backwardGuardRetries = if (captureAsStep && deltaMs < 0) 1 else 0
+            )
             mp.seekTo(target.toLong(), seekMode)
             val debug = StepSeekDebug(
                 beforeMs = before,
@@ -296,6 +338,15 @@ class VideoFeeder(
         pendingForwardNudgeRemain = 0
     }
 
+    private fun forcePausedFrameRefresh(mp: MediaPlayer) {
+        try {
+            mp.start()
+            mp.pause()
+        } catch (e: IllegalStateException) {
+            Log.w("VideoFeeder", "forcePausedFrameRefresh skipped: ${e.message}")
+        }
+    }
+
     fun peekLastStepSeekDebug(): StepSeekDebug? = lastStepSeekDebug
 
     fun getCurrentPositionMs(): Int? {
@@ -304,6 +355,16 @@ class VideoFeeder(
             mp.currentPosition
         } catch (_: IllegalStateException) {
             Log.w("VideoFeeder", "getCurrentPositionMs skipped: MediaPlayer state invalid")
+            null
+        }
+    }
+
+    fun getDurationMs(): Int? {
+        val mp = mediaPlayer ?: return null
+        return try {
+            mp.duration
+        } catch (_: IllegalStateException) {
+            Log.w("VideoFeeder", "getDurationMs skipped: MediaPlayer state invalid")
             null
         }
     }
@@ -465,6 +526,7 @@ class VideoFeeder(
         pendingForwardNudgeDebug = null
         pendingForwardNudgeBaseDigest = null
         pendingForwardNudgeRemain = 0
+        pendingSeekState = null
         lastSeekCompletePositionMs = null
         lastSeekCompleteAtMs = 0L
         handler.removeCallbacks(analyzeRunnable)

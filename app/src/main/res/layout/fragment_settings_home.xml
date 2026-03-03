@@ -167,6 +167,41 @@
                     android:textSize="16sp"
                     android:textColor="#333333"
                     android:paddingVertical="8dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="漏检自动暂停窗口 (ms)"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#333333"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="4dp" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switch_smart_match_pause"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="智能检测匹配暂停"
+                    android:textSize="16sp"
+                    android:textColor="#333333"
+                    android:paddingVertical="8dp" />
+
+                <TextView
+                    android:id="@+id/tv_event_miss_pause_window_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="500 ms"
+                    android:textSize="13sp"
+                    android:textColor="#666666"
+                    android:layout_marginBottom="4dp" />
+
+                <SeekBar
+                    android:id="@+id/sb_event_miss_pause_window"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="9"
+                    android:progress="4" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

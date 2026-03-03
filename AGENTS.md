@@ -12,3 +12,7 @@ GeminiHistory 已读编号：026（读取新条目后需更新）
 8) 修改代码时优先使用“精确编辑/替换”（Edit/replace）而不是整文件重写（write_file）。
 读取大文件时必须用 read_file 的 offset/limit 只读取相关行；禁止为了改几行把整文件读完。
 如果必须使用 write_file：必须保持除目标改动之外的内容逐字不变，并在回复里说明改动位置（文件+函数+行号范围）。
+9) 维护对话原文归档：使用 `tools/dialogue_archive.py` 追加到 `dialogueHistory.md`，必须原文直存，不得改写。
+10) 对话归档调用方法（UTF-8）：
+`python tools/dialogue_archive.py append-turn --user-file <user.txt> --assistant-file <assistant.txt> --title "<标题>" [--time "YYYY-MM-DD HH:MM:SS"] [--history-file dialogueHistory.md]`
+11) 每次开始处理新任务前，先读取 `dialogueHistory.md` 最新条目（只读必要范围），用于对齐最近沟通上下文。

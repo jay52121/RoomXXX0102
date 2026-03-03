@@ -13,11 +13,14 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import com.example.roomxxx0102.data.model.BoundaryVertex
 import com.example.roomxxx0102.data.model.PoseResult
 import com.example.roomxxx0102.data.model.RoomConfig
 import com.example.roomxxx0102.logic.analyzer.TrackedDetection
 import com.example.roomxxx0102.logic.analyzer.RoiLogAggregator
+import com.example.roomxxx0102.logic.validation.EventType
+import com.example.roomxxx0102.logic.validation.MarkedEvent
 import com.example.roomxxx0102.ui.drawers.DebugBoxDrawer
 import com.example.roomxxx0102.ui.drawers.PoseDrawer
 
@@ -29,6 +32,7 @@ class DetectionOverlayView @JvmOverloads constructor(
 
     private var trackedObjects: List<TrackedDetection> = emptyList()
     private var poseResults: List<PoseResult> = emptyList()
+    private var poseSwitchHints: Map<Int, Pair<Float, EventType>> = emptyMap()
     private var poseUpdateCount = 0
     
     // 客厅区域数据
@@ -49,6 +53,10 @@ class DetectionOverlayView @JvmOverloads constructor(
     // 🔥 新增：是否处于编辑模式
     private var isEditMode = false
     private var debugPanelEnabled = false
+    private var markerCurrentMs = 0L
+    private var markerDurationMs = 0L
+    private var markerEvents: List<MarkedEvent> = emptyList()
+    private var markerMatchedEventKeys: Set<String> = emptySet()
 
     // 🔥 ROI 绘制相关
     private var roiBox: RectF? = null
@@ -105,6 +113,17 @@ class DetectionOverlayView @JvmOverloads constructor(
     }
     private var unlockBannerText: String? = null
     private var unlockBannerUntil = 0L
+    private var unlockBannerRect: RectF? = null
+    private var bannerLongPressArmed = false
+    private var bannerLongPressTriggered = false
+    private val bannerLongPressTimeoutMs = ViewConfiguration.getLongPressTimeout().toLong()
+    private var onUnlockBannerLongPressListener: (() -> Unit)? = null
+    private val bannerLongPressRunnable = Runnable {
+        if (!bannerLongPressArmed || bannerLongPressTriggered) return@Runnable
+        if (!isUnlockBannerVisible()) return@Runnable
+        bannerLongPressTriggered = true
+        onUnlockBannerLongPressListener?.invoke()
+    }
     private val unlockBannerPaint = Paint().apply {
         color = Color.parseColor("#88000000")
         style = Paint.Style.FILL
@@ -113,6 +132,7 @@ class DetectionOverlayView @JvmOverloads constructor(
         color = Color.LTGRAY
         textSize = 28f
         isAntiAlias = true
+        textAlign = Paint.Align.CENTER
     }
     private val debugPanelBgPaint = Paint().apply {
         color = Color.parseColor("#80000000")
@@ -129,6 +149,32 @@ class DetectionOverlayView @JvmOverloads constructor(
         color = Color.parseColor("#E0E0E0")
         textSize = 24f
         isAntiAlias = true
+    }
+    private val markerTrackPaint = Paint().apply {
+        color = Color.parseColor("#66222222")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val markerProgressPaint = Paint().apply {
+        color = Color.parseColor("#66FFFFFF")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val markerEnterPaint = Paint().apply {
+        color = Color.parseColor("#4CAF50")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val markerExitPaint = Paint().apply {
+        color = Color.parseColor("#FF9800")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val markerMatchedSlashPaint = Paint().apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        isAntiAlias = true
+        strokeCap = Paint.Cap.ROUND
     }
 
     private val regionFillPaint = Paint().apply {
@@ -185,8 +231,14 @@ class DetectionOverlayView @JvmOverloads constructor(
         postInvalidate()
     }
 
-    fun updatePoseData(results: List<PoseResult>, bitmap: Bitmap?, timeMs: Long) {
+    fun updatePoseData(
+        results: List<PoseResult>,
+        bitmap: Bitmap?,
+        timeMs: Long,
+        switchHints: Map<Int, Pair<Float, EventType>> = emptyMap()
+    ) {
         poseResults = results
+        poseSwitchHints = switchHints
         currentFrame = bitmap
         debugInfo = "Pose: ${timeMs}ms | Count: ${results.size}"
         poseUpdateCount += 1
@@ -261,8 +313,25 @@ class DetectionOverlayView @JvmOverloads constructor(
         postInvalidate()
     }
 
+    fun setOnUnlockBannerLongPressListener(listener: (() -> Unit)?) {
+        onUnlockBannerLongPressListener = listener
+    }
+
     fun setDebugPanelEnabled(enabled: Boolean) {
         debugPanelEnabled = enabled
+        postInvalidate()
+    }
+
+    fun setEventMarkerState(
+        currentMs: Long,
+        durationMs: Long,
+        events: List<MarkedEvent>,
+        matchedEventKeys: Set<String>
+    ) {
+        markerCurrentMs = currentMs.coerceAtLeast(0L)
+        markerDurationMs = durationMs.coerceAtLeast(0L)
+        markerEvents = events
+        markerMatchedEventKeys = matchedEventKeys
         postInvalidate()
     }
 
@@ -396,19 +465,19 @@ class DetectionOverlayView @JvmOverloads constructor(
         }
 
         val now = System.currentTimeMillis()
-        if (unlockBannerText != null && now <= unlockBannerUntil) {
-            val bannerHeight = 48f
-            canvas.drawRect(0f, 0f, width.toFloat(), bannerHeight, unlockBannerPaint)
-            unlockBannerText?.let { msg ->
-                canvas.drawText(msg, 16f, 34f, unlockTextPaint)
-            }
-        }
-
-        // 3. 画调试信息
-        canvas.drawText(debugInfo, 40f, 80f, infoPaint)
+        val markerRect = drawEventMarkerBar(canvas)
+        drawUnlockBannerBelowMarker(canvas, markerRect, now)
 
         if (showPose) {
-            poseDrawer.draw(canvas, poseResults, drawLeft, drawTop, drawWidth, drawHeight)
+            poseDrawer.draw(
+                canvas = canvas,
+                results = poseResults,
+                drawLeft = drawLeft,
+                drawTop = drawTop,
+                drawWidth = drawWidth,
+                drawHeight = drawHeight,
+                switchHints = poseSwitchHints
+            )
         } else {
             if (showDebugBoxes) {
                 debugDrawer.draw(canvas, trackedObjects, drawLeft, drawTop, drawWidth, drawHeight)
@@ -427,6 +496,115 @@ class DetectionOverlayView @JvmOverloads constructor(
         if (debugPanelEnabled) {
             drawDebugPanel(canvas)
         }
+    }
+
+    private fun drawEventMarkerBar(canvas: Canvas): RectF? {
+        val duration = markerDurationMs
+        if (duration <= 0L) return null
+        val leftPadding = 100f
+        val rightPadding = 100f
+        val barLeft = leftPadding
+        val barRight = (width.toFloat() - rightPadding).coerceAtLeast(barLeft + 12f)
+        val barWidth = (barRight - barLeft).coerceAtLeast(1f)
+        val barTop = 18f
+        val barBottom = barTop + 12f
+
+        canvas.drawRect(barLeft, barTop, barRight, barBottom, markerTrackPaint)
+
+        val progress = (markerCurrentMs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+        val progressRight = barLeft + barWidth * progress
+        canvas.drawRect(barLeft, barTop, progressRight, barBottom, markerProgressPaint)
+
+        for (event in markerEvents) {
+            val ratio = (event.timestampMs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+            val x = barLeft + ratio * barWidth
+            val matched = markerEventKey(event) in markerMatchedEventKeys
+            val left = x - 2f
+            val top = barTop - 8f
+            val right = x + 2f
+            val bottom = barBottom + 8f
+            val tickPaint = if (event.type == EventType.ENTER) markerEnterPaint else markerExitPaint
+            if (matched) {
+                markerMatchedSlashPaint.color = tickPaint.color
+                canvas.drawLine(x - 6f, bottom, x + 6f, top, markerMatchedSlashPaint)
+            } else {
+                canvas.drawRect(left, top, right, bottom, tickPaint)
+            }
+        }
+        return RectF(barLeft, barTop, barRight, barBottom)
+    }
+
+    private fun markerEventKey(event: MarkedEvent): String {
+        return "${event.type}|${event.frameIndex}|${event.timestampMs}"
+    }
+
+    private fun drawUnlockBannerBelowMarker(canvas: Canvas, markerRect: RectF?, nowMs: Long) {
+        val message = unlockBannerText ?: run {
+            unlockBannerRect = null
+            return
+        }
+        if (nowMs > unlockBannerUntil) {
+            unlockBannerRect = null
+            return
+        }
+
+        val centerX = width / 2f
+        val top = (markerRect?.bottom ?: 30f) + 10f
+        val bannerHeight = 44f
+        val textPadding = 24f
+        val desiredWidth = unlockTextPaint.measureText(message) + textPadding * 2f
+        val bannerWidth = desiredWidth.coerceIn(220f, width * 0.9f)
+        val left = centerX - bannerWidth / 2f
+        val right = centerX + bannerWidth / 2f
+        val bottom = top + bannerHeight
+
+        canvas.drawRoundRect(left, top, right, bottom, 10f, 10f, unlockBannerPaint)
+        unlockBannerRect = RectF(left, top, right, bottom)
+
+        val fm = unlockTextPaint.fontMetrics
+        val baseline = top + (bannerHeight - (fm.bottom - fm.top)) / 2f - fm.top
+        canvas.drawText(message, centerX, baseline, unlockTextPaint)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        val bannerRect = unlockBannerRect
+        if (!isUnlockBannerVisible() || bannerRect == null) {
+            cancelBannerLongPressTracking()
+            return super.onTouchEvent(event)
+        }
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                if (bannerRect.contains(event.x, event.y)) {
+                    bannerLongPressArmed = true
+                    bannerLongPressTriggered = false
+                    removeCallbacks(bannerLongPressRunnable)
+                    postDelayed(bannerLongPressRunnable, bannerLongPressTimeoutMs)
+                    return true
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (bannerLongPressArmed && !bannerRect.contains(event.x, event.y)) {
+                    cancelBannerLongPressTracking()
+                }
+                return bannerLongPressArmed
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val handled = bannerLongPressArmed
+                cancelBannerLongPressTracking()
+                return handled
+            }
+        }
+        return super.onTouchEvent(event)
+    }
+
+    private fun cancelBannerLongPressTracking() {
+        bannerLongPressArmed = false
+        bannerLongPressTriggered = false
+        removeCallbacks(bannerLongPressRunnable)
+    }
+
+    private fun isUnlockBannerVisible(): Boolean {
+        return unlockBannerText != null && System.currentTimeMillis() <= unlockBannerUntil
     }
 
     private fun drawDebugPanel(canvas: Canvas) {

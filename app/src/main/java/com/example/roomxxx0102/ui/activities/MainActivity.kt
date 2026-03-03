@@ -12,6 +12,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.PointF
 import android.content.res.ColorStateList
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -55,12 +56,18 @@ import com.example.roomxxx0102.logic.presence.PresenceKeypoint
 import com.example.roomxxx0102.logic.presence.PresencePoint
 import com.example.roomxxx0102.logic.presence.PresenceRect
 import com.example.roomxxx0102.logic.presence.PresenceRoomSnapshot
+import com.example.roomxxx0102.logic.presence.PresenceSwitchDisplayType
 import com.example.roomxxx0102.logic.presence.PresenceStrength
 import com.example.roomxxx0102.logic.presence.PresenceTrackObservation
 import com.example.roomxxx0102.logic.presence.PresenceDoorSnapshot
 import com.example.roomxxx0102.logic.presence.PresenceAlgorithmEngine
 import com.example.roomxxx0102.logic.presence.PresenceAlgorithmRegistry
 import com.example.roomxxx0102.logic.presence.RoomPresenceChangeLogger
+import com.example.roomxxx0102.logic.presence.PresenceSwitchEvent
+import com.example.roomxxx0102.logic.validation.EventMarkerManager
+import com.example.roomxxx0102.logic.validation.EventType
+import com.example.roomxxx0102.logic.validation.MarkedEvent
+import com.example.roomxxx0102.logic.validation.RuntimeRoomEvent
 import com.example.roomxxx0102.logic.video.VideoFeeder
 import com.example.roomxxx0102.ui.views.DetectionOverlayView
 import com.example.roomxxx0102.ui.views.LivingRoomEditorView
@@ -68,6 +75,11 @@ import com.example.roomxxx0102.ui.views.TacticalMapView
 import com.example.roomxxx0102.utils.BitmapTransfer
 import com.example.roomxxx0102.utils.GeometryUtils
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.ArrayDeque
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
@@ -77,6 +89,7 @@ class MainActivity : ComponentActivity() {
     private val overlayView: DetectionOverlayView by lazy { findViewById(R.id.overlayView) }
     private val editorView: LivingRoomEditorView by lazy { findViewById(R.id.editorView) }
     private val llNormalControls: View by lazy { findViewById(R.id.llNormalControls) }
+    private val llEventMarkerControls: View by lazy { findViewById(R.id.llEventMarkerControls) }
     private val llEditorControls: View by lazy { findViewById(R.id.llEditorControls) }
     private val tvRoomCount: TextView by lazy { findViewById(R.id.tvRoomCount) }
     private val cardCounter: View by lazy { findViewById(R.id.cardCounter) }
@@ -112,13 +125,25 @@ class MainActivity : ComponentActivity() {
     private val unlockClipboardWindowMs = 1500L
     private var lastPlusOneSeekDebug: VideoFeeder.StepSeekDebug? = null
     private val seekHoldHandler = Handler(Looper.getMainLooper())
+    private val eventUiHandler = Handler(Looper.getMainLooper())
     private var seekHoldActive = false
     private var seekHoldDirection = 0 // -1: 后退, +1: 前进
     private val seekHoldStartDelayMs = 500L
+    private val beijingTimeFormatter: SimpleDateFormat by lazy {
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.CHINA).apply {
+            timeZone = TimeZone.getTimeZone("Asia/Shanghai")
+        }
+    }
 
     // Presence 估计引擎（位置判定/房间切换事件）
     private lateinit var roomPresenceAlgorithm: PresenceAlgorithmEngine
     private val roomPresenceChangeLogger = RoomPresenceChangeLogger("ROOM_PRESENCE_CHANGE")
+    private val eventMarkerManager = EventMarkerManager()
+    private val runtimeValidationEvents: ArrayDeque<RuntimeRoomEvent> = ArrayDeque()
+    private val matchedMarkedEventKeys: MutableSet<String> = mutableSetOf()
+    private val alertedMarkedEventKeys: MutableSet<String> = mutableSetOf()
+    private val matchedRuntimeByMarkedKey: MutableMap<String, ValidationRuntimeEvent> = mutableMapOf()
+    private var boundEventVideoKey: String? = null
 
     private var isAddSubRoomMode = false
     private var btnAddSubRoom: Button? = null
@@ -155,6 +180,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         RoomRepository.init(applicationContext)
         AppSettings.init(applicationContext)
+        eventMarkerManager.init(applicationContext)
         ensurePresenceAlgorithmVersion()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         hideSystemUI()
@@ -226,6 +252,17 @@ class MainActivity : ComponentActivity() {
                 observations = observedTargets,
                 outsideMode = PresenceOutsideMode.INVISIBLE
             )
+            val poseSwitchDisplayByTrackId = presenceResult.trackSwitchScores.mapNotNull { (trackId, hint) ->
+                val type = when (hint.type) {
+                    PresenceSwitchDisplayType.ENTER_SUB_ROOM -> EventType.ENTER
+                    PresenceSwitchDisplayType.EXIT_SUB_ROOM -> EventType.EXIT
+                    PresenceSwitchDisplayType.UNKNOWN -> null
+                } ?: return@mapNotNull null
+                trackId to (hint.score.toFloat().coerceIn(0f, 1f) to type)
+            }.toMap()
+            val poseSwitchDisplayForConfirmed = poseSwitchDisplayByTrackId.filterKeys { trackId ->
+                results.any { it.id == trackId && it.isConfirmed }
+            }
             val roomNameById = allRooms.associate { it.id to it.name }
             RoiLogAggregator.updatePresenceDebug(
                 algoVersion = roomPresenceAlgorithm.runtimeTag,
@@ -248,13 +285,12 @@ class MainActivity : ComponentActivity() {
             )?.let { line ->
                 Log.d("RoomPresence", "$line algo=${roomPresenceAlgorithm.runtimeTag}")
             }
-            val presenceSwitchBanner = presenceResult.events.lastOrNull()?.let { event ->
-                val fromName = roomNameById[event.fromRoomId] ?: event.fromRoomId
-                val toName = roomNameById[event.toRoomId] ?: event.toRoomId
-                "位置切换: $fromName->$toName (${event.reason})"
-            }
-
             val livingRoomCount = livingRoom?.personCount ?: 0
+            val livingPersistentCount = livingRoom?.persistentPersonCount ?: 0
+            RoiLogAggregator.updateLivingRoomCounts(
+                persistentCount = livingPersistentCount,
+                currentCount = livingRoomCount
+            )
 
             // ROI 计算
             val srcW = if (bitmap != null) bitmap.width else 1920
@@ -293,27 +329,29 @@ class MainActivity : ComponentActivity() {
 
             runOnUiThread {
                 if (presenceResult.events.isNotEmpty()) {
+                    val lastEvent = presenceResult.events.last()
+                    val fromName = roomNameById[lastEvent.fromRoomId] ?: lastEvent.fromRoomId
+                    val toName = roomNameById[lastEvent.toRoomId] ?: lastEvent.toRoomId
                     val playStateBefore = currentPlayState
                     if (seekHoldActive &&
                         seekHoldDirection > 0 &&
                         currentPlayState == PlayState.STILL
                     ) {
                         stopSeekHold()
-                        overlayView.showUnlockBanner("检测到房间切换，已停止+1帧长按")
+                        overlayView.showUnlockBanner("检测到房间切换: $fromName->$toName，已停止+1帧长按")
                     }
                     val shouldAutoPause = AppSettings.isPauseOnRoomSwitchEnabled &&
                         playStateBefore == PlayState.PLAYING
                     var didAutoPause = false
                     if (shouldAutoPause) {
+                        val switchTypeLabel = mapPresenceEventType(lastEvent, livingRoom?.id ?: "")?.let { eventTypeLabel(it) }
+                            ?: "房间切换"
                         val pauseButton = findViewById<Button>(R.id.btnPause)
                         togglePause(pauseButton)
-                        overlayView.showUnlockBanner("检测到房间切换，已自动暂停")
+                        overlayView.showUnlockBanner("检测到房间切换($switchTypeLabel): $fromName->$toName，已自动暂停")
                         didAutoPause = true
                     }
                     if (AppSettings.isPauseDecisionLogOnSwitchEnabled) {
-                        val lastEvent = presenceResult.events.last()
-                        val fromName = roomNameById[lastEvent.fromRoomId] ?: lastEvent.fromRoomId
-                        val toName = roomNameById[lastEvent.toRoomId] ?: lastEvent.toRoomId
                         Log.i(
                             "RoomPauseSwitch",
                             "switch=$fromName->$toName@${lastEvent.doorId}:${lastEvent.reason} " +
@@ -326,7 +364,25 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
-                overlayView.updatePoseData(results, bitmap, time)
+                val nowMs = currentVideoTimestampMs()
+                val frameIndex = currentEstimatedFrameIndex(nowMs)
+                val validationRuntimeEvents = appendRuntimeEventsForValidation(
+                    events = presenceResult.events,
+                    livingRoomId = livingRoom?.id,
+                    roomNameById = roomNameById,
+                    timestampMs = nowMs,
+                    frameIndex = frameIndex
+                )
+                maybeRunSmartMatchValidation(
+                    runtimeEvents = validationRuntimeEvents,
+                    nowMs = nowMs
+                )
+                overlayView.updatePoseData(
+                    results = results,
+                    bitmap = bitmap,
+                    timeMs = time,
+                    switchHints = poseSwitchDisplayForConfirmed
+                )
                 overlayView.postInvalidate() 
                 tvRoomCount.text = getString(R.string.room_people_count, livingRoomCount)
                 
@@ -340,9 +396,7 @@ class MainActivity : ComponentActivity() {
                     overlayView.showUnlockBanner(msg)
                     tryCaptureUnlockDebugToClipboard(msg)
                 }
-                if (presenceSwitchBanner != null) {
-                    overlayView.showUnlockBanner(presenceSwitchBanner)
-                }
+                refreshEventMarkerUi()
             }
         }
 
@@ -355,6 +409,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setupButtons()
+        refreshEventMarkerUi()
         checkPermissionsAndStart()
         refreshOverlayDisplay()
     }
@@ -642,6 +697,10 @@ class MainActivity : ComponentActivity() {
         val btnPause = findViewById<Button>(R.id.btnPause)
         val btnRewind = findViewById<Button>(R.id.btnRewind)
         val btnForward = findViewById<Button>(R.id.btnForward)
+        val btnMarkEnterEvent = findViewById<Button>(R.id.btnMarkEnterEvent)
+        val btnMarkExitEvent = findViewById<Button>(R.id.btnMarkExitEvent)
+        val btnJumpNextEvent = findViewById<Button>(R.id.btnJumpNextEvent)
+        val btnDeleteCurrentEvent = findViewById<Button>(R.id.btnDeleteCurrentEvent)
         btnPause.setOnClickListener { togglePause(it as Button) }
         btnPause.setOnLongClickListener {
             hardRestartPlayback()
@@ -656,6 +715,7 @@ class MainActivity : ComponentActivity() {
             isDebugPanelEnabled = !isDebugPanelEnabled
             overlayView.setDebugPanelEnabled(isDebugPanelEnabled)
             refreshDebugPanelButton()
+            refreshEventMarkerUi()
         }
         btnDebugPanel.setOnLongClickListener {
             val report = buildDebugPanelClipboardReport(System.currentTimeMillis())
@@ -665,6 +725,13 @@ class MainActivity : ComponentActivity() {
             }
             true
         }
+        overlayView.setOnUnlockBannerLongPressListener {
+            onValidationBannerLongPressed()
+        }
+        btnMarkEnterEvent.setOnClickListener { addMarkedEvent(EventType.ENTER) }
+        btnMarkExitEvent.setOnClickListener { addMarkedEvent(EventType.EXIT) }
+        btnJumpNextEvent.setOnClickListener { jumpToNextMarkedEvent() }
+        btnDeleteCurrentEvent.setOnClickListener { confirmDeleteCurrentMarkedEvents() }
         findViewById<Button>(R.id.btnSettings).setOnClickListener {
             captureCurrentFrame()
             startActivity(Intent(this, SettingsActivity::class.java))
@@ -683,7 +750,7 @@ class MainActivity : ComponentActivity() {
         btnCloseRadar.setOnClickListener {
             flRadarContainer.visibility = View.GONE
             llNormalControls.visibility = View.VISIBLE
-            cardCounter.visibility = View.VISIBLE
+            cardCounter.visibility = View.GONE
         }
         
         // 🔥 关闭编辑按钮 (通用)
@@ -1225,8 +1292,9 @@ class MainActivity : ComponentActivity() {
 
     private fun toggleEditModeUI(isEditing: Boolean) {
         llNormalControls.visibility = if (isEditing) View.GONE else View.VISIBLE
+        llEventMarkerControls.visibility = View.GONE
         llEditorControls.visibility = if (isEditing) View.VISIBLE else View.GONE
-        cardCounter.visibility = if (isEditing) View.GONE else View.VISIBLE
+        cardCounter.visibility = View.GONE
         editorView.visibility = if (isEditing) View.VISIBLE else View.GONE
         
         overlayView.visibility = View.VISIBLE
@@ -1244,6 +1312,8 @@ class MainActivity : ComponentActivity() {
         ensurePresenceAlgorithmVersion()
         applySettings()
         refreshOverlayDisplay()
+        bindEventMarkersToVideo(resolveVideoSourceKey())
+        refreshEventMarkerUi()
         if (isVideoMode) {
             val desiredKey = resolveVideoSourceKey()
             if (desiredKey != lastVideoSourceKey) {
@@ -1282,12 +1352,562 @@ class MainActivity : ComponentActivity() {
         if (!isVideoMode) { unbindCamera(); startCameraMode() }
     }
 
+    private fun refreshEventMarkerUi() {
+        refreshEventMarkerOverlay()
+        refreshEventMarkerControls()
+    }
+
+    private fun scheduleEventMarkerUiRefresh(delayMs: Long = 120L) {
+        eventUiHandler.postDelayed({ refreshEventMarkerUi() }, delayMs)
+    }
+
+    private fun currentVideoTimestampMs(): Long {
+        return (videoFeeder?.getCurrentPositionMs() ?: 0).toLong()
+    }
+
+    private fun currentEstimatedFrameIndex(timestampMs: Long = currentVideoTimestampMs()): Int {
+        val stepMs = (videoFeeder?.getFrameStepMs() ?: 33).coerceAtLeast(1)
+        return (timestampMs / stepMs).toInt()
+    }
+
+    private fun refreshEventMarkerOverlay() {
+        if (!isVideoMode) {
+            overlayView.setEventMarkerState(0L, 0L, emptyList(), emptySet())
+            return
+        }
+        val currentMs = currentVideoTimestampMs()
+        val durationMs = (videoFeeder?.getDurationMs() ?: 0).toLong()
+        overlayView.setEventMarkerState(
+            currentMs = currentMs,
+            durationMs = durationMs,
+            events = eventMarkerManager.getEvents(),
+            matchedEventKeys = matchedMarkedEventKeys
+        )
+    }
+
+    private fun refreshEventMarkerControls() {
+        val shouldShow = isVideoMode &&
+            isDebugPanelEnabled &&
+            currentPlayState != PlayState.PLAYING
+        llEventMarkerControls.visibility = if (shouldShow) View.VISIBLE else View.GONE
+        if (!shouldShow) return
+
+        val btnDelete = findViewById<Button>(R.id.btnDeleteCurrentEvent)
+        val frame = currentEstimatedFrameIndex()
+        val matched = eventMarkerManager.findEventsNearFrame(frameIndex = frame, toleranceFrames = 1)
+        if (matched.isEmpty()) {
+            btnDelete.isEnabled = false
+            btnDelete.alpha = 0.5f
+            btnDelete.text = "删除当前事件"
+            return
+        }
+
+        btnDelete.isEnabled = true
+        btnDelete.alpha = 1f
+        btnDelete.text = if (matched.size == 1) {
+            when (matched.first().type) {
+                EventType.ENTER -> "删除 进子房间事件"
+                EventType.EXIT -> "删除 出子房间事件"
+            }
+        } else {
+            "删除 ${matched.size} 个事件"
+        }
+    }
+
+    private fun addMarkedEvent(type: EventType) {
+        if (!isVideoMode) {
+            Toast.makeText(this, "当前不是视频模式", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val timestampMs = currentVideoTimestampMs()
+        val frameIndex = currentEstimatedFrameIndex(timestampMs)
+        when (eventMarkerManager.addEvent(type, frameIndex, timestampMs)) {
+            EventMarkerManager.AddResult.ADDED -> {
+                Toast.makeText(this, "已记录 ${eventTypeLabel(type)} @f=$frameIndex", Toast.LENGTH_SHORT).show()
+            }
+            EventMarkerManager.AddResult.DUPLICATE -> {
+                Toast.makeText(this, "同类型同帧事件已存在，已忽略", Toast.LENGTH_SHORT).show()
+            }
+        }
+        refreshEventMarkerUi()
+    }
+
+    private fun jumpToNextMarkedEvent() {
+        val currentMs = currentVideoTimestampMs()
+        val next = eventMarkerManager.findNextEventAfter(currentMs)
+        if (next == null) {
+            Toast.makeText(this, "无事件", Toast.LENGTH_SHORT).show()
+            return
+        }
+        videoFeeder?.seekToMs(next.timestampMs.toInt(), MediaPlayer.SEEK_CLOSEST)
+        scheduleEventMarkerUiRefresh()
+    }
+
+    private fun confirmDeleteCurrentMarkedEvents() {
+        val frame = currentEstimatedFrameIndex()
+        val matched = eventMarkerManager.findEventsNearFrame(frameIndex = frame, toleranceFrames = 1)
+        if (matched.isEmpty()) {
+            Toast.makeText(this, "当前帧无事件", Toast.LENGTH_SHORT).show()
+            refreshEventMarkerControls()
+            return
+        }
+        val summary = if (matched.size == 1) {
+            "${eventTypeLabel(matched.first().type)}事件"
+        } else {
+            "${matched.size}个事件"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("删除事件")
+            .setMessage("确认删除当前帧附近的$summary？")
+            .setPositiveButton("删除") { _, _ ->
+                val removed = eventMarkerManager.removeEventsNearFrame(
+                    frameIndex = frame,
+                    toleranceFrames = 1
+                )
+                Toast.makeText(this, "已删除 ${removed.size} 个事件", Toast.LENGTH_SHORT).show()
+                resetEventValidationTracking(clearRuntimeEvents = false)
+                refreshEventMarkerUi()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun bindEventMarkersToVideo(videoKey: String?) {
+        if (boundEventVideoKey == videoKey) return
+        boundEventVideoKey = videoKey
+        eventMarkerManager.bindVideo(videoKey)
+        resetEventValidationTracking(clearRuntimeEvents = true)
+    }
+
+    private fun resetEventValidationTracking(clearRuntimeEvents: Boolean) {
+        if (clearRuntimeEvents) {
+            runtimeValidationEvents.clear()
+        }
+        matchedMarkedEventKeys.clear()
+        alertedMarkedEventKeys.clear()
+        matchedRuntimeByMarkedKey.clear()
+    }
+
+    private data class ValidationRuntimeEvent(
+        val runtime: RuntimeRoomEvent,
+        val fromName: String,
+        val toName: String
+    )
+
+    private fun appendRuntimeEventsForValidation(
+        events: List<PresenceSwitchEvent>,
+        livingRoomId: String?,
+        roomNameById: Map<String, String>,
+        timestampMs: Long,
+        frameIndex: Int
+    ): List<ValidationRuntimeEvent> {
+        if (events.isEmpty() || livingRoomId == null) return emptyList()
+        val mappedEvents = mutableListOf<ValidationRuntimeEvent>()
+        for (event in events) {
+            val mappedType = mapPresenceEventType(event, livingRoomId) ?: continue
+            val runtimeEvent = RuntimeRoomEvent(
+                type = mappedType,
+                frameIndex = frameIndex,
+                timestampMs = timestampMs
+            )
+            runtimeValidationEvents.addLast(runtimeEvent)
+            val fromName = roomNameById[event.fromRoomId] ?: event.fromRoomId
+            val toName = roomNameById[event.toRoomId] ?: event.toRoomId
+            mappedEvents.add(
+                ValidationRuntimeEvent(
+                    runtime = runtimeEvent,
+                    fromName = fromName,
+                    toName = toName
+                )
+            )
+        }
+        val keepFrom = timestampMs - 15_000L
+        while (runtimeValidationEvents.isNotEmpty() &&
+            runtimeValidationEvents.first().timestampMs < keepFrom
+        ) {
+            runtimeValidationEvents.removeFirst()
+        }
+        return mappedEvents
+    }
+
+    private fun mapPresenceEventType(
+        event: PresenceSwitchEvent,
+        livingRoomId: String
+    ): EventType? {
+        return when {
+            event.fromRoomId == livingRoomId -> EventType.ENTER
+            event.toRoomId == livingRoomId -> EventType.EXIT
+            else -> null
+        }
+    }
+
+    private fun markedEventKey(event: MarkedEvent): String {
+        return "${event.type}|${event.frameIndex}|${event.timestampMs}"
+    }
+
+    private fun markedEventRef(event: MarkedEvent, markedEvents: List<MarkedEvent>): String {
+        val key = markedEventKey(event)
+        val seq = markedEvents.indexOfFirst { markedEventKey(it) == key }
+            .let { if (it >= 0) it + 1 else -1 }
+        val seqText = if (seq > 0) "#$seq" else "#?"
+        return "事件[$seqText,type=${eventTypeLabel(event.type)},f=${event.frameIndex},ms=${event.timestampMs}]"
+    }
+
+    private fun eventTypeLabel(type: EventType): String {
+        return when (type) {
+            EventType.ENTER -> "进子房间"
+            EventType.EXIT -> "出子房间"
+        }
+    }
+
+    private fun formatSignedOffsetMs(deltaMs: Long): String {
+        return if (deltaMs >= 0L) "+${deltaMs}ms" else "${deltaMs}ms"
+    }
+
+    private fun formatBeijingTime(epochMs: Long): String {
+        return synchronized(beijingTimeFormatter) {
+            beijingTimeFormatter.format(Date(epochMs))
+        }
+    }
+
+    private fun buildMissMatchMessage(
+        type: EventType,
+        route: String?,
+        offsetText: String
+    ): String {
+        val routePart = if (route.isNullOrBlank()) "" else " $route"
+        return "漏匹配:${eventTypeLabel(type)}$routePart,$offsetText"
+    }
+
+    private fun buildNoReasonableMatchMessage(
+        type: EventType,
+        route: String?,
+        nearestOffsetText: String
+    ): String {
+        val routePart = if (route.isNullOrBlank()) "" else " $route"
+        return "无合理匹配:${eventTypeLabel(type)}$routePart, 最近合理匹配=$nearestOffsetText"
+    }
+
+    private fun nearestRuntimeDeltaMs(
+        runtime: RuntimeRoomEvent,
+        markedEvents: List<MarkedEvent>
+    ): Long? {
+        val nearest = markedEvents
+            .asSequence()
+            .filter { it.type == runtime.type }
+            .minByOrNull { kotlin.math.abs(it.timestampMs - runtime.timestampMs) }
+            ?: return null
+        return runtime.timestampMs - nearest.timestampMs
+    }
+
+    private fun buildNearestOffsetForRuntime(
+        runtime: RuntimeRoomEvent,
+        markedEvents: List<MarkedEvent>
+    ): String {
+        val delta = nearestRuntimeDeltaMs(runtime, markedEvents)
+        if (delta == null) {
+            return "最近偏差=无可比事件"
+        }
+        return "最近偏差=${formatSignedOffsetMs(delta)}"
+    }
+
+    private fun buildNearestOffsetForMarked(marked: MarkedEvent, nowMs: Long): String {
+        val nearestRuntime = runtimeValidationEvents
+            .asSequence()
+            .filter { it.type == marked.type }
+            .minByOrNull { kotlin.math.abs(it.timestampMs - marked.timestampMs) }
+        val delta = if (nearestRuntime != null) {
+            nearestRuntime.timestampMs - marked.timestampMs
+        } else {
+            nowMs - marked.timestampMs
+        }
+        return "最近偏差=${formatSignedOffsetMs(delta)}"
+    }
+
+    private fun maybeRunSmartMatchValidation(
+        runtimeEvents: List<ValidationRuntimeEvent>,
+        nowMs: Long
+    ) {
+        if (!isVideoMode || !AppSettings.isSmartMatchPauseEnabled) return
+        val markedEvents = eventMarkerManager.getEvents()
+        if (markedEvents.isEmpty()) return
+        val windowMs = AppSettings.eventMissPauseWindowMs.toLong()
+        var didReturnByRuntimeBranch = false
+        var didScanOverdueBranch = false
+        var overdueTriggered = false
+        for (runtimeEvent in runtimeEvents) {
+            if (handleRuntimeEventMatching(runtimeEvent, markedEvents, windowMs)) {
+                didReturnByRuntimeBranch = true
+                logValidationTick(
+                    nowMs = nowMs,
+                    windowMs = windowMs,
+                    runtimeEventsCount = runtimeEvents.size,
+                    markedEventsCount = markedEvents.size,
+                    didReturnByRuntimeBranch = didReturnByRuntimeBranch,
+                    didScanOverdueBranch = didScanOverdueBranch,
+                    overdueTriggered = overdueTriggered
+                )
+                refreshEventMarkerUi()
+                return
+            }
+        }
+        if (currentPlayState != PlayState.PLAYING) {
+            logValidationTick(
+                nowMs = nowMs,
+                windowMs = windowMs,
+                runtimeEventsCount = runtimeEvents.size,
+                markedEventsCount = markedEvents.size,
+                didReturnByRuntimeBranch = didReturnByRuntimeBranch,
+                didScanOverdueBranch = didScanOverdueBranch,
+                overdueTriggered = overdueTriggered
+            )
+            refreshEventMarkerUi()
+            return
+        }
+        didScanOverdueBranch = true
+        for (marked in markedEvents) {
+            val key = markedEventKey(marked)
+            if (key in matchedMarkedEventKeys || key in alertedMarkedEventKeys) {
+                continue
+            }
+            if (nowMs < marked.timestampMs + windowMs) {
+                continue
+            }
+            alertedMarkedEventKeys.add(key)
+            val waitedMs = (nowMs - marked.timestampMs).coerceAtLeast(0L)
+            val nearestOffset = buildNearestOffsetForMarked(marked, nowMs)
+            val missOffset = "实际等待=${formatSignedOffsetMs(waitedMs)}"
+            val message = buildMissMatchMessage(
+                type = marked.type,
+                route = null,
+                offsetText = missOffset
+            )
+            copySmartMatchDiagnostic(
+                reason = "无匹配事件(标注超窗)",
+                runtimeEvent = null,
+                markedEvents = markedEvents,
+                windowMs = windowMs,
+                nearestOffset = nearestOffset
+            )
+            pauseForSmartMatchAnomaly(message)
+            Log.w("EventValidation", "overdue_unmatched $message windowMs=$windowMs nowMs=$nowMs")
+            overdueTriggered = true
+            break
+        }
+        logValidationTick(
+            nowMs = nowMs,
+            windowMs = windowMs,
+            runtimeEventsCount = runtimeEvents.size,
+            markedEventsCount = markedEvents.size,
+            didReturnByRuntimeBranch = didReturnByRuntimeBranch,
+            didScanOverdueBranch = didScanOverdueBranch,
+            overdueTriggered = overdueTriggered
+        )
+        refreshEventMarkerUi()
+    }
+
+    private fun logValidationTick(
+        nowMs: Long,
+        windowMs: Long,
+        runtimeEventsCount: Int,
+        markedEventsCount: Int,
+        didReturnByRuntimeBranch: Boolean,
+        didScanOverdueBranch: Boolean,
+        overdueTriggered: Boolean
+    ) {
+        if (!AppSettings.isPauseDecisionLogOnSwitchEnabled) return
+        Log.i(
+            "EventValidationTick",
+            "nowMs=$nowMs windowMs=$windowMs runtimeEvents=$runtimeEventsCount " +
+                "markedEvents=$markedEventsCount didReturnByRuntime=$didReturnByRuntimeBranch " +
+                "didScanOverdue=$didScanOverdueBranch overdueTriggered=$overdueTriggered " +
+                "playState=$currentPlayState"
+        )
+    }
+
+    private fun handleRuntimeEventMatching(
+        runtimeEvent: ValidationRuntimeEvent,
+        markedEvents: List<MarkedEvent>,
+        windowMs: Long
+    ): Boolean {
+        val runtime = runtimeEvent.runtime
+        val candidates = markedEvents.filter { marked ->
+            marked.type == runtime.type &&
+                kotlin.math.abs(marked.timestampMs - runtime.timestampMs) <= windowMs
+        }
+        if (candidates.isEmpty()) {
+            val route = "${runtimeEvent.fromName}->${runtimeEvent.toName}"
+            val nearestDelta = nearestRuntimeDeltaMs(runtime, markedEvents)
+            val offsetText = nearestDelta?.let { formatSignedOffsetMs(it) } ?: "无可比事件"
+            val nearestOffset = buildNearestOffsetForRuntime(runtime, markedEvents)
+            val message = buildNoReasonableMatchMessage(
+                type = runtime.type,
+                route = route,
+                nearestOffsetText = offsetText
+            )
+            copySmartMatchDiagnostic(
+                reason = "无匹配事件(运行时事件)",
+                runtimeEvent = runtimeEvent,
+                markedEvents = markedEvents,
+                windowMs = windowMs,
+                nearestOffset = nearestOffset
+            )
+            pauseForSmartMatchAnomaly(message)
+            Log.w("EventValidation", "runtime_no_match $message")
+            return true
+        }
+
+        val unmatchedCandidates = candidates.filter { candidate ->
+            markedEventKey(candidate) !in matchedMarkedEventKeys
+        }
+        if (unmatchedCandidates.isNotEmpty()) {
+            val chosen = unmatchedCandidates.minWithOrNull(
+                compareBy<MarkedEvent> { kotlin.math.abs(it.timestampMs - runtime.timestampMs) }
+                    .thenBy { kotlin.math.abs(it.frameIndex - runtime.frameIndex) }
+            ) ?: return false
+            val chosenKey = markedEventKey(chosen)
+            matchedMarkedEventKeys.add(chosenKey)
+            alertedMarkedEventKeys.remove(chosenKey)
+            matchedRuntimeByMarkedKey[chosenKey] = runtimeEvent
+            val delta = runtime.timestampMs - chosen.timestampMs
+            val eventRef = markedEventRef(chosen, markedEvents)
+            val message = "事件类型:${eventTypeLabel(runtime.type)} ${runtimeEvent.fromName}->${runtimeEvent.toName} (已经匹配 $eventRef, 偏差=${formatSignedOffsetMs(delta)})"
+            overlayView.showUnlockBanner(message)
+            Log.i("EventValidation", "runtime_matched $message")
+            return false
+        }
+
+        val duplicated = candidates.minWithOrNull(
+            compareBy<MarkedEvent> { kotlin.math.abs(it.timestampMs - runtime.timestampMs) }
+                .thenBy { kotlin.math.abs(it.frameIndex - runtime.frameIndex) }
+        ) ?: return false
+        val nearestOffset = buildNearestOffsetForRuntime(runtime, markedEvents)
+        val duplicatedRef = markedEventRef(duplicated, markedEvents)
+        val message = "事件类型:${eventTypeLabel(runtime.type)} ${runtimeEvent.fromName}->${runtimeEvent.toName} (异常重复匹配 $duplicatedRef, $nearestOffset)"
+        copySmartMatchDiagnostic(
+            reason = "异常重复匹配",
+            runtimeEvent = runtimeEvent,
+            markedEvents = markedEvents,
+            windowMs = windowMs,
+            nearestOffset = nearestOffset
+        )
+        pauseForSmartMatchAnomaly(message)
+        Log.w("EventValidation", "runtime_duplicate_match $message")
+        return true
+    }
+
+    private fun copySmartMatchDiagnostic(
+        reason: String,
+        runtimeEvent: ValidationRuntimeEvent?,
+        markedEvents: List<MarkedEvent>,
+        windowMs: Long,
+        nearestOffset: String?
+    ) {
+        val nowMs = System.currentTimeMillis()
+        val report = buildSmartMatchDiagnosticReport(
+            nowMs = nowMs,
+            reason = reason,
+            runtimeEvent = runtimeEvent,
+            markedEvents = markedEvents,
+            windowMs = windowMs,
+            nearestOffset = nearestOffset
+        )
+        try {
+            val clipboard = getSystemService(ClipboardManager::class.java)
+            clipboard?.setPrimaryClip(ClipData.newPlainText("smart_match_diag", report))
+        } catch (e: Exception) {
+            Log.w("EventValidation", "copy diagnostic failed: ${e.message}")
+        }
+    }
+
+    private fun buildSmartMatchDiagnosticReport(
+        nowMs: Long,
+        reason: String,
+        runtimeEvent: ValidationRuntimeEvent?,
+        markedEvents: List<MarkedEvent>,
+        windowMs: Long,
+        nearestOffset: String?
+    ): String {
+        val videoPos = currentVideoTimestampMs()
+        val currentFrame = currentEstimatedFrameIndex(videoPos)
+        val builder = StringBuilder()
+        builder.appendLine("=== 智能匹配诊断快照 ===")
+        builder.appendLine("timeMs=$nowMs (北京时间=${formatBeijingTime(nowMs)})")
+        builder.appendLine("playState=$currentPlayState")
+        builder.appendLine("videoPosMs=$videoPos frame=$currentFrame")
+        builder.appendLine("windowMs=$windowMs")
+        builder.appendLine("reason=$reason")
+        nearestOffset?.let { builder.appendLine("nearestOffset=$it") }
+        if (runtimeEvent != null) {
+            val runtime = runtimeEvent.runtime
+            builder.appendLine(
+                "runtimeEvent=事件类型:${eventTypeLabel(runtime.type)} " +
+                    "${runtimeEvent.fromName}->${runtimeEvent.toName} " +
+                    "frame=${runtime.frameIndex} ms=${runtime.timestampMs}"
+            )
+        } else {
+            builder.appendLine("runtimeEvent=-")
+        }
+        builder.appendLine("--- markedEvents(all) ---")
+        if (markedEvents.isEmpty()) {
+            builder.appendLine("(empty)")
+        } else {
+            markedEvents.forEachIndexed { index, marked ->
+                val key = markedEventKey(marked)
+                val matchedRuntime = matchedRuntimeByMarkedKey[key]
+                val state = when {
+                    matchedRuntime != null -> {
+                        val delta = matchedRuntime.runtime.timestampMs - marked.timestampMs
+                        "已匹配(${eventTypeLabel(marked.type)}), 路径=${matchedRuntime.fromName}->${matchedRuntime.toName}, runtimeF=${matchedRuntime.runtime.frameIndex}, runtimeMs=${matchedRuntime.runtime.timestampMs}, 偏差=${formatSignedOffsetMs(delta)}"
+                    }
+                    key in alertedMarkedEventKeys -> "已告警未匹配"
+                    else -> "未匹配"
+                }
+                builder.appendLine(
+                    "[${index + 1}] type=${eventTypeLabel(marked.type)} frame=${marked.frameIndex} ms=${marked.timestampMs} state=$state"
+                )
+            }
+        }
+        builder.appendLine("--- runtimeRecent ---")
+        if (runtimeValidationEvents.isEmpty()) {
+            builder.appendLine("(empty)")
+        } else {
+            runtimeValidationEvents.toList().takeLast(12).forEachIndexed { index, runtime ->
+                builder.appendLine(
+                    "[${index + 1}] type=${eventTypeLabel(runtime.type)} frame=${runtime.frameIndex} ms=${runtime.timestampMs}"
+                )
+            }
+        }
+        return builder.toString()
+    }
+
+    private fun pauseForSmartMatchAnomaly(message: String) {
+        if (currentPlayState == PlayState.PLAYING) {
+            val pauseButton = findViewById<Button>(R.id.btnPause)
+            togglePause(pauseButton)
+        }
+        overlayView.showUnlockBanner(message)
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun onValidationBannerLongPressed() {
+        copySmartMatchDiagnostic(
+            reason = "长按匹配信息区",
+            runtimeEvent = null,
+            markedEvents = eventMarkerManager.getEvents(),
+            windowMs = AppSettings.eventMissPauseWindowMs.toLong(),
+            nearestOffset = null
+        )
+    }
+
     private fun onSeekBackwardRequested() {
         if (currentPlayState == PlayState.STILL) {
             videoFeeder?.seekBackwardFrame()
         } else {
             videoFeeder?.seekBackward(5)
         }
+        refreshEventMarkerUi()
+        scheduleEventMarkerUiRefresh()
     }
 
     private fun onSeekForwardRequested() {
@@ -1299,6 +1919,8 @@ class MainActivity : ComponentActivity() {
         } else {
             videoFeeder?.seekForward(5)
         }
+        refreshEventMarkerUi()
+        scheduleEventMarkerUiRefresh()
     }
 
     /**
@@ -1337,7 +1959,7 @@ class MainActivity : ComponentActivity() {
         val step = lastPlusOneSeekDebug ?: videoFeeder?.peekLastStepSeekDebug()
         val builder = StringBuilder()
         builder.appendLine("=== RoomFlow Unlock 调试快照 ===")
-        builder.appendLine("timeMs=$nowMs")
+        builder.appendLine("timeMs=$nowMs (北京时间=${formatBeijingTime(nowMs)})")
         builder.appendLine("trigger=$unlockClipboardTrigger")
         builder.appendLine("playState=$currentPlayState")
         builder.appendLine(
@@ -1386,7 +2008,7 @@ class MainActivity : ComponentActivity() {
         val currentPos = videoFeeder?.getCurrentPositionMs()
         val builder = StringBuilder()
         builder.appendLine("=== RoomFlow 调试面板快照 ===")
-        builder.appendLine("timeMs=$nowMs")
+        builder.appendLine("timeMs=$nowMs (北京时间=${formatBeijingTime(nowMs)})")
         builder.appendLine("playState=$currentPlayState")
         builder.appendLine("videoPosMs=${currentPos ?: -1}")
         builder.appendLine(
@@ -1480,11 +2102,13 @@ class MainActivity : ComponentActivity() {
             btnRewind.text = "-5s"
             btnForward.text = "+5s"
         }
+        refreshEventMarkerControls()
     }
 
     private fun refreshDebugPanelButton() {
         val btn = findViewById<Button>(R.id.btnDebugPanel)
         btn.text = if (isDebugPanelEnabled) "调试面板:开" else "调试面板:关"
+        refreshEventMarkerControls()
     }
 
     private fun togglePause(btn: Button) {
@@ -1512,6 +2136,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         refreshSeekButtons()
+        refreshEventMarkerUi()
     }
 
     /**
@@ -1526,6 +2151,7 @@ class MainActivity : ComponentActivity() {
         roiTracker.resetSmoothing()
         roiMissingFrameCount = 0
         videoFeeder?.nextFrameRoi = null
+        resetEventValidationTracking(clearRuntimeEvents = true)
         overlayView.updateRoiBox(null, isTracking = false, isSparse = false)
         overlayView.setRoiRatio(null)
 
@@ -1577,6 +2203,8 @@ class MainActivity : ComponentActivity() {
                 val uri = Uri.parse(uriString)
                 videoFeeder?.start(uri)
                 lastVideoSourceKey = "uri:$uriString"
+                bindEventMarkersToVideo(lastVideoSourceKey)
+                refreshEventMarkerUi()
                 return
             } catch (e: Exception) {
                 Log.e("Main", "Invalid video uri: $uriString", e)
@@ -1586,6 +2214,11 @@ class MainActivity : ComponentActivity() {
         if (File(path).exists()) {
             videoFeeder?.start(path)
             lastVideoSourceKey = "file:$path"
+            bindEventMarkersToVideo(lastVideoSourceKey)
+            refreshEventMarkerUi()
+        } else {
+            bindEventMarkersToVideo(null)
+            refreshEventMarkerUi()
         }
     }
 
@@ -1601,6 +2234,8 @@ class MainActivity : ComponentActivity() {
     private fun startCameraMode() {
         textureView.visibility = View.GONE
         previewView.visibility = View.VISIBLE
+        bindEventMarkersToVideo(null)
+        refreshEventMarkerUi()
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
             try {
