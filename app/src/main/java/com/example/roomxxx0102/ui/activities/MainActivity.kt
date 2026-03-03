@@ -228,7 +228,7 @@ class MainActivity : ComponentActivity() {
             )
             val roomNameById = allRooms.associate { it.id to it.name }
             RoiLogAggregator.updatePresenceDebug(
-                algoVersion = roomPresenceAlgorithm.versionId,
+                algoVersion = roomPresenceAlgorithm.runtimeTag,
                 eventText = buildPresenceEventText(presenceResult.events, roomNameById),
                 decisionText = toReadablePresenceDecision(
                     presenceResult.rejectedReasons.firstOrNull() ?: "NO_DECISION",
@@ -246,7 +246,7 @@ class MainActivity : ComponentActivity() {
                 counts = presenceResult.presenceCounts,
                 roomNameById = roomNameById
             )?.let { line ->
-                Log.d("RoomPresence", "$line algo=${roomPresenceAlgorithm.versionId}")
+                Log.d("RoomPresence", "$line algo=${roomPresenceAlgorithm.runtimeTag}")
             }
             val presenceSwitchBanner = presenceResult.events.lastOrNull()?.let { event ->
                 val fromName = roomNameById[event.fromRoomId] ?: event.fromRoomId
@@ -292,21 +292,39 @@ class MainActivity : ComponentActivity() {
             }
 
             runOnUiThread {
-                if (presenceResult.events.isNotEmpty() &&
-                    seekHoldActive &&
-                    seekHoldDirection > 0 &&
-                    currentPlayState == PlayState.STILL
-                ) {
-                    stopSeekHold()
-                    overlayView.showUnlockBanner("检测到房间切换，已停止+1帧长按")
-                }
-                if (presenceResult.events.isNotEmpty() &&
-                    AppSettings.isPauseOnRoomSwitchEnabled &&
-                    currentPlayState == PlayState.PLAYING
-                ) {
-                    val pauseButton = findViewById<Button>(R.id.btnPause)
-                    togglePause(pauseButton)
-                    overlayView.showUnlockBanner("检测到房间切换，已自动暂停")
+                if (presenceResult.events.isNotEmpty()) {
+                    val playStateBefore = currentPlayState
+                    if (seekHoldActive &&
+                        seekHoldDirection > 0 &&
+                        currentPlayState == PlayState.STILL
+                    ) {
+                        stopSeekHold()
+                        overlayView.showUnlockBanner("检测到房间切换，已停止+1帧长按")
+                    }
+                    val shouldAutoPause = AppSettings.isPauseOnRoomSwitchEnabled &&
+                        playStateBefore == PlayState.PLAYING
+                    var didAutoPause = false
+                    if (shouldAutoPause) {
+                        val pauseButton = findViewById<Button>(R.id.btnPause)
+                        togglePause(pauseButton)
+                        overlayView.showUnlockBanner("检测到房间切换，已自动暂停")
+                        didAutoPause = true
+                    }
+                    if (AppSettings.isPauseDecisionLogOnSwitchEnabled) {
+                        val lastEvent = presenceResult.events.last()
+                        val fromName = roomNameById[lastEvent.fromRoomId] ?: lastEvent.fromRoomId
+                        val toName = roomNameById[lastEvent.toRoomId] ?: lastEvent.toRoomId
+                        Log.i(
+                            "RoomPauseSwitch",
+                            "switch=$fromName->$toName@${lastEvent.doorId}:${lastEvent.reason} " +
+                                "events=${presenceResult.events.size} " +
+                                "pauseOnSwitch=${AppSettings.isPauseOnRoomSwitchEnabled} " +
+                                "playStateBefore=$playStateBefore " +
+                                "shouldAutoPause=$shouldAutoPause " +
+                                "didAutoPause=$didAutoPause " +
+                                "playStateAfter=$currentPlayState"
+                        )
+                    }
                 }
                 overlayView.updatePoseData(results, bitmap, time)
                 overlayView.postInvalidate() 
@@ -520,6 +538,7 @@ class MainActivity : ComponentActivity() {
             "doorProximityScore" to "dps",
             "groundPointConfidence" to "gpc",
             "doorEvidenceScore" to "des",
+            "doorProximityScoreEff" to "dpe",
             "targetRoomContainmentRatio" to "trc",
             "sourceRoomContainmentRatio" to "src",
             "sourceRoomOutsidePoseScore" to "sops",
@@ -529,14 +548,34 @@ class MainActivity : ComponentActivity() {
             "poseTransitionScore" to "pts",
             "doorAssistScore" to "das",
             "switchConfidenceScore" to "scs",
+            "switchScore" to "ss",
+            "evidenceScore" to "e",
+            "evidenceThreshold" to "eth",
             "switchThreshold" to "scsTh",
             "exitSourceRoomScoreThreshold" to "srssTh",
             "dynamicNearDist" to "dnd",
             "doorAdvanceDelta" to "dad",
             "doorLateralDelta" to "dld",
             "doorAdvanceLateralRatio" to "dalr",
+            "doorAdvanceDeltaShort" to "dadS",
+            "doorAdvanceDeltaLong" to "dadL",
+            "motionWindowUsed" to "mwu",
+            "exitDpsHoldApplied" to "xvdh",
+            "poseGate" to "pg",
+            "clearGate" to "cg",
+            "nearGateForPose" to "ngp",
+            "doorScoreGap" to "dsg",
             "exitPoseMinConfidence" to "pacMin",
-            "grayPoseMinConfidence" to "gpm"
+            "poseHardRejectMinConfidence" to "phrMin",
+            "grayPoseMinConfidence" to "gpm",
+            "enterVisibleRequireNearDoor" to "evnR",
+            "enterVisibleRequireContainment" to "evcR",
+            "exitVisibleRequireNearDoor" to "xvnR",
+            "enterVisibleRequireDoorEvidence" to "evdeR",
+            "enterVisibleDoorEvidencePass" to "evdeP",
+            "enterVisibleDoorAssistMin" to "evdaM",
+            "visibleExitPoseTransitionModel" to "xvpm",
+            "allowVisibleExitPolygonRecovery" to "xvpr"
         )
         for ((longKey, shortKey) in shortKeyMap) {
             text = text.replace("$longKey=", "$shortKey=")
@@ -562,9 +601,10 @@ class MainActivity : ComponentActivity() {
         val headValues = headerKeys.map { key -> kv[key] ?: "-" }
 
         val metricKeys = listOf(
-            "dd", "dps", "gpc", "des", "trc", "src", "sops",
-            "pac", "srss", "pts", "das", "scs", "scsTh",
-            "srssTh", "sopsTh", "dnd", "dad", "dld", "dalr"
+            "dd", "dps", "gpc", "des", "dpe", "trc", "src", "sops",
+            "pac", "srss", "pts", "das", "scs", "ss", "e", "eth",
+            "scsTh", "srssTh", "sopsTh", "dnd", "dad", "dld", "dalr", "dadS", "dadL",
+            "pg", "cg", "ngp", "dsg"
         )
         val metrics = metricKeys.joinToString(
             separator = ",",
@@ -574,7 +614,7 @@ class MainActivity : ComponentActivity() {
             kv[key] ?: "-"
         }
 
-        val extraKeys = listOf("pacMin", "gpm")
+        val extraKeys = listOf("pacMin", "phrMin", "gpm", "mwu", "evnR", "evcR", "xvnR", "evdeR", "evdeP", "evdaM", "xvdh", "xvpm", "xvpr")
         val extraValues = extraKeys.joinToString(
             separator = ",",
             prefix = "[",
@@ -595,7 +635,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildPresenceShortKeyLegend(): String {
-        return "h=[f,t,fr,md,er,lc,sg] m=[dd,dps,gpc,des,trc,src,sops,pac,srss,pts,das,scs,scsTh,srssTh,sopsTh,dnd,dad,dld,dalr] x=[pacMin,gpm]"
+        return "h=[f,t,fr,md,er,lc,sg] m=[dd,dps,gpc,des,dpe,trc,src,sops,pac,srss,pts,das,scs,ss,e,eth,scsTh,srssTh,sopsTh,dnd,dad,dld,dalr,dadS,dadL,pg,cg,ngp,dsg] x=[pacMin,phrMin,gpm,mwu,evnR,evcR,xvnR,evdeR,evdeP,evdaM,xvdh,xvpm,xvpr]"
     }
 
     private fun setupButtons() {
@@ -1230,7 +1270,7 @@ class MainActivity : ComponentActivity() {
         if (!::roomPresenceAlgorithm.isInitialized || roomPresenceAlgorithm.versionId != resolvedId) {
             roomPresenceAlgorithm = PresenceAlgorithmRegistry.create(selectedId)
             roomPresenceChangeLogger.reset()
-            Log.i("RoomPresence", "Presence算法已切换: ${roomPresenceAlgorithm.versionId}")
+            Log.i("RoomPresence", "Presence算法已切换: ${roomPresenceAlgorithm.runtimeTag}")
         }
     }
 
@@ -1305,7 +1345,8 @@ class MainActivity : ComponentActivity() {
                 "stillStandard=${AppSettings.isStillStandardFrameEnabled} " +
                 "roiCrop=${AppSettings.isRoiRealCropEnabled} " +
                 "roiLogMode=${AppSettings.roiLogMode} " +
-                "pauseOnSwitch=${AppSettings.isPauseOnRoomSwitchEnabled}"
+                "pauseOnSwitch=${AppSettings.isPauseOnRoomSwitchEnabled} " +
+                "pauseSwitchLog=${AppSettings.isPauseDecisionLogOnSwitchEnabled}"
         )
         if (step != null) {
             builder.appendLine(
@@ -1354,7 +1395,8 @@ class MainActivity : ComponentActivity() {
                 "roiCrop=${AppSettings.isRoiRealCropEnabled} " +
                 "roiLogMode=${AppSettings.roiLogMode} " +
                 "pauseOnSwitch=${AppSettings.isPauseOnRoomSwitchEnabled} " +
-                "presenceAlgo=${roomPresenceAlgorithm.versionId}"
+                "pauseSwitchLog=${AppSettings.isPauseDecisionLogOnSwitchEnabled} " +
+                "presenceAlgo=${roomPresenceAlgorithm.runtimeTag}"
         )
         builder.appendLine("--- panel ---")
         panelLines.forEach { builder.appendLine(it) }

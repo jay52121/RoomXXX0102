@@ -21,6 +21,7 @@ object AppSettings {
     private const val KEY_CLIPBOARD_DEBUG_ON_STEP = "clipboard_debug_on_step"
     private const val KEY_PRESENCE_ALGO_VERSION = "presence_algorithm_version"
     private const val KEY_PAUSE_ON_ROOM_SWITCH = "pause_on_room_switch"
+    private const val KEY_PAUSE_DECISION_LOG_ON_SWITCH = "pause_decision_log_on_switch"
 
     private lateinit var prefs: SharedPreferences
 
@@ -47,6 +48,8 @@ object AppSettings {
         private set
     var isPauseOnRoomSwitchEnabled: Boolean = false
         private set
+    var isPauseDecisionLogOnSwitchEnabled: Boolean = false
+        private set
 
     const val ROI_LOG_MODE_TIME = 0
     const val ROI_LOG_MODE_MOVE = 1
@@ -67,6 +70,7 @@ object AppSettings {
         isClipboardDebugOnStepEnabled = prefs.getBoolean(KEY_CLIPBOARD_DEBUG_ON_STEP, false)
         presenceAlgorithmVersion = prefs.getString(KEY_PRESENCE_ALGO_VERSION, PRESENCE_ALGO_AUTO) ?: PRESENCE_ALGO_AUTO
         isPauseOnRoomSwitchEnabled = prefs.getBoolean(KEY_PAUSE_ON_ROOM_SWITCH, false)
+        isPauseDecisionLogOnSwitchEnabled = prefs.getBoolean(KEY_PAUSE_DECISION_LOG_ON_SWITCH, false)
     }
 
     fun setDebugBoxShown(show: Boolean) {
@@ -126,5 +130,10 @@ object AppSettings {
     fun setPauseOnRoomSwitchEnabled(enable: Boolean) {
         isPauseOnRoomSwitchEnabled = enable
         prefs.edit().putBoolean(KEY_PAUSE_ON_ROOM_SWITCH, enable).apply()
+    }
+
+    fun setPauseDecisionLogOnSwitchEnabled(enable: Boolean) {
+        isPauseDecisionLogOnSwitchEnabled = enable
+        prefs.edit().putBoolean(KEY_PAUSE_DECISION_LOG_ON_SWITCH, enable).apply()
     }
 }

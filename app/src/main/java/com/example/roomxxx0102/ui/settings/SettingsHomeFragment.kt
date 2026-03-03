@@ -40,6 +40,7 @@ class SettingsHomeFragment : Fragment() {
     private val httpClient = OkHttpClient()
     private val binding get() = _binding!!
     private var presenceAlgoOptions: List<PresenceAlgorithmRegistry.AlgorithmOption> = emptyList()
+    private var syncingPresenceSpinner = false
 
     private fun buildPresenceOptionsInStableOrder(): List<PresenceAlgorithmRegistry.AlgorithmOption> {
         val options = mutableListOf(
@@ -60,11 +61,12 @@ class SettingsHomeFragment : Fragment() {
             .takeIf { it >= 0 } ?: 0
     }
 
-    private fun syncPresenceSelector() {
+    private fun syncPresenceSpinnerSelection() {
         if (_binding == null || presenceAlgoOptions.isEmpty()) return
-        val selected = presenceAlgoOptions.getOrNull(resolvePresenceSelectionIndex())
-            ?: presenceAlgoOptions.first()
-        binding.btnPresenceAlgorithmVersion.text = selected.label
+        val selectedIndex = resolvePresenceSelectionIndex().coerceIn(0, (presenceAlgoOptions.size - 1).coerceAtLeast(0))
+        syncingPresenceSpinner = true
+        binding.spnPresenceAlgorithmVersion.setSelection(selectedIndex, false)
+        syncingPresenceSpinner = false
     }
 
 
@@ -179,6 +181,7 @@ class SettingsHomeFragment : Fragment() {
         binding.switchClipboardDebug.isChecked = AppSettings.isClipboardDebugOnStepEnabled
         binding.switchNewTracker.isChecked = AppSettings.isNewTrackerPredictionEnabled
         binding.switchPauseOnRoomSwitch.isChecked = AppSettings.isPauseOnRoomSwitchEnabled
+        binding.switchPauseDecisionLogOnSwitch.isChecked = AppSettings.isPauseDecisionLogOnSwitchEnabled
         binding.tvTrackerStatus.text = if (AppSettings.isNewTrackerPredictionEnabled) "ByteTrack：检测中" else "ByteTrack：未启用"
 
         binding.spnRoiLogMode.setSelection(AppSettings.roiLogMode)
@@ -190,26 +193,27 @@ class SettingsHomeFragment : Fragment() {
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
 
-        // 人数算法版本选择（按钮 + 单选弹窗，避免 Spinner 在当前主题下显示异常）
+        // 人数算法版本选择（与“日志更新频率”同款 Spinner）
         presenceAlgoOptions = buildPresenceOptionsInStableOrder()
-        syncPresenceSelector()
-        binding.btnPresenceAlgorithmVersion.setOnClickListener {
-            val labels = presenceAlgoOptions.map { option -> option.label }.toTypedArray()
-            var selectedIndex = resolvePresenceSelectionIndex()
-            AlertDialog.Builder(requireContext())
-                .setTitle("人数算法版本")
-                .setSingleChoiceItems(labels, selectedIndex) { _, which ->
-                    selectedIndex = which
+        val labels = presenceAlgoOptions.map { option -> option.label }
+        val presenceAdapter = ArrayAdapter(
+            requireContext(),
+            android.R.layout.simple_spinner_item,
+            labels
+        )
+        presenceAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.spnPresenceAlgorithmVersion.adapter = presenceAdapter
+        syncPresenceSpinnerSelection()
+        binding.spnPresenceAlgorithmVersion.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (syncingPresenceSpinner) return
+                val option = presenceAlgoOptions.getOrNull(position) ?: return
+                if (AppSettings.presenceAlgorithmVersion != option.id) {
+                    AppSettings.setPresenceAlgorithmVersion(option.id)
                 }
-                .setPositiveButton("确定") { _, _ ->
-                    val option = presenceAlgoOptions.getOrNull(selectedIndex)
-                    if (option != null) {
-                        AppSettings.setPresenceAlgorithmVersion(option.id)
-                        syncPresenceSelector()
-                    }
-                }
-                .setNegativeButton("取消", null)
-                .show()
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
 
         // 开关监听
@@ -248,6 +252,10 @@ class SettingsHomeFragment : Fragment() {
 
         binding.switchPauseOnRoomSwitch.setOnCheckedChangeListener { _, isChecked ->
             AppSettings.setPauseOnRoomSwitchEnabled(isChecked)
+        }
+
+        binding.switchPauseDecisionLogOnSwitch.setOnCheckedChangeListener { _, isChecked ->
+            AppSettings.setPauseDecisionLogOnSwitchEnabled(isChecked)
         }
 
         // 区域设置入口
@@ -318,7 +326,7 @@ class SettingsHomeFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        syncPresenceSelector()
+        syncPresenceSpinnerSelection()
         if (AppSettings.isNewTrackerPredictionEnabled) startTrackerStatusPolling() else stopTrackerStatusPolling()
     }
 

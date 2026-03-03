@@ -122,17 +122,14 @@
                     android:layout_marginTop="8dp"
                     android:layout_marginBottom="4dp"/>
 
-                <Button
-                    android:id="@+id/btn_presence_algorithm_version"
+                <Spinner
+                    android:id="@+id/spn_presence_algorithm_version"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="自动(最新)"
-                    android:textAllCaps="false"
-                    android:gravity="start|center_vertical"
-                    android:paddingStart="12dp"
-                    android:paddingEnd="12dp"
-                    android:backgroundTint="#FFFFFF"
-                    android:textColor="#333333" />
+                    android:background="#FFFFFF"
+                    android:popupBackground="#FFFFFF"
+                    android:theme="@style/ThemeOverlay.MaterialComponents.Light"
+                    android:spinnerMode="dropdown" />
 
 
                 <TextView
@@ -158,6 +155,15 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="切换房间后暂停播放"
+                    android:textSize="16sp"
+                    android:textColor="#333333"
+                    android:paddingVertical="8dp" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switch_pause_decision_log_on_switch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="切换时记录暂停判定日志"
                     android:textSize="16sp"
                     android:textColor="#333333"
                     android:paddingVertical="8dp" />

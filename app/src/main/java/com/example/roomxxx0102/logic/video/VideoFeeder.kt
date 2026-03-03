@@ -231,11 +231,19 @@ class VideoFeeder(
     }
 
     fun seekForward(seconds: Int) {
-        seekByMs(seconds * 1000)
+        clearForwardStepNudgeState()
+        seekByMs(
+            deltaMs = seconds * 1000,
+            seekMode = MediaPlayer.SEEK_NEXT_SYNC
+        )
     }
 
     fun seekBackward(seconds: Int) {
-        seekByMs(-seconds * 1000)
+        clearForwardStepNudgeState()
+        seekByMs(
+            deltaMs = -seconds * 1000,
+            seekMode = MediaPlayer.SEEK_PREVIOUS_SYNC
+        )
     }
 
     // “按帧”本质上仍是时间 seek：MediaPlayer 不提供逐帧接口
@@ -252,19 +260,20 @@ class VideoFeeder(
     }
 
     fun seekBackwardFrame(): StepSeekDebug? {
+        clearForwardStepNudgeState()
         return seekByMs(-frameStepMs, captureAsStep = true)
     }
 
     private fun seekByMs(
         deltaMs: Int,
         captureAsStep: Boolean = false,
-        baseDigest: String? = null
+        baseDigest: String? = null,
+        seekMode: Int = MediaPlayer.SEEK_CLOSEST
     ): StepSeekDebug? {
         mediaPlayer?.let { mp ->
             val before = mp.currentPosition
             val target = (before + deltaMs).coerceIn(0, mp.duration)
-            // 使用 SEEK_CLOSEST，尽量按最近时间点跳转，减少小步进卡在同一关键帧的问题
-            mp.seekTo(target.toLong(), MediaPlayer.SEEK_CLOSEST)
+            mp.seekTo(target.toLong(), seekMode)
             val debug = StepSeekDebug(
                 beforeMs = before,
                 targetMs = target,
@@ -279,6 +288,12 @@ class VideoFeeder(
             return debug
         }
         return null
+    }
+
+    private fun clearForwardStepNudgeState() {
+        pendingForwardNudgeDebug = null
+        pendingForwardNudgeBaseDigest = null
+        pendingForwardNudgeRemain = 0
     }
 
     fun peekLastStepSeekDebug(): StepSeekDebug? = lastStepSeekDebug
