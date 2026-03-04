@@ -1,5 +1,139 @@
 # Codex History
 
+## [221] 2026-03-04 05:30:00 - 房间切换暂停提示追加事件偏差（±ms）
+
+**用户指令**：
+> 切换房间的怎么没有显示+-ms  
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：为“检测到房间切换 … 已自动暂停/已停止+1帧长按”提示补充与标注事件的时间偏差（±ms）。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * codexHistory.md
+    *   涉及方法：
+      * MainActivity.runOnUiThread（检测结果处理分支）
+      * MainActivity.nearestRuntimeDeltaMs（复用）
+      * MainActivity.appendRuntimeEventsForValidation（调用时机前移）
+    *   关键改动：
+      * 在切换提示文案中追加 `偏差=+/-xxxms`（无可比事件时显示 `偏差=无可比事件`）。
+      * 复用现有事件类型映射与最近偏差计算，不改变智能匹配暂停逻辑。
+      * `RoomPauseSwitch` 日志补充 `switchType` 与 `offset` 字段，便于复盘。
+
+---
+
+## [220] 2026-03-04 05:20:00 - 智能暂停关闭时仍执行事件匹配与斜线状态更新
+
+**用户指令**：
+> 没有启用智能暂停的时候，进度条也应该按事件匹配并进行斜线。  
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：解除“事件匹配状态更新”对智能暂停开关的依赖，保证关闭智能暂停后，进度条已匹配刻度仍可正常变为斜线。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * codexHistory.md
+    *   涉及方法：
+      * MainActivity.maybeRunSmartMatchValidation
+      * MainActivity.handleRuntimeEventMatching
+    *   关键改动：
+      * `maybeRunSmartMatchValidation` 不再因 `isSmartMatchPauseEnabled=false` 直接返回，改为始终执行匹配扫描。
+      * 新增 `pauseEnabled` 分支：
+        * 关闭时：仅更新匹配状态并刷新 UI；
+        * 开启时：保留原异常暂停/漏匹配扫描逻辑。
+      * `handleRuntimeEventMatching` 新增 `pauseEnabled` 参数；
+        * 关闭时对“无匹配/重复匹配”不触发暂停与诊断复制，仅继续匹配流程；
+        * 匹配成功路径保持不变（可更新已匹配事件状态）。
+
+---
+
+## [219] 2026-03-04 05:12:00 - 仅ENTER_VISIBLE启用dps非线性压缩（gamma=3）
+
+**用户指令**：
+> GPT建议：3个早触发case里dd/nearDist≈1.10~1.20导致dps仍高，建议仅对DOOR:ENTER_VISIBLE做dps压缩：dps_enter=pow(dps_linear,gamma)，默认gamma=3；EXIT不动；日志补dpsEnter和gamma。  
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：降低“进子房间”在 nearDist 外侧软尾区的提前触发，保持 `eth/beta` 与统一积分框架不变。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * codexHistory.md
+    *   涉及方法：
+      * PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore
+      * MainActivity.toReadablePresenceDecision
+      * MainActivity.buildPresenceShortKeyLegend
+    *   关键改动：
+      * 新增常量 `ENTER_VISIBLE_DPS_GAMMA=3.0`。
+      * 仅在 `DOOR:ENTER_VISIBLE` 候选中，计算 `dpsEnter = dps^gamma`。
+      * `dpsEnter` 只替换进入链路的 `nearGateForPose` 和 `doorAssist` 输入；`EXIT_TO_LIVING` 与盲区分支不变。
+      * 日志新增：`dpsEnter`、`enterDpsGamma`（短键 `dpsE`、`edg`）。
+
+---
+
+## [218] 2026-03-04 05:05:00 - 可视门链路新增反向短窗抑制，缓解“刚出又进”回弹
+
+**用户指令**：
+> 确认 P2 按“反向短窗抑制”做：仅在 lastSwitch 的反向、且 dt<=bounceWindowMs 内，对该反向候选的 ss（或 e 增量）乘衰减系数；过窗口不衰减。  
+> 不动 eth/beta、不动盲区分支、不改主框架。  
+> 加日志：bounceApplied/dt/bounceFactor/lastSwitch/ssBeforeAfter。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：降低 `V1.3.2` 中“可视门切换后短时间反向回弹”的触发概率，避免 `入户->客厅` 后马上 `客厅->入户`。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/logic/presence/RoomTransitionEstimator.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt
+      * codexHistory.md
+    *   涉及方法：
+      * PresenceTrackObservation（新增 `timestampMs`）
+      * MainActivity 中 PresenceTrackObservation 构建
+      * PresenceAlgorithmV1_1_0_B03021639.processFrame
+      * PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore
+      * PresenceAlgorithmV1_1_0_B03021639.recordLastSwitch（新增）
+      * MainActivity.toReadablePresenceDecision / buildPresenceShortKeyLegend
+    *   关键改动：
+      * 在可视门积分链路中引入“反向短窗抑制”：
+        * 条件：当前候选与 `lastSwitch` 反向，且 `dtMs <= 900ms`；
+        * 行为：`switchScore = rawSwitchScore * bounceFactor`，`bounceFactor` 随 `dt` 线性增长（最小 0.20，窗口末端恢复 1.0）。
+      * 不改 `eth/beta`，不改盲区 `pending/stableDoor` 分支。
+      * 记录每次切换 `lastSwitch`（from/to/door/timestamp/frameSeq），并在评估阶段读取。
+      * 新增并接入调试字段：`bounceApplied/bounceDtMs/bounceFactor/lastSwitch/ssBeforeAfter`（含省流短键与 schema）。
+
+---
+
+## [217] 2026-03-04 04:55:00 - 切换主线显示版本到V1.3.2并消除Registry签名崩溃路径
+
+**用户指令**：
+> 现在算法应该是1.3.2了拜托
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：确保主线算法与归档显示统一为 `V1.3.2`，并避免 `PresenceAlgorithmRegistry` 继续触发 Kotlin 默认参数/`copy$default` 签名崩溃路径。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt
+      * app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceBaselineArchive.kt
+      * codexHistory.md
+    *   涉及方法：
+      * PresenceAlgorithmRegistry.create
+      * PresenceAlgorithmRegistry.buildActiveMainlineParams（新增）
+    *   关键改动：
+      * 新增并启用版本常量 `V1.3.2(B03030450)` 作为唯一主线可选版本。
+      * `create` 中对 `V1.3.2/V1.3.1` 统一走主线分支，运行时 `versionId/runtimeTag` 输出均为 `V1.3.2`。
+      * 将主线参数构造从 `params.copy(...)` 改为显式 `PresenceEstimatorParams(...)` 构造，绕开 `copy$default` 运行时签名不一致风险。
+      * `PresenceBaselineArchive.ACTIVE_VERSION_ID` 同步为 `V1.3.2(B03030450)`。
+
+---
+
 ## [216] 2026-03-04 04:38:00 - 增加EventValidation链路诊断日志并支持长按匹配信息区复制
 
 **用户指令**：
@@ -32,6 +166,50 @@
       * 匹配信息条支持长按识别（命中条幅区域），长按后静默复制“智能匹配诊断快照”。
       * 本次编译通过后已执行提示音命令（`[console]::beep(...)`）。
       * 编译校验通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [201] 2026-03-04 04:45:00 - 修复PresenceAlgorithmRegistry默认参数签名崩溃
+
+**用户指令**：
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复 `NoSuchMethodError: PresenceAlgorithmRegistry.create$default / PresenceEstimatorParams.<init>` 启动崩溃。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：MainActivity.ensurePresenceAlgorithmVersion
+    *   关键改动：
+      * 将 `PresenceAlgorithmRegistry.create(selectedId)` 改为显式调用
+        `PresenceAlgorithmRegistry.create(selectedId, PresenceEstimatorParams())`，
+        避免运行时走 Kotlin 合成默认参数方法 `create$default`，从而规避参数签名漂移导致的崩溃。
+
+---
+
+## [200] 2026-03-04 04:35:00 - 可视门分数链路防断链（soft tail + 候选粘性 + FALLBACK冻结）
+
+**用户指令**：
+> 继续刚才的任务，按边界要求实现：  
+> 1) dps soft tail；  
+> 2) 候选粘性（ALL_ZERO/FREEZE，可退出）；  
+> 3) FALLBACK 时仅冻结不换轨；  
+> 并补充日志字段（candidate/prevCandidate、dpsRaw/dpsFinal、best/second/prev、stickReason 等）。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“e 接近 eth 时候选跳远门导致 dps=0→das/ss=0→换轨清零”的临界帧断链问题，同时保持盲区门 `stableDoor/pending` 分支不受影响。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/RoomTransitionEstimator.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：PresenceEstimatorParams、PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.distanceScoreByDoor、MainActivity.toReadablePresenceDecision、MainActivity.buildPresenceShortKeyLegend
+    *   关键改动：
+      * 新增 `dps` 软尾参数：`doorProximitySoftTailRatio`（默认 `1.0`），并将 `distanceScoreByDoor` 改为返回 `raw/final` 双值：  
+        `dd<=nearDist` 保持近门曲线，`nearDist<dd<nearDist*(1+ratio)` 软衰减，`dd>=dd1` 严格归零。
+      * 新增可视链路候选粘性参数与逻辑：  
+        `ALL_ZERO`（best/second 同时低于阈值）与 `FREEZE`（`prevE >= freezeRatio*eth` 且 `best-prev < switchMargin`）触发“保持 prevCandidate，不换轨”。
+      * 新增 `FALLBACK` 冻结：当本帧 best 为 `mwu=FALLBACK` 且存在 `prevCandidate` 时仅冻结当前帧候选，不改变主公式，不延续到下一帧。
+      * 为调试面板压缩日志新增字段映射与 schema：  
+        `nearDist,dpsRaw,dpsFinal,dpsTailRatio,candidate,prevCandidate,bestScore,secondScore,prevScore,bestMinusPrev,stickApplied,stickReason,fallbackFrozen`。
 
 ---
 

@@ -62,6 +62,7 @@ import com.example.roomxxx0102.logic.presence.PresenceTrackObservation
 import com.example.roomxxx0102.logic.presence.PresenceDoorSnapshot
 import com.example.roomxxx0102.logic.presence.PresenceAlgorithmEngine
 import com.example.roomxxx0102.logic.presence.PresenceAlgorithmRegistry
+import com.example.roomxxx0102.logic.presence.PresenceEstimatorParams
 import com.example.roomxxx0102.logic.presence.RoomPresenceChangeLogger
 import com.example.roomxxx0102.logic.presence.PresenceSwitchEvent
 import com.example.roomxxx0102.logic.validation.EventMarkerManager
@@ -221,6 +222,7 @@ class MainActivity : ComponentActivity() {
             }
 
             // Presence 估计：独立工具类统一处理“位置判定/房间切换事件/持久化人数”
+            val presenceNowMs = videoFeeder?.getCurrentPositionMs()?.toLong() ?: -1L
             val observedTargets = results.map { pose ->
                 val box = pose.box
                 PresenceTrackObservation(
@@ -230,6 +232,7 @@ class MainActivity : ComponentActivity() {
                         y = pose.landingPoint.y.toDouble()
                     ),
                     strength = toPresenceStrength(pose),
+                    timestampMs = presenceNowMs,
                     groundConfidence = estimateGroundConfidence(pose),
                     personBox = PresenceRect(
                         left = minOf(box.left, box.right).toDouble(),
@@ -328,27 +331,53 @@ class MainActivity : ComponentActivity() {
             }
 
             runOnUiThread {
+                val nowMs = currentVideoTimestampMs()
+                val frameIndex = currentEstimatedFrameIndex(nowMs)
+                val validationRuntimeEvents = appendRuntimeEventsForValidation(
+                    events = presenceResult.events,
+                    livingRoomId = livingRoom?.id,
+                    roomNameById = roomNameById,
+                    timestampMs = nowMs,
+                    frameIndex = frameIndex
+                )
                 if (presenceResult.events.isNotEmpty()) {
                     val lastEvent = presenceResult.events.last()
                     val fromName = roomNameById[lastEvent.fromRoomId] ?: lastEvent.fromRoomId
                     val toName = roomNameById[lastEvent.toRoomId] ?: lastEvent.toRoomId
+                    val switchType = mapPresenceEventType(lastEvent, livingRoom?.id ?: "")
+                    val switchTypeLabel = switchType?.let { eventTypeLabel(it) } ?: "房间切换"
+                    val switchOffsetText = if (switchType != null) {
+                        val nearestOffset = nearestRuntimeDeltaMs(
+                            runtime = RuntimeRoomEvent(
+                                type = switchType,
+                                frameIndex = frameIndex,
+                                timestampMs = nowMs
+                            ),
+                            markedEvents = eventMarkerManager.getEvents()
+                        )
+                        nearestOffset?.let { formatSignedOffsetMs(it) } ?: "无可比事件"
+                    } else {
+                        "无可比事件"
+                    }
                     val playStateBefore = currentPlayState
                     if (seekHoldActive &&
                         seekHoldDirection > 0 &&
                         currentPlayState == PlayState.STILL
                     ) {
                         stopSeekHold()
-                        overlayView.showUnlockBanner("检测到房间切换: $fromName->$toName，已停止+1帧长按")
+                        overlayView.showUnlockBanner(
+                            "检测到房间切换($switchTypeLabel): $fromName->$toName，偏差=$switchOffsetText，已停止+1帧长按"
+                        )
                     }
                     val shouldAutoPause = AppSettings.isPauseOnRoomSwitchEnabled &&
                         playStateBefore == PlayState.PLAYING
                     var didAutoPause = false
                     if (shouldAutoPause) {
-                        val switchTypeLabel = mapPresenceEventType(lastEvent, livingRoom?.id ?: "")?.let { eventTypeLabel(it) }
-                            ?: "房间切换"
                         val pauseButton = findViewById<Button>(R.id.btnPause)
                         togglePause(pauseButton)
-                        overlayView.showUnlockBanner("检测到房间切换($switchTypeLabel): $fromName->$toName，已自动暂停")
+                        overlayView.showUnlockBanner(
+                            "检测到房间切换($switchTypeLabel): $fromName->$toName，偏差=$switchOffsetText，已自动暂停"
+                        )
                         didAutoPause = true
                     }
                     if (AppSettings.isPauseDecisionLogOnSwitchEnabled) {
@@ -360,19 +389,12 @@ class MainActivity : ComponentActivity() {
                                 "playStateBefore=$playStateBefore " +
                                 "shouldAutoPause=$shouldAutoPause " +
                                 "didAutoPause=$didAutoPause " +
-                                "playStateAfter=$currentPlayState"
+                                "playStateAfter=$currentPlayState " +
+                                "switchType=$switchTypeLabel " +
+                                "offset=$switchOffsetText"
                         )
                     }
                 }
-                val nowMs = currentVideoTimestampMs()
-                val frameIndex = currentEstimatedFrameIndex(nowMs)
-                val validationRuntimeEvents = appendRuntimeEventsForValidation(
-                    events = presenceResult.events,
-                    livingRoomId = livingRoom?.id,
-                    roomNameById = roomNameById,
-                    timestampMs = nowMs,
-                    frameIndex = frameIndex
-                )
                 maybeRunSmartMatchValidation(
                     runtimeEvents = validationRuntimeEvents,
                     nowMs = nowMs
@@ -609,6 +631,12 @@ class MainActivity : ComponentActivity() {
             "switchThreshold" to "scsTh",
             "exitSourceRoomScoreThreshold" to "srssTh",
             "dynamicNearDist" to "dnd",
+            "nearDist" to "nd",
+            "dpsRaw" to "dpsR",
+            "dpsFinal" to "dpsF",
+            "dpsEnter" to "dpsE",
+            "enterDpsGamma" to "edg",
+            "dpsTailRatio" to "dpsTr",
             "doorAdvanceDelta" to "dad",
             "doorLateralDelta" to "dld",
             "doorAdvanceLateralRatio" to "dalr",
@@ -620,6 +648,20 @@ class MainActivity : ComponentActivity() {
             "clearGate" to "cg",
             "nearGateForPose" to "ngp",
             "doorScoreGap" to "dsg",
+            "candidate" to "cand",
+            "prevCandidate" to "pc",
+            "bestScore" to "bsc",
+            "secondScore" to "ssc",
+            "prevScore" to "psc",
+            "bestMinusPrev" to "bmp",
+            "stickApplied" to "stk",
+            "stickReason" to "stkr",
+            "fallbackFrozen" to "fbf",
+            "bounceApplied" to "bap",
+            "bounceDtMs" to "bdt",
+            "bounceFactor" to "bfac",
+            "lastSwitch" to "lsw",
+            "ssBeforeAfter" to "ssba",
             "exitPoseMinConfidence" to "pacMin",
             "poseHardRejectMinConfidence" to "phrMin",
             "grayPoseMinConfidence" to "gpm",
@@ -658,8 +700,9 @@ class MainActivity : ComponentActivity() {
         val metricKeys = listOf(
             "dd", "dps", "gpc", "des", "dpe", "trc", "src", "sops",
             "pac", "srss", "pts", "das", "scs", "ss", "e", "eth",
-            "scsTh", "srssTh", "sopsTh", "dnd", "dad", "dld", "dalr", "dadS", "dadL",
-            "pg", "cg", "ngp", "dsg"
+            "scsTh", "srssTh", "sopsTh", "dnd", "nd", "dpsR", "dpsF", "dpsE", "dpsTr",
+            "dad", "dld", "dalr", "dadS", "dadL", "bsc", "ssc", "psc", "bmp",
+            "pg", "cg", "ngp", "dsg", "bdt", "bfac"
         )
         val metrics = metricKeys.joinToString(
             separator = ",",
@@ -669,7 +712,11 @@ class MainActivity : ComponentActivity() {
             kv[key] ?: "-"
         }
 
-        val extraKeys = listOf("pacMin", "phrMin", "gpm", "mwu", "evnR", "evcR", "xvnR", "evdeR", "evdeP", "evdaM", "xvdh", "xvpm", "xvpr")
+        val extraKeys = listOf(
+            "pacMin", "phrMin", "gpm", "edg", "mwu", "evnR", "evcR", "xvnR",
+            "evdeR", "evdeP", "evdaM", "xvdh", "xvpm", "xvpr",
+            "cand", "pc", "stk", "stkr", "fbf", "bap", "lsw", "ssba"
+        )
         val extraValues = extraKeys.joinToString(
             separator = ",",
             prefix = "[",
@@ -690,7 +737,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildPresenceShortKeyLegend(): String {
-        return "h=[f,t,fr,md,er,lc,sg] m=[dd,dps,gpc,des,dpe,trc,src,sops,pac,srss,pts,das,scs,ss,e,eth,scsTh,srssTh,sopsTh,dnd,dad,dld,dalr,dadS,dadL,pg,cg,ngp,dsg] x=[pacMin,phrMin,gpm,mwu,evnR,evcR,xvnR,evdeR,evdeP,evdaM,xvdh,xvpm,xvpr]"
+        return "h=[f,t,fr,md,er,lc,sg] m=[dd,dps,gpc,des,dpe,trc,src,sops,pac,srss,pts,das,scs,ss,e,eth,scsTh,srssTh,sopsTh,dnd,nd,dpsR,dpsF,dpsE,dpsTr,dad,dld,dalr,dadS,dadL,bsc,ssc,psc,bmp,pg,cg,ngp,dsg,bdt,bfac] x=[pacMin,phrMin,gpm,edg,mwu,evnR,evcR,xvnR,evdeR,evdeP,evdaM,xvdh,xvpm,xvpr,cand,pc,stk,stkr,fbf,bap,lsw,ssba]"
     }
 
     private fun setupButtons() {
@@ -1338,7 +1385,7 @@ class MainActivity : ComponentActivity() {
         val selectedId = AppSettings.presenceAlgorithmVersion
         val resolvedId = PresenceAlgorithmRegistry.resolveVersionId(selectedId)
         if (!::roomPresenceAlgorithm.isInitialized || roomPresenceAlgorithm.versionId != resolvedId) {
-            roomPresenceAlgorithm = PresenceAlgorithmRegistry.create(selectedId)
+            roomPresenceAlgorithm = PresenceAlgorithmRegistry.create(selectedId, PresenceEstimatorParams())
             roomPresenceChangeLogger.reset()
             Log.i("RoomPresence", "Presence算法已切换: ${roomPresenceAlgorithm.runtimeTag}")
         }
@@ -1628,7 +1675,8 @@ class MainActivity : ComponentActivity() {
         runtimeEvents: List<ValidationRuntimeEvent>,
         nowMs: Long
     ) {
-        if (!isVideoMode || !AppSettings.isSmartMatchPauseEnabled) return
+        if (!isVideoMode) return
+        val pauseEnabled = AppSettings.isSmartMatchPauseEnabled
         val markedEvents = eventMarkerManager.getEvents()
         if (markedEvents.isEmpty()) return
         val windowMs = AppSettings.eventMissPauseWindowMs.toLong()
@@ -1636,7 +1684,7 @@ class MainActivity : ComponentActivity() {
         var didScanOverdueBranch = false
         var overdueTriggered = false
         for (runtimeEvent in runtimeEvents) {
-            if (handleRuntimeEventMatching(runtimeEvent, markedEvents, windowMs)) {
+            if (handleRuntimeEventMatching(runtimeEvent, markedEvents, windowMs, pauseEnabled)) {
                 didReturnByRuntimeBranch = true
                 logValidationTick(
                     nowMs = nowMs,
@@ -1650,6 +1698,19 @@ class MainActivity : ComponentActivity() {
                 refreshEventMarkerUi()
                 return
             }
+        }
+        if (!pauseEnabled) {
+            logValidationTick(
+                nowMs = nowMs,
+                windowMs = windowMs,
+                runtimeEventsCount = runtimeEvents.size,
+                markedEventsCount = markedEvents.size,
+                didReturnByRuntimeBranch = didReturnByRuntimeBranch,
+                didScanOverdueBranch = didScanOverdueBranch,
+                overdueTriggered = overdueTriggered
+            )
+            refreshEventMarkerUi()
+            return
         }
         if (currentPlayState != PlayState.PLAYING) {
             logValidationTick(
@@ -1728,7 +1789,8 @@ class MainActivity : ComponentActivity() {
     private fun handleRuntimeEventMatching(
         runtimeEvent: ValidationRuntimeEvent,
         markedEvents: List<MarkedEvent>,
-        windowMs: Long
+        windowMs: Long,
+        pauseEnabled: Boolean
     ): Boolean {
         val runtime = runtimeEvent.runtime
         val candidates = markedEvents.filter { marked ->
@@ -1736,6 +1798,7 @@ class MainActivity : ComponentActivity() {
                 kotlin.math.abs(marked.timestampMs - runtime.timestampMs) <= windowMs
         }
         if (candidates.isEmpty()) {
+            if (!pauseEnabled) return false
             val route = "${runtimeEvent.fromName}->${runtimeEvent.toName}"
             val nearestDelta = nearestRuntimeDeltaMs(runtime, markedEvents)
             val offsetText = nearestDelta?.let { formatSignedOffsetMs(it) } ?: "无可比事件"
@@ -1784,6 +1847,10 @@ class MainActivity : ComponentActivity() {
         val nearestOffset = buildNearestOffsetForRuntime(runtime, markedEvents)
         val duplicatedRef = markedEventRef(duplicated, markedEvents)
         val message = "事件类型:${eventTypeLabel(runtime.type)} ${runtimeEvent.fromName}->${runtimeEvent.toName} (异常重复匹配 $duplicatedRef, $nearestOffset)"
+        if (!pauseEnabled) {
+            Log.w("EventValidation", "runtime_duplicate_match_ignored $message")
+            return false
+        }
         copySmartMatchDiagnostic(
             reason = "异常重复匹配",
             runtimeEvent = runtimeEvent,
