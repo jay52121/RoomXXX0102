@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.util.Size
 import android.view.MotionEvent
@@ -130,6 +131,8 @@ class MainActivity : ComponentActivity() {
     private var seekHoldActive = false
     private var seekHoldDirection = 0 // -1: 后退, +1: 前进
     private val seekHoldStartDelayMs = 500L
+    private var lastPlayToggleUptimeMs = 0L
+    private val playToggleDebounceMs = 280L
     private val beijingTimeFormatter: SimpleDateFormat by lazy {
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.CHINA).apply {
             timeZone = TimeZone.getTimeZone("Asia/Shanghai")
@@ -642,6 +645,10 @@ class MainActivity : ComponentActivity() {
             "inwardTrendScore" to "itr",
             "passBySuppress" to "pbs",
             "crossScore" to "crs",
+            "enterPhase" to "eph",
+            "enterProxFactor" to "epf",
+            "enterProxFloor" to "epfl",
+            "enterCrossPart" to "ecp",
             "enterSwitchScore" to "ess",
             "enterInsideScoreRef" to "sRef",
             "enterInwardTrendRef" to "vRef",
@@ -710,7 +717,7 @@ class MainActivity : ComponentActivity() {
             "dd", "dps", "gpc", "des", "dpe", "trc", "src", "sops",
             "pac", "srss", "pts", "das", "scs", "ss", "e", "eth",
             "scsTh", "srssTh", "sopsTh", "dnd", "nd", "dpsR", "dpsF", "dpsE", "dpsTr",
-            "pacE", "ins", "itr", "pbs", "crs", "ess", "sRef", "vRef", "rRef",
+            "pacE", "ins", "itr", "pbs", "crs", "eph", "epf", "epfl", "ecp", "ess", "sRef", "vRef", "rRef",
             "dad", "dld", "dalr", "dadS", "dadL", "bsc", "ssc", "psc", "bmp",
             "pg", "cg", "ngp", "dsg", "bdt", "bfac"
         )
@@ -747,7 +754,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildPresenceShortKeyLegend(): String {
-        return "h=[f,t,fr,md,er,lc,sg] m=[dd,dps,gpc,des,dpe,trc,src,sops,pac,srss,pts,das,scs,ss,e,eth,scsTh,srssTh,sopsTh,dnd,nd,dpsR,dpsF,dpsE,dpsTr,pacE,ins,itr,pbs,crs,ess,sRef,vRef,rRef,dad,dld,dalr,dadS,dadL,bsc,ssc,psc,bmp,pg,cg,ngp,dsg,bdt,bfac] x=[pacMin,phrMin,gpm,edg,mwu,evnR,evcR,xvnR,evdeR,evdeP,evdaM,xvdh,xvpm,xvpr,cand,pc,stk,stkr,fbf,bap,lsw,ssba]"
+        return "h=[f,t,fr,md,er,lc,sg] m=[dd,dps,gpc,des,dpe,trc,src,sops,pac,srss,pts,das,scs,ss,e,eth,scsTh,srssTh,sopsTh,dnd,nd,dpsR,dpsF,dpsE,dpsTr,pacE,ins,itr,pbs,crs,eph,epf,epfl,ecp,ess,sRef,vRef,rRef,dad,dld,dalr,dadS,dadL,bsc,ssc,psc,bmp,pg,cg,ngp,dsg,bdt,bfac] x=[pacMin,phrMin,gpm,edg,mwu,evnR,evcR,xvnR,evdeR,evdeP,evdaM,xvdh,xvpm,xvpr,cand,pc,stk,stkr,fbf,bap,lsw,ssba]"
     }
 
     private fun setupButtons() {
@@ -2189,6 +2196,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun togglePause(btn: Button) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastPlayToggleUptimeMs < playToggleDebounceMs) {
+            return
+        }
+        lastPlayToggleUptimeMs = now
+        stopSeekHold()
         currentPlayState = when (currentPlayState) {
             PlayState.PLAYING -> PlayState.STILL
             PlayState.STILL -> PlayState.PAUSED
@@ -2198,6 +2211,7 @@ class MainActivity : ComponentActivity() {
         when (currentPlayState) {
             PlayState.PLAYING -> {
                 btn.text = "[ 播放中 ]"
+                videoFeeder?.clearStepSeekTransientState()
                 videoFeeder?.setStillMode(false)
                 videoFeeder?.resume()
             }

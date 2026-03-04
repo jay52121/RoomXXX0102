@@ -24,6 +24,53 @@
 
 ---
 
+## [202] 2026-03-04 15:08:00 - 修复 V1.3.4 编译错误（min 导入缺失）
+
+**用户指令**：
+> e: ...PresenceAlgorithmV1_1_0_B03021639.kt:625:17 Unresolved reference 'min'.
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复 `ENTER_VISIBLE V2.1` 新代码引入的编译错误。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
+    *   涉及方法：无（import 修复）
+    *   关键改动：
+      * 在文件顶部补充 `import kotlin.math.min`，解决 `min(...)` 解析失败。
+
+---
+
+## [201] 2026-03-04 15:02:00 - V1.3.4：ENTER_VISIBLE V2.1 解耦 dpsE 绑死
+
+**用户指令**：
+> 按 GPT 评审方案继续：在不改 ss->e->eth 主框架下，修复“偏早/漏检并存”；先备份 1.3.3，再推进 1.3.4。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：仅优化 `DOOR:ENTER_VISIBLE` 链路，减少“首帧冲高偏早”与“过门后 dpsE 塌陷导致不过线”。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceBaselineArchive.kt、wiki.md、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、MainActivity.compactPresenceDecisionTextForPanel、MainActivity.buildPresenceShortKeyLegend、RoiLogAggregator.snapshotForPanel、PresenceAlgorithmRegistry.create
+    *   关键改动：
+      * `V2.1` 近门因子改造（仅 ENTER_VISIBLE）：
+        * `phi = min(insideScore, inwardTrendScore)`
+        * `proxFactor = (1-phi)*dpsE + phi*max(dps, proxFloor)`
+        * `proxFloor = 0.35`
+        * `enterCrossPart = proxFactor * crossScore`
+      * ENTER 单帧分更新：
+        * `enterSwitchScore = 0.8*enterCrossPart + 0.2*(poseGate*poseTransitionScore)`
+      * 参考尺度调优（抑制首帧冲高）：
+        * `S_ref`: `0.5*nearDist -> 0.8*nearDist`
+        * `V_ref`: `1.0*enaMin -> 1.3*enaMin`
+        * `R_ref` 保持不变。
+      * 新增调试字段并接入压缩日志与 schema：
+        * `eph/epf/epfl/ecp`（`enterPhase/enterProxFactor/enterProxFloor/enterCrossPart`）
+      * 版本升级：
+        * 新增并切换主线版本 `V1.3.4(B03041455)`；
+        * `PresenceBaselineArchive.ACTIVE_VERSION_ID` 同步为 `V1.3.4(B03041455)`。
+
+---
+
 ## [200] 2026-03-04 14:32:00 - ENTER_VISIBLE改为门洞穿越主证据并修复遮挡低分
 
 **用户指令**：
@@ -4263,6 +4310,58 @@ ROI抖动日志:
       * `addEvent/removeEventsNearFrame/clearBoundVideoEvents` 自动触发保存/删除文件。
       * 文件命名以视频名为基础：`<videoName>.events.json`；无法提取视频名时回退到稳定哈希名。
       * `MainActivity.onCreate` 增加 `eventMarkerManager.init(applicationContext)`，确保持久化能力生效。
+
+---
+
+## [222] 2026-03-04 15:20:00 - 增加身份断裂重置与账本守恒拦截
+
+**用户指令**：
+> gpt的回复,注意看下注意事项,然后开始吧...  
+> 1) Identity reset（处理 trackId 复用串人）  
+> 2) Event-level reset（处理“刚切完又反向”残留）  
+> 3) 账本守恒硬保护（先上硬拦 + 日志）
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复 trackId 复用导致“串人反向切换”与提交后缓存残留导致“刚切完又反向”的问题，并增加账本守恒硬保护。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
+    *   涉及方法：processFrame、evaluateVisibleEnterByScore、applyTransition、resetStateAfterCommittedEvent、resetTrackIdentityState、buildIdentityResetReason
+    *   关键改动：
+      * 新增 **Identity reset**：
+        * 触发条件：`gapFrames >= 18` 或 `jumpDist >= 0.25`（支持 `GAP/JUMP/GAP+JUMP` 诊断）。
+        * 触发后：清空该 track 的 room/evidence/candidate/stableDoor/groundHistory/lastScored/lastSwitch/hold 等状态，并移除 pending。
+        * 同时对旧 `currentRoom` 做一次 `-1`，再按首帧重定位流程重新初始化，避免串人继承旧账本。
+      * 新增 **Event-level reset**：
+        * 每次 `applyTransition` 成功后执行，清空证据与跨帧缓存（候选、evidence、hold、groundHistory、stableDoor、lastScored），保留 `lastSwitch` 供 anti-bounce 使用。
+      * 新增 **账本守恒硬保护**：
+        * 对非 `outside` 相关转移，若 `presenceCounts[fromRoom] == 0`，直接阻断该次转移。
+        * 输出日志：`ledgerBlockApplied=true blockReason=FROM_COUNT_ZERO fromCount=...`，并附带候选/ss/e 上下文。
+      * 提交链路接入：
+        * `VISIBLE_SWITCH` / `VISIBLE_POLYGON_SYNC` / `PENDING_CONFIRMED` 三条转移路径都改为先检查 `applyTransition` 返回值，再决定是否写入 `lastSwitch` 和更新 `currentRoom`。
+      * 调试字段补齐：
+        * `identityResetApplied/resetReason/gapFrames/jumpDist/roomNowBefore/roomNowAfter`
+        * `eventResetApplied=true lastSwitchKept=true`
+        * `ledgerBlockApplied/blockReason/fromCount`
+
+---
+
+## [223] 2026-03-04 15:35:00 - 修复播放连点导致画面来回震动
+
+**用户指令**：
+> 有时多点了几次播放,视频就来回震动,没法继续播放.但是声音还在走
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复播放键快速连点时出现“画面反复跳动但音频继续”的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、codexHistory.md
+    *   涉及方法：MainActivity.togglePause、VideoFeeder.clearStepSeekTransientState
+    *   关键改动：
+      * `MainActivity.togglePause` 新增 280ms 防抖（`SystemClock.elapsedRealtime()`），防止一次连点触发多次状态连跳。
+      * 状态切换前统一 `stopSeekHold()`，避免长按逐帧 seek 任务在状态切换后继续干扰。
+      * 切回 `PLAYING` 时调用 `videoFeeder.clearStepSeekTransientState()`，清空逐帧步进与 +10ms 补偿残留。
+      * `VideoFeeder` 新增 `clearStepSeekTransientState()`：重置 `pendingForwardNudge/pendingSeekState/lastStepSeekDebug`，避免历史 seek 残留继续拉扯画面。
 
 ---
 

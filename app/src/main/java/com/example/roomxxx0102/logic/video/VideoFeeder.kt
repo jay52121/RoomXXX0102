@@ -338,6 +338,16 @@ class VideoFeeder(
         pendingForwardNudgeRemain = 0
     }
 
+    /**
+     * 清理逐帧步进/补偿相关的短期状态。
+     * 用于从静止/暂停切回播放时，避免历史 seek 残留继续拉扯画面。
+     */
+    fun clearStepSeekTransientState() {
+        clearForwardStepNudgeState()
+        pendingSeekState = null
+        lastStepSeekDebug = null
+    }
+
     private fun forcePausedFrameRefresh(mp: MediaPlayer) {
         try {
             mp.start()
