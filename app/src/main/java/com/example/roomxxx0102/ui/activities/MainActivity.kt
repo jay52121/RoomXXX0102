@@ -637,6 +637,15 @@ class MainActivity : ComponentActivity() {
             "dpsEnter" to "dpsE",
             "enterDpsGamma" to "edg",
             "dpsTailRatio" to "dpsTr",
+            "poseEffectiveConfidence" to "pacE",
+            "insideScore" to "ins",
+            "inwardTrendScore" to "itr",
+            "passBySuppress" to "pbs",
+            "crossScore" to "crs",
+            "enterSwitchScore" to "ess",
+            "enterInsideScoreRef" to "sRef",
+            "enterInwardTrendRef" to "vRef",
+            "enterPassByRef" to "rRef",
             "doorAdvanceDelta" to "dad",
             "doorLateralDelta" to "dld",
             "doorAdvanceLateralRatio" to "dalr",
@@ -701,6 +710,7 @@ class MainActivity : ComponentActivity() {
             "dd", "dps", "gpc", "des", "dpe", "trc", "src", "sops",
             "pac", "srss", "pts", "das", "scs", "ss", "e", "eth",
             "scsTh", "srssTh", "sopsTh", "dnd", "nd", "dpsR", "dpsF", "dpsE", "dpsTr",
+            "pacE", "ins", "itr", "pbs", "crs", "ess", "sRef", "vRef", "rRef",
             "dad", "dld", "dalr", "dadS", "dadL", "bsc", "ssc", "psc", "bmp",
             "pg", "cg", "ngp", "dsg", "bdt", "bfac"
         )
@@ -737,7 +747,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildPresenceShortKeyLegend(): String {
-        return "h=[f,t,fr,md,er,lc,sg] m=[dd,dps,gpc,des,dpe,trc,src,sops,pac,srss,pts,das,scs,ss,e,eth,scsTh,srssTh,sopsTh,dnd,nd,dpsR,dpsF,dpsE,dpsTr,dad,dld,dalr,dadS,dadL,bsc,ssc,psc,bmp,pg,cg,ngp,dsg,bdt,bfac] x=[pacMin,phrMin,gpm,edg,mwu,evnR,evcR,xvnR,evdeR,evdeP,evdaM,xvdh,xvpm,xvpr,cand,pc,stk,stkr,fbf,bap,lsw,ssba]"
+        return "h=[f,t,fr,md,er,lc,sg] m=[dd,dps,gpc,des,dpe,trc,src,sops,pac,srss,pts,das,scs,ss,e,eth,scsTh,srssTh,sopsTh,dnd,nd,dpsR,dpsF,dpsE,dpsTr,pacE,ins,itr,pbs,crs,ess,sRef,vRef,rRef,dad,dld,dalr,dadS,dadL,bsc,ssc,psc,bmp,pg,cg,ngp,dsg,bdt,bfac] x=[pacMin,phrMin,gpm,edg,mwu,evnR,evcR,xvnR,evdeR,evdeP,evdaM,xvdh,xvpm,xvpr,cand,pc,stk,stkr,fbf,bap,lsw,ssba]"
     }
 
     private fun setupButtons() {

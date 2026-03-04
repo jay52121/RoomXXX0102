@@ -24,6 +24,32 @@
 
 ---
 
+## [200] 2026-03-04 14:32:00 - ENTER_VISIBLE改为门洞穿越主证据并修复遮挡低分
+
+**用户指令**：
+> 开始吧（按评审方案落地：不推翻 ss->e->eth 框架，仅改 ENTER_VISIBLE，加入门洞穿越证据与有效姿态置信）
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在不改 EXIT/盲区分支的前提下，降低 ENTER_VISIBLE 的“提前进门/遮挡进不去/末段断续不过线”问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、computeEffectivePoseConfidence、MainActivity.compactPresenceDecisionTextForPanel、MainActivity.buildPresenceShortKeyLegend、RoiLogAggregator.snapshotForPanel
+    *   关键改动：
+      * 仅在 `DOOR:ENTER_VISIBLE` 链路引入门洞穿越分：
+        * `insideScore`（门内进度）
+        * `inwardTrendScore`（向内推进）
+        * `passBySuppress`（贴门横走抑制）
+        * `crossScore = inside * inward * passBy`
+      * 新进入单帧分（仅 ENTER_VISIBLE）：
+        * `enterSwitchScore = 0.8*(dpsEnter*crossScore) + 0.2*(poseGate*poseTransitionScore)`
+      * `poseGate` 改用 `poseEffectiveConfidence`（仅统计 `>= exitPosePointMinConfidence` 的有效点均值），不再被下半身低置信直接拖穿。
+      * ENTER_VISIBLE 确认帧改为独立常量 `ENTER_VISIBLE_CONFIRM_FRAMES=2`（不改 `eth/beta`）。
+      * EXIT_TO_LIVING 与盲区门 stable/pending 分支保持不变。
+      * 调试日志新增并压缩输出：`pacE/ins/itr/pbs/crs/ess/sRef/vRef/rRef`，并同步 schema。
+
+---
+
 ## [220] 2026-03-04 05:20:00 - 智能暂停关闭时仍执行事件匹配与斜线状态更新
 
 **用户指令**：
