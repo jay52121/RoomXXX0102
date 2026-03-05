@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="roi_log_mode_labels">
+        <item>1秒一次</item>
+        <item>ROI每次移动一次</item>
+        <item>关闭</item>
+    </string-array>
+
+    <string-array name="presence_algorithm_labels">
+        <item>自动(最新)</item>
+        <item>V1.0.0(B03011413)</item>
+        <item>V1.1.0(B03021639)</item>
+        <item>V1.1.1(B03021717)</item>
+        <item>V1.1.2(B03021736)</item>
+        <item>V1.1.3(B03021801)</item>
+        <item>V1.1.4(B03021831)</item>
+        <item>V1.1.5(B03021852)</item>
+        <item>V1.1.6(B03021957)</item>
+        <item>V1.1.7(B03022014)</item>
+        <item>V1.1.8(B03022153)</item>
+        <item>V1.1.9(B03022207)</item>
+        <item>V1.2.0(B03022300)</item>
+        <item>V1.2.1(B03022335)</item>
+        <item>V1.2.2(B03022359)</item>
+        <item>V1.2.3(B03030020)</item>
+        <item>V1.3.0(B03030116)</item>
+        <item>V1.3.1(B03030340)</item>
+    </string-array>
+</resources>

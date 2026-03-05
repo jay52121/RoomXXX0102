@@ -68,6 +68,8 @@ class VideoFeeder(
     private var pendingSeekState: PendingSeekState? = null
     private var lastSeekCompletePositionMs: Int? = null
     private var lastSeekCompleteAtMs: Long = 0L
+    private var lastPlaybackDiagPosMs: Int? = null
+    private var playbackStallCount: Int = 0
     // +1 帧补偿触发时回调给上层 UI，用于显示横幅提示。
     var onStepNudge: ((String) -> Unit)? = null
 
@@ -174,6 +176,10 @@ class VideoFeeder(
                             val currentPos = mp.currentPosition
                             lastSeekCompletePositionMs = mp.currentPosition
                             lastSeekCompleteAtMs = System.currentTimeMillis()
+                            logPlayerDiag(
+                                "seekComplete pos=$currentPos isPlaying=${mp.isPlaying} " +
+                                    "stillMode=$isStillMode pending=${pendingSeekState != null}"
+                            )
                             val pending = pendingSeekState
                             if (pending != null) {
                                 if (
@@ -199,6 +205,7 @@ class VideoFeeder(
                         setOnPreparedListener { mp ->
                             Log.d("VideoFeeder", "✅ 视频准备就绪: ${mp.videoWidth}x${mp.videoHeight}")
                             adjustAspectRatio(mp.videoWidth, mp.videoHeight)
+                            logPlayerDiag("prepared video=${mp.videoWidth}x${mp.videoHeight} duration=${mp.duration}")
                             mp.start()
                             isAnalyzing = true
                             handler.post(analyzeRunnable)
@@ -230,6 +237,7 @@ class VideoFeeder(
     fun setStillMode(isStill: Boolean) {
         val wasStillMode = isStillMode
         isStillMode = isStill
+        logPlayerDiag("setStillMode from=$wasStillMode to=$isStill")
         if (isStill && !wasStillMode) {
             // 对齐一次时间基准，避免切换状态的临界帧被误判成“连续静止”
             mediaPlayer?.let { mp -> lastAnalyzedPositionMs = mp.currentPosition }
@@ -242,17 +250,29 @@ class VideoFeeder(
 
     fun pause() {
         mediaPlayer?.let {
+            val beforePos = runCatching { it.currentPosition }.getOrElse { -1 }
+            val beforePlaying = it.isPlaying
             if (it.isPlaying) {
                 it.pause()
             }
+            logPlayerDiag(
+                "pause beforePos=$beforePos afterPos=${runCatching { it.currentPosition }.getOrElse { -1 }} " +
+                    "beforePlaying=$beforePlaying afterPlaying=${it.isPlaying}"
+            )
         }
     }
 
     fun resume() {
         mediaPlayer?.let {
+            val beforePos = runCatching { it.currentPosition }.getOrElse { -1 }
+            val beforePlaying = it.isPlaying
             if (!it.isPlaying) {
                 it.start()
             }
+            logPlayerDiag(
+                "resume beforePos=$beforePos afterPos=${runCatching { it.currentPosition }.getOrElse { -1 }} " +
+                    "beforePlaying=$beforePlaying afterPlaying=${it.isPlaying}"
+            )
         }
     }
 
@@ -314,6 +334,10 @@ class VideoFeeder(
                 deltaMs = deltaMs,
                 captureAsStep = captureAsStep,
                 backwardGuardRetries = if (captureAsStep && deltaMs < 0) 1 else 0
+            )
+            logPlayerDiag(
+                "seekByMs request delta=$deltaMs mode=$seekMode captureAsStep=$captureAsStep " +
+                    "before=$before target=$target duration=${mp.duration} isPlaying=${mp.isPlaying}"
             )
             mp.seekTo(target.toLong(), seekMode)
             val debug = StepSeekDebug(
@@ -435,6 +459,20 @@ class VideoFeeder(
      */
     private fun computeTemporalAdvanced(mp: MediaPlayer): Boolean {
         val currentPos = mp.currentPosition
+        val lastDiagPos = lastPlaybackDiagPosMs
+        if (mp.isPlaying && lastDiagPos != null) {
+            val delta = currentPos - lastDiagPos
+            playbackStallCount = if (delta <= 0) playbackStallCount + 1 else 0
+            if (delta < -80 || playbackStallCount >= 4) {
+                logPlayerDiag(
+                    "playLoopAnomaly pos=$currentPos last=$lastDiagPos delta=$delta " +
+                        "stallCount=$playbackStallCount isPlaying=${mp.isPlaying} stillMode=$isStillMode"
+                )
+            }
+        } else {
+            playbackStallCount = 0
+        }
+        lastPlaybackDiagPosMs = currentPos
         val advanced = if (mp.isPlaying) {
             true
         } else {
@@ -531,6 +569,8 @@ class VideoFeeder(
         isStillMode = false
         suppressStagnantUnlockUntilMs = 0L
         lastAnalyzedPositionMs = null
+        lastPlaybackDiagPosMs = null
+        playbackStallCount = 0
         lastAnalyzedFrameDigest = null
         lastStepSeekDebug = null
         pendingForwardNudgeDebug = null
@@ -548,5 +588,10 @@ class VideoFeeder(
             }
             mp?.release()
         } catch (e: Exception) {}
+    }
+
+    private fun logPlayerDiag(message: String) {
+        if (!AppSettings.isPauseDecisionLogOnSwitchEnabled) return
+        Log.i("RoomPlayerDiag", message)
     }
 }

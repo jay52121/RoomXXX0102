@@ -131,8 +131,8 @@ class MainActivity : ComponentActivity() {
     private var seekHoldActive = false
     private var seekHoldDirection = 0 // -1: 后退, +1: 前进
     private val seekHoldStartDelayMs = 500L
-    private var lastPlayToggleUptimeMs = 0L
-    private val playToggleDebounceMs = 280L
+    private var lastPresenceCountsForPause: Map<String, Int>? = null
+    private var lastPresenceAnomalyDumpKey: String? = null
     private val beijingTimeFormatter: SimpleDateFormat by lazy {
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.CHINA).apply {
             timeZone = TimeZone.getTimeZone("Asia/Shanghai")
@@ -373,7 +373,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     val shouldAutoPause = AppSettings.isPauseOnRoomSwitchEnabled &&
-                        playStateBefore == PlayState.PLAYING
+                        playStateBefore != PlayState.PAUSED
                     var didAutoPause = false
                     if (shouldAutoPause) {
                         val pauseButton = findViewById<Button>(R.id.btnPause)
@@ -398,6 +398,59 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
+                if (presenceResult.events.isEmpty()) {
+                    val negativeDelta = extractNegativeCountDelta(
+                        previousCounts = lastPresenceCountsForPause,
+                        currentCounts = presenceResult.presenceCounts
+                    )
+                    if (negativeDelta.isNotEmpty()) {
+                        val playStateBefore = currentPlayState
+                        val shouldAutoPause = AppSettings.isPauseOnRoomSwitchEnabled &&
+                            playStateBefore != PlayState.PAUSED
+                        val likelyCause = resolveCountDeltaLikelyCause(presenceResult.rejectedReasons)
+                        val deltaText = formatNegativeCountDelta(
+                            delta = negativeDelta,
+                            roomNameById = roomNameById
+                        )
+                        var didAutoPause = false
+                        if (shouldAutoPause) {
+                            val pauseButton = findViewById<Button>(R.id.btnPause)
+                            togglePause(pauseButton)
+                            overlayView.showUnlockBanner(
+                                "检测到人数扣减($likelyCause): $deltaText，已自动暂停"
+                            )
+                            didAutoPause = true
+                        }
+                        if (AppSettings.isPauseDecisionLogOnSwitchEnabled) {
+                            Log.i(
+                                "RoomPauseSwitch",
+                                "switch=COUNT_DELTA_FALLBACK " +
+                                    "events=0 " +
+                                    "pauseOnSwitch=${AppSettings.isPauseOnRoomSwitchEnabled} " +
+                                    "playStateBefore=$playStateBefore " +
+                                    "shouldAutoPause=$shouldAutoPause " +
+                                    "didAutoPause=$didAutoPause " +
+                                    "playStateAfter=$currentPlayState " +
+                                    "deltaMap=$deltaText " +
+                                    "likelyCause=$likelyCause"
+                            )
+                        }
+                    }
+                }
+                val anomalyReason = presenceResult.rejectedReasons.firstOrNull { reason ->
+                    reason.contains("identityResetApplied=true") ||
+                        reason.contains("pendingDisabled=true") ||
+                        reason.contains("pendingDropped=true") ||
+                        reason.contains("ledgerBlockApplied=true")
+                }
+                if (anomalyReason != null) {
+                    logPresenceAnomalyDiagnostics(
+                        reason = anomalyReason,
+                        frameIndex = frameIndex,
+                        nowMs = nowMs
+                    )
+                }
+                lastPresenceCountsForPause = presenceResult.presenceCounts.toMap()
                 maybeRunSmartMatchValidation(
                     runtimeEvents = validationRuntimeEvents,
                     nowMs = nowMs
@@ -755,6 +808,103 @@ class MainActivity : ComponentActivity() {
 
     private fun buildPresenceShortKeyLegend(): String {
         return "h=[f,t,fr,md,er,lc,sg] m=[dd,dps,gpc,des,dpe,trc,src,sops,pac,srss,pts,das,scs,ss,e,eth,scsTh,srssTh,sopsTh,dnd,nd,dpsR,dpsF,dpsE,dpsTr,pacE,ins,itr,pbs,crs,eph,epf,epfl,ecp,ess,sRef,vRef,rRef,dad,dld,dalr,dadS,dadL,bsc,ssc,psc,bmp,pg,cg,ngp,dsg,bdt,bfac] x=[pacMin,phrMin,gpm,edg,mwu,evnR,evcR,xvnR,evdeR,evdeP,evdaM,xvdh,xvpm,xvpr,cand,pc,stk,stkr,fbf,bap,lsw,ssba]"
+    }
+
+    private fun extractNegativeCountDelta(
+        previousCounts: Map<String, Int>?,
+        currentCounts: Map<String, Int>
+    ): Map<String, Int> {
+        val previous = previousCounts ?: return emptyMap()
+        val keys = linkedSetOf<String>()
+        keys.addAll(previous.keys)
+        keys.addAll(currentCounts.keys)
+        val delta = linkedMapOf<String, Int>()
+        for (roomId in keys) {
+            val old = previous[roomId] ?: 0
+            val now = currentCounts[roomId] ?: 0
+            val d = now - old
+            if (d < 0) {
+                delta[roomId] = d
+            }
+        }
+        return delta
+    }
+
+    private fun formatNegativeCountDelta(
+        delta: Map<String, Int>,
+        roomNameById: Map<String, String>
+    ): String {
+        return delta.entries
+            .sortedBy { roomNameById[it.key] ?: it.key }
+            .joinToString(separator = ",") { entry ->
+                val roomName = roomNameById[entry.key] ?: entry.key
+                "$roomName:${entry.value}"
+            }
+    }
+
+    private fun resolveCountDeltaLikelyCause(rejectedReasons: List<String>): String {
+        val identityLine = rejectedReasons.firstOrNull { it.contains("identityResetApplied=true") }
+        if (identityLine != null) {
+            val resetReason = Regex("resetReason=([^\\s]+)")
+                .find(identityLine)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?: "UNKNOWN"
+            val trackId = Regex("track=([-\\d]+)")
+                .find(identityLine)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?: "-"
+            val gapFrames = Regex("gapFrames=([-\\d]+)")
+                .find(identityLine)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?: "-"
+            val jumpDist = Regex("jumpDist=([-\\d.]+)")
+                .find(identityLine)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?: "-"
+            return "IDENTITY_RESET:$resetReason(track=$trackId,gap=$gapFrames,jump=$jumpDist)"
+        }
+        if (rejectedReasons.any { it.contains("pendingDropped=true") || it.contains("pendingDisabled=true") }) {
+            return "PENDING_DROP"
+        }
+        if (rejectedReasons.any { it.contains("ledgerBlockApplied=true") }) {
+            return "LEDGER_BLOCK"
+        }
+        return "UNKNOWN"
+    }
+
+    private fun logPresenceAnomalyDiagnostics(
+        reason: String,
+        frameIndex: Int,
+        nowMs: Long
+    ) {
+        if (!AppSettings.isPauseDecisionLogOnSwitchEnabled) return
+        val presenceHistory = RoiLogAggregator.snapshotPresenceHistory(8)
+        val recentFrames = RoiLogAggregator.snapshotRecentFrames(8)
+        val dedupeKey = buildString {
+            append(frameIndex)
+            append('|')
+            append(reason)
+            append('|')
+            append(presenceHistory.lastOrNull() ?: "-")
+        }
+        if (dedupeKey == lastPresenceAnomalyDumpKey) return
+        lastPresenceAnomalyDumpKey = dedupeKey
+
+        Log.i(
+            "RoomPauseSwitch",
+            "presenceAnomaly frame=$frameIndex posMs=$nowMs reason=$reason " +
+                "presenceRecentCount=${presenceHistory.size} recentFrameCount=${recentFrames.size}"
+        )
+        presenceHistory.forEach { line ->
+            Log.i("RoomPauseSwitch", "presenceRecent $line")
+        }
+        recentFrames.forEach { line ->
+            Log.i("RoomPauseSwitch", "recentFrame $line")
+        }
     }
 
     private fun setupButtons() {
@@ -1985,16 +2135,27 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onSeekBackwardRequested() {
+        val beforePos = videoFeeder?.getCurrentPositionMs()
+        val beforePlay = videoFeeder?.isPlaying()
         if (currentPlayState == PlayState.STILL) {
             videoFeeder?.seekBackwardFrame()
         } else {
             videoFeeder?.seekBackward(5)
         }
+        val afterPos = videoFeeder?.getCurrentPositionMs()
+        val action = if (currentPlayState == PlayState.STILL) "-1frame" else "-5s"
+        logPlayerDiag(
+            "seek action=$action playState=$currentPlayState " +
+                "beforePos=${beforePos ?: -1} afterPos=${afterPos ?: -1} " +
+                "beforePlaying=${beforePlay ?: false} afterPlaying=${videoFeeder?.isPlaying() ?: false}"
+        )
         refreshEventMarkerUi()
         scheduleEventMarkerUiRefresh()
     }
 
     private fun onSeekForwardRequested() {
+        val beforePos = videoFeeder?.getCurrentPositionMs()
+        val beforePlay = videoFeeder?.isPlaying()
         if (currentPlayState == PlayState.STILL) {
             if (AppSettings.isClipboardDebugOnStepEnabled) {
                 armUnlockClipboardCapture("+1帧")
@@ -2003,6 +2164,15 @@ class MainActivity : ComponentActivity() {
         } else {
             videoFeeder?.seekForward(5)
         }
+        val afterPos = videoFeeder?.getCurrentPositionMs()
+        val action = if (currentPlayState == PlayState.STILL) "+1frame" else "+5s"
+        val step = lastPlusOneSeekDebug
+        logPlayerDiag(
+            "seek action=$action playState=$currentPlayState " +
+                "beforePos=${beforePos ?: -1} afterPos=${afterPos ?: -1} " +
+                "beforePlaying=${beforePlay ?: false} afterPlaying=${videoFeeder?.isPlaying() ?: false} " +
+                "stepBefore=${step?.beforeMs ?: -1} stepTarget=${step?.targetMs ?: -1} stepAfter=${step?.afterCallMs ?: -1}"
+        )
         refreshEventMarkerUi()
         scheduleEventMarkerUiRefresh()
     }
@@ -2196,18 +2366,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun togglePause(btn: Button) {
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastPlayToggleUptimeMs < playToggleDebounceMs) {
-            return
-        }
-        lastPlayToggleUptimeMs = now
         stopSeekHold()
+        val oldState = currentPlayState
+        val beforePos = videoFeeder?.getCurrentPositionMs()
+        val beforePlaying = videoFeeder?.isPlaying()
         currentPlayState = when (currentPlayState) {
             PlayState.PLAYING -> PlayState.STILL
             PlayState.STILL -> PlayState.PAUSED
             PlayState.PAUSED -> PlayState.PLAYING
         }
-        
         when (currentPlayState) {
             PlayState.PLAYING -> {
                 btn.text = "[ 播放中 ]"
@@ -2226,8 +2393,18 @@ class MainActivity : ComponentActivity() {
                 videoFeeder?.pause()
             }
         }
+        logPlayerDiag(
+            "togglePause from=$oldState to=$currentPlayState " +
+                "beforePos=${beforePos ?: -1} afterPos=${videoFeeder?.getCurrentPositionMs() ?: -1} " +
+                "beforePlaying=${beforePlaying ?: false} afterPlaying=${videoFeeder?.isPlaying() ?: false}"
+        )
         refreshSeekButtons()
         refreshEventMarkerUi()
+    }
+
+    private fun logPlayerDiag(message: String) {
+        if (!AppSettings.isPauseDecisionLogOnSwitchEnabled) return
+        Log.i("RoomPlayerDiag", message)
     }
 
     /**
@@ -2243,6 +2420,8 @@ class MainActivity : ComponentActivity() {
         roiMissingFrameCount = 0
         videoFeeder?.nextFrameRoi = null
         resetEventValidationTracking(clearRuntimeEvents = true)
+        lastPresenceCountsForPause = null
+        lastPresenceAnomalyDumpKey = null
         overlayView.updateRoiBox(null, isTracking = false, isSparse = false)
         overlayView.setRoiRatio(null)
 

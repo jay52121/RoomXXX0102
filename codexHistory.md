@@ -24,6 +24,113 @@
 
 ---
 
+## [226] 2026-03-05 21:24:00 - 新增V1.5.1组合策略（恢复进盲区pending）
+
+**用户指令**：
+> ok,开始1.5.1吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：提供 1.5.1 对照版本，恢复“进不可视房间”能力，同时保留 1.5 的其它主线逻辑，便于与后续 1.5.2 比较。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceBaselineArchive.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmRegistry.create、PresenceAlgorithmV1_1_0_B03021639.processFrame、PresenceAlgorithmV1_1_0_B03021639.shouldDisableBlindPending
+    *   关键改动：
+      * 注册新版本 `V1.5.1(B03052210)`，并加入可选版本列表（最新）。
+      * 主线创建逻辑按选择输出 runtimeVersion：
+        * 选择 `1.5.1` 时输出 `V1.5.1`；
+        * 其余主线兼容入口维持 `V1.5.0`。
+      * 在算法内新增盲区 pending 策略枚举：
+        * `LEGACY`：历史行为；
+        * `DISABLE_BLIND`：1.5.0（禁用盲区子房间 pending）；
+        * `ENTER_BLIND_ONLY`：1.5.1（仅允许“可视房间 -> 盲区房间”的 pending）。
+      * 对 `1.5.1`：
+        * `to=OUTSIDE` pending 仍允许；
+        * `to=盲区` 且 `from=可视` 允许（恢复进次卧）；
+        * 其它盲区 pending 继续禁用并输出日志：
+          * `pendingDisabled=true mode=ENTER_BLIND_ONLY`
+          * `pendingDropped=true mode=ENTER_BLIND_ONLY`
+      * `PresenceBaselineArchive.ACTIVE_VERSION_ID` 同步至 `V1.5.1`。
+
+---
+
+## [225] 2026-03-05 21:05:00 - 1.5禁用盲区子房间PENDING_CONFIRMED旧路径
+
+**用户指令**：
+> 那就改啊,1.3应该只是被归档了
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：避免 `V1.5` 继续沿用 `V1.3` 的盲区子房间“消失确认(PENDING_CONFIRMED)”扣减/加人路径。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.processFrame
+    *   关键改动：
+      * 新增 `disableBlindPendingForV15` 开关（按 `versionId == V1.5.0` 判断）。
+      * 在 pending 建立阶段：
+        * 若 `V1.5` 且目标为盲区子房间（`toRoomId != OUTSIDE_ROOM_ID`），直接禁用并清理该 track 的 pending；
+        * 输出日志：`pendingDisabled=true mode=V1.5 ...`。
+      * 在 pending 处理阶段：
+        * 若 `V1.5` 且 pending 目标非 `OUTSIDE`，直接丢弃，不再进入 `PENDING_CONFIRMED` 提交；
+        * 输出日志：`pendingDropped=true mode=V1.5 ...`。
+      * 对 `to=OUTSIDE` 的 pending 流程保持不变。
+
+---
+
+## [224] 2026-03-05 10:12:00 - 清理废弃1.4残留并统一主线版本为1.5
+
+**用户指令**：
+> 只是看看有没有什么残留,然后后面改门判断的1.4改为1.5
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：彻底清理废弃 1.4 残留代码，避免继续影响编译与运行；并将主线门判断版本命名与运行标签统一到 1.5。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/RoomTransitionEstimator.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceBaselineArchive.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.processFrame、PresenceAlgorithmRegistry.create、PresenceAlgorithmRegistry.resolveVersionId
+    *   关键改动：
+      * 删除 `PresenceEventReason.ORIGIN_INFERRED`。
+      * 删除 `PresenceAlgorithmV1_1_0_B03021639.kt` 中 1.4 Door-Origin 初始化归因分支与配套函数链：
+        * `inferOriginDoorToLiving`
+        * `buildOriginWindowPoints`
+        * `resolveDoorNormalTowardRoom`
+        * 以及对应常量和数据结构。
+      * 主线版本统一为 `V1.5.0(B03041530)`：
+        * `allVersionIds` 仅保留 `V1.5.0(B03041530)` 作为可选运行版本；
+        * `V1.3.4(B03041455)` 下沉至归档列表；
+        * `create` 主线运行标签统一输出 `V1.5.0(B03041530)`。
+      * `PresenceBaselineArchive.ACTIVE_VERSION_ID` 同步切换为 `V1.5.0(B03041530)`。
+
+---
+
+## [225] 2026-03-04 22:45:00 - 新增 INIT 阶段 Door-Origin 归因（仅脚中心）
+
+**用户指令**：
+> ai: 只用这两个信号（门口接近积分 + 穿门槛方向性）...  
+> 我是说新的应该是1.4,刚才那个改成1.3.5,然后开始编码
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在不推翻现有 `ss -> e -> eth` 主框架下，为“新目标首次锁定到客厅”补充门来源归因，避免无事件初始化与错误来源。
+    *   修改文件：`app/src/main/java/com/example/roomxxx0102/logic/presence/RoomTransitionEstimator.kt`、`app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt`、`codexHistory.md`
+    *   涉及方法：`PresenceEventReason`、`processFrame`（INIT 分支）、新增 `inferOriginDoorToLiving`、`buildOriginWindowPoints`、`resolveDoorNormalTowardRoom`
+    *   关键改动：
+      * 新增事件原因 `ORIGIN_INFERRED`，用于标识“初始化归因触发”的房间切换事件。
+      * 在 `state.currentPresenceRoomId == null` 且 `isConfirmedNow && polygonRoomId=Living` 时：
+        * 先执行 Door-Origin 归因（仅用脚中心历史窗口）：
+          * 候选筛选：`dd_min <= Dmax`
+          * 接近积分：`P_d = avg(clip(1-dd/Dmax,0,1))`
+          * 方向性：`C_d = max(Cross, OutTrend)`，其中 `Cross` 使用 `s(t-W)>=S0 && s(t)<=-S0`，`OutTrend = max(clip(-Δs/V0,0,1))`
+          * 合成：`Score = α*C + (1-α)*P`
+          * 置信条件：`Score >= minScore` 且 `Top1-Top2 >= margin`
+          * 账本守恒：`fromRoom != outside` 时要求 `presenceCounts[fromRoom] > 0`
+        * 归因成功则直接提交 `fromRoom -> Living`（`ORIGIN_INFERRED`），失败才回退到原 `INIT room=living`。
+      * 增加归因日志：`INIT_ORIGIN_OK / INIT_ORIGIN_BLOCK / INIT_ORIGIN_UNKNOWN`，含 `P/C/score/ddMin` 便于复盘。
+      * 参数常量（当前为代码常量）：`W=2`、`S0=0.3*nearDoorDist`、`V0=0.5*S0`、`Dmax=2*nearDoorDist`、`α=0.7`、`margin=0.15`、`minScore=0.5`。
+
+---
+
 ## [202] 2026-03-04 15:08:00 - 修复 V1.3.4 编译错误（min 导入缺失）
 
 **用户指令**：
@@ -4362,6 +4469,177 @@ ROI抖动日志:
       * 状态切换前统一 `stopSeekHold()`，避免长按逐帧 seek 任务在状态切换后继续干扰。
       * 切回 `PLAYING` 时调用 `videoFeeder.clearStepSeekTransientState()`，清空逐帧步进与 +10ms 补偿残留。
       * `VideoFeeder` 新增 `clearStepSeekTransientState()`：重置 `pendingForwardNudge/pendingSeekState/lastStepSeekDebug`，避免历史 seek 残留继续拉扯画面。
+
+---
+
+## [224] 2026-03-05 21:45:00 - 切换事件统一纳入暂停触发（含扣减类切换）
+
+**用户指令**：
+> 这样你先把这个做成一个暂停事件也就是说切换的时候它会暂停。因为他出门扣减肯定也算是一次暂停对吧？所以说怎么你想想把它做进我们之前的暂停切换房间逻辑里面去。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将扣减类切换事件（如盲区 `PENDING_CONFIRMED`）纳入统一“切换自动暂停”流程，避免仅在 `PLAYING` 时才触发导致的漏停。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：MainActivity 中 poseAnalyzer 回调的切换暂停判定段
+    *   关键改动：
+      * `shouldAutoPause` 从 `playStateBefore == PlayState.PLAYING` 调整为 `playStateBefore != PlayState.PAUSED`。
+      * 保持原有 `RoomPauseSwitch` 日志链路不变，仍输出 `shouldAutoPause/didAutoPause/playStateBefore/playStateAfter/reason` 等字段，便于验证扣减切换是否进入暂停流程。
+
+---
+
+## [226] 2026-03-05 22:05:00 - 增加“无事件扣减”暂停兜底与原因归因日志
+
+**用户指令**：
+> 有扣减,但是没有暂停  
+> 可以，没问题。嗯。但是这样的日志够吗？你知道这是因为什么原因扣减，这样打的话。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“presenceCounts 发生扣减但无 events，导致未触发切换暂停”的遗漏，并补齐可归因日志。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：MainActivity.onCreate（poseAnalyzer 回调内 runOnUiThread）、extractNegativeCountDelta、formatNegativeCountDelta、resolveCountDeltaLikelyCause、hardRestartPlayback
+    *   关键改动：
+      * 新增“计数扣减兜底暂停”：
+        * 条件：`presenceResult.events` 为空，且相对上一帧存在负向人数差分；
+        * 触发：在 `pauseOnSwitch=true` 且 `playStateBefore!=PAUSED` 下执行自动暂停。
+      * 新增归因解析：
+        * 从 `rejectedReasons` 中优先提取 `identityResetApplied` 的 `resetReason/track/gap/jump`；
+        * 次级识别 `pendingDropped/pendingDisabled` 与 `ledgerBlockApplied`。
+      * 统一写入 `RoomPauseSwitch` 日志：
+        * `switch=COUNT_DELTA_FALLBACK`、`deltaMap`、`likelyCause`、`playStateBefore/After`、`shouldAutoPause/didAutoPause`。
+      * 在 `hardRestartPlayback` 中清空 `lastPresenceCountsForPause`，避免重启后误判差分。
+
+---
+
+## [227] 2026-03-05 22:35:00 - 1.5.2：移除identity扣减并补充异常最近帧logcat
+
+**用户指令**：
+> 那我们要做两件事，第一件事就是把扣减先关掉。然后就是确定一下为什么出门1.5的逻辑没有生效。  
+> 不需要这么搞。你先清除掉不该有的逻辑然后把版本号记为一点5.2。然后。在log cat里面去记录最近帧的情况，我会手动复制给你。看一下为什么没有触发？
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：去除 1.5.1 中不应存在的 identity reset 直接扣减；升级为 1.5.2；在 logcat 增加可复制的最近帧诊断输出，便于排查“为何未触发出门逻辑”。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceBaselineArchive.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.processFrame（identityReset分支）、PresenceAlgorithmRegistry.create/resolve/buildOptions、MainActivity.onCreate（pose回调）、MainActivity.logPresenceAnomalyDiagnostics、MainActivity.hardRestartPlayback
+    *   关键改动：
+      * **移除 identity reset 直接扣减**：删除 `identityResetApplied` 分支中的 `addPresence(beforeRoomId, -1)`，仅保留状态重置与诊断文本。
+      * **版本升级到 1.5.2**：
+        * 新增 `VERSION_V1_5_2_B03052250`
+        * 加入 `allVersionIds`（成为最新）
+        * `create` 主线映射支持 `1.5.2`
+        * `PresenceBaselineArchive.ACTIVE_VERSION_ID` 指向 `1.5.2`
+      * **1.5.2 策略对齐**：`blindPendingPolicy` 中 `1.5.2` 与 `1.5.1` 一致，采用 `ENTER_BLIND_ONLY`。
+      * **增加 logcat 最近帧诊断**（仅 `pauseSwitchLog=true` 时）：
+        * 当出现 `identityResetApplied/pendingDisabled/pendingDropped/ledgerBlockApplied` 异常原因，输出 `presenceAnomaly` 汇总行；
+        * 同步输出 `presenceRecent` 与 `recentFrame` 列表，方便人工复制。
+      * **重播重置清理**：`hardRestartPlayback` 增加异常日志去重状态清空，避免新回合诊断被抑制。
+
+---
+
+## [228] 2026-03-05 23:10:00 - 新增播放链路录制按钮并停止即复制
+
+**用户指令**：
+> 我觉得这个不是因为它引起的，你先去掉这个东西.在调试面板里面加个按钮(开始记录播放,点击后变成停止记录播放).然后你想一下需要哪些信息放到这里面来，我把它记录好之后如果下次遇到了再发给你。  
+> 停止后就直接复制,不需要长按.开始吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：移除播放按键防抖，并在调试面板场景新增“播放链路录制”按钮，支持一键开始/停止，停止即自动复制完整诊断文本。
+    *   修改文件：app/src/main/res/layout/activity_main.xml、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：setupButtons、togglePause、appendPlayTrace、buildPlayTraceReport、togglePlayTraceRecording、refreshPlayTraceButton、maybeAppendPlayTraceHeartbeat、onSeekBackwardRequested、onSeekForwardRequested、hardRestartPlayback、onCreate(视频帧回调内runOnUiThread)
+    *   关键改动：
+      * 新增按钮 `btnPlayTrace`（开始记录播放/停止记录播放），仅在调试面板开启时显示。
+      * `togglePlayTraceRecording` 在“停止记录”时直接复制报告到剪贴板，不再依赖长按。
+      * 移除 `togglePause` 中的连点防抖逻辑，保留状态切换并追加操作来源日志。
+      * 录制内容增强：
+        * 手动/自动暂停来源（`manual_toggle`、`auto_pause_switch_event`、`auto_pause_count_delta`、`smart_match_pause`）。
+        * seek 来源（点击/长按）。
+        * 房间切换与扣减兜底判定摘要（`switch_event`、`count_delta_fallback`）。
+        * 低频播放心跳（`heartbeat`：`mpPlaying/posDelta/frameDelta`），用于定位“声音在走但画面不动”。
+      * 报告结构包含 `trace + presenceRecent + recentFrames`，便于一次复制后直接复盘。
+
+---
+
+## [229] 2026-03-05 23:45:00 - 移除播放记录功能并回归logcat抓取
+
+**用户指令**：
+> 看来不需要了,这次根本没出发出门事件.删掉那个记录播放功能吧,我们还是用logcat来做抓你要的东西.告诉我怎么抓就行  
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：移除“开始记录播放/停止记录播放”功能，避免与进出门排查混用，统一回归 `logcat` 抓取诊断。
+    *   修改文件：app/src/main/res/layout/activity_main.xml、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：setupButtons、onCreate（pose 回调 runOnUiThread）、pauseForSmartMatchAnomaly、onSeekBackwardRequested、onSeekForwardRequested、refreshDebugPanelButton、togglePause、hardRestartPlayback
+    *   关键改动：
+      * 删除布局按钮 `btnPlayTrace`。
+      * 删除 `MainActivity` 中播放记录相关字段与方法：
+        * `isPlayTraceRecording/playTrace*`
+        * `appendPlayTrace/buildPlayTraceReport/togglePlayTraceRecording/refreshPlayTraceButton/maybeAppendPlayTraceHeartbeat`
+      * 移除所有播放记录写入调用（心跳、切换事件、扣减兜底、seek、暂停、硬重启、智能匹配暂停）。
+      * 收口此前为记录功能新增的 `source` 参数，恢复 `togglePause/onSeekForwardRequested/onSeekBackwardRequested` 的简洁签名与调用。
+
+---
+
+## [230] 2026-03-06 00:20:00 - 1.5.3 Door-Origin出门归因重构并下线1.5.2
+
+**用户指令**：
+> 1.这个是不是只管出门?管哪些出门? 2.1.5.2不需要保留.  
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：按 1.5.3 方案接入“Door-Origin / Door-Crossing”出门归因主链路，覆盖“出到客厅”场景；同时将 1.5.2 从可选版本下线（仅保留归档）。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/RoomTransitionEstimator.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceBaselineArchive.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
+    *   涉及方法：PresenceEventReason 枚举、PresenceAlgorithmRegistry 版本分发、PresenceAlgorithmV1_1_0_B03021639.processFrame、resetStateAfterCommittedEvent、resetTrackIdentityState、appendDoorOriginSample、resolveDoorOriginToLiving、computeDoorOriginNormalTowardRoom
+    *   关键改动：
+      * 新增版本 `V1.5.3(B03052330)`，并从 `allVersionIds` 中移除 `1.5.2`，`1.5.2` 仅保留在归档列表。
+      * 新增事件原因 `ORIGIN_SWITCH`，用于区分门源归因触发的“出到客厅”。
+      * 在主流程中新增 Door-Origin 窗口：
+        * 每帧追加地面点样本 `doorOriginSamples`；
+        * 对连接客厅的候选门计算：门口接近积分 `P` + 跨门槛方向性 `C`；
+        * 评分 `Score = 0.7*C + 0.3*P`，并执行低分/小优势/账本阻断三重门控。
+      * 接入两条提交路径：
+        * `INIT` 阶段：CONFIRMED 且落在客厅时，优先回溯门源（支持次卧/入户等来源）；
+        * 常规阶段：当前在非客厅且当前帧进入客厅时，优先走 `ORIGIN_SWITCH` 提交。
+      * 新增 `INIT_WAIT_ORIGIN`（最多 8 帧）以避免 lock 帧“探头未出门”就误提交。
+      * 事件级重置与身份重置均清理 Door-Origin 缓存，避免跨人串证据。
+
+---
+
+## [231] 2026-03-06 00:55:00 - 播放往复回跳诊断日志增强与Wiki排查流程
+
+**用户指令**：
+> 好的，你着手处理吧，然后。只有等下一次，遇到了才能知道。怎么录log了,把它写到wiki里面去,带上这个bug本身简述.wiki项目:"播放往复回跳"
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：为“播放往复回跳（画面卡住来回跳、声音可能继续）”增加播放器链路诊断日志，并将抓取流程与判读口径写入 Wiki。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、wiki.md、codexHistory.md
+    *   涉及方法：MainActivity.onSeekBackwardRequested、onSeekForwardRequested、togglePause、logPlayerDiag；VideoFeeder.setupMediaPlayer(setOnSeekCompleteListener/setOnPreparedListener)、setStillMode、pause、resume、seekByMs、computeTemporalAdvanced、stop、logPlayerDiag
+    *   关键改动：
+      * `MainActivity` 增加 `RoomPlayerDiag` 上层日志：
+        * `togglePause` 记录前后 `playState`、`position`、`isPlaying`；
+        * `±1帧/±5s` seek 记录动作类型、seek前后位置、播放态、逐帧seek调试值。
+      * `VideoFeeder` 增加底层日志：
+        * seek请求参数（`delta/target/mode/captureAsStep`）；
+        * seek完成回调状态（`pos/isPlaying/pending`）；
+        * pause/resume/setStillMode 状态切换；
+        * `playLoopAnomaly`：播放中位置不前进或倒跳时输出 `delta/stallCount`。
+      * 新增 `wiki.md` 章节 `1.7 播放往复回跳（播放器卡死）排查`：
+        * bug现象简述；
+        * 必开开关；
+        * 仅播放器相关的 logcat 抓取命令；
+        * 关键字段与快速判读口径。
 
 ---
 
