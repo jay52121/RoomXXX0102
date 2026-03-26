@@ -58,9 +58,11 @@ class PresenceAlgorithmV1_1_1_B03021717(
     private data class DoorOriginDecision(
         val candidate: DoorOriginCandidateScore,
         val secondScore: Double,
+        val fromCount: Int,
         val blockedByLedger: Boolean,
         val blockedByLowScore: Boolean,
-        val blockedByMargin: Boolean
+        val blockedByMargin: Boolean,
+        val blockedByAmbiguous: Boolean
     )
 
     private data class TrackRuntimeState(
@@ -83,6 +85,10 @@ class PresenceAlgorithmV1_1_1_B03021717(
         var lastSwitchDoorId: String? = null,
         var lastSwitchTimestampMs: Long = -1L,
         var lastSwitchFrameSeq: Long = -1L,
+        var initWindowStartTimestampMs: Long = -1L,
+        var initWindowStartFrameSeq: Long = -1L,
+        var initStableRoomId: String? = null,
+        var initStableRoomFrames: Int = 0,
         val groundPointHistory: ArrayDeque<PresencePoint> = ArrayDeque(),
         val switchEvidenceByCandidate: MutableMap<String, Double> = linkedMapOf(),
         val exitDoorAssistHoldByCandidate: MutableMap<String, ExitDoorAssistHoldState> = linkedMapOf(),
@@ -153,19 +159,36 @@ class PresenceAlgorithmV1_1_1_B03021717(
     private val trackStates = mutableMapOf<Int, TrackRuntimeState>()
     private val pendingTransitions = mutableMapOf<Int, PendingTransition>()
     private val internalPresenceCounts = linkedMapOf<String, Int>()
+    private val anomalousSpawnLastBucketByRoom = mutableMapOf<String, Long>()
+    private val anomalousSpawnLastTimestampByRoom = mutableMapOf<String, Long>()
+    private val anomalousOriginLastBucketByKey = mutableMapOf<String, Long>()
     private var frameSeq: Long = 0L
     private val blindPendingPolicy: BlindPendingPolicy = when (versionId) {
+        PresenceAlgorithmRegistry.VERSION_V1_6_2_B03060320 -> BlindPendingPolicy.ENTER_BLIND_ONLY
+        PresenceAlgorithmRegistry.VERSION_V1_6_1_B03060220 -> BlindPendingPolicy.ENTER_BLIND_ONLY
+        PresenceAlgorithmRegistry.VERSION_V1_6_0_B03060120 -> BlindPendingPolicy.ENTER_BLIND_ONLY
         PresenceAlgorithmRegistry.VERSION_V1_5_3_B03052330 -> BlindPendingPolicy.ENTER_BLIND_ONLY
         PresenceAlgorithmRegistry.VERSION_V1_5_1_B03052210 -> BlindPendingPolicy.ENTER_BLIND_ONLY
         PresenceAlgorithmRegistry.VERSION_V1_5_0_B03041530 -> BlindPendingPolicy.DISABLE_BLIND
         else -> BlindPendingPolicy.LEGACY
     }
-    private val enableDoorOriginExit = versionId == PresenceAlgorithmRegistry.VERSION_V1_5_3_B03052330
+    private val enableDoorOriginExit = versionId == PresenceAlgorithmRegistry.VERSION_V1_5_3_B03052330 ||
+        versionId == PresenceAlgorithmRegistry.VERSION_V1_6_2_B03060320 ||
+        versionId == PresenceAlgorithmRegistry.VERSION_V1_6_0_B03060120 ||
+        versionId == PresenceAlgorithmRegistry.VERSION_V1_6_1_B03060220
+    private val enableUnifiedLedgerV16 = versionId == PresenceAlgorithmRegistry.VERSION_V1_6_0_B03060120 ||
+        versionId == PresenceAlgorithmRegistry.VERSION_V1_6_2_B03060320 ||
+        versionId == PresenceAlgorithmRegistry.VERSION_V1_6_1_B03060220
+    private val enableAnomalousLedgerV161 = versionId == PresenceAlgorithmRegistry.VERSION_V1_6_1_B03060220 ||
+        versionId == PresenceAlgorithmRegistry.VERSION_V1_6_2_B03060320
 
     override fun reset() {
         trackStates.clear()
         pendingTransitions.clear()
         internalPresenceCounts.clear()
+        anomalousSpawnLastBucketByRoom.clear()
+        anomalousSpawnLastTimestampByRoom.clear()
+        anomalousOriginLastBucketByKey.clear()
         frameSeq = 0L
     }
 
@@ -177,6 +200,11 @@ class PresenceAlgorithmV1_1_1_B03021717(
     ): PresenceFrameResult {
         frameSeq += 1
         syncPresenceRoomKeys(rooms)
+        val framePresenceCountsBefore = if (enableUnifiedLedgerV16) {
+            internalPresenceCounts.toMap()
+        } else {
+            emptyMap()
+        }
 
         val roomById = rooms.associateBy { it.roomId }
         val livingRoomId = rooms.firstOrNull { it.isLivingRoom }?.roomId
@@ -235,6 +263,7 @@ class PresenceAlgorithmV1_1_1_B03021717(
                 state.lastConfirmedFrame = frameSeq
             }
             state.lastEstimatedGroundPoint = estimatedGroundPoint
+            val eventTimestampMs = normalizeEventTimestampMs(obs.timestampMs)
             appendDoorOriginSample(state, obs, estimatedGroundPoint)
 
             val nearAnyDoor = pickBestDoor(obs.landingPoint, doors)
@@ -257,6 +286,15 @@ class PresenceAlgorithmV1_1_1_B03021717(
 
             if (state.currentPresenceRoomId == null) {
                 if (isConfirmedNow && polygonRoomId != null) {
+                    updateInitBindingState(
+                        state = state,
+                        polygonRoomId = polygonRoomId,
+                        eventTimestampMs = eventTimestampMs
+                    )
+                    val stableInRoomFrames = state.initStableRoomFrames
+                    val distToNearestDoor = nearAnyDoor.bestDist
+                    val farDoorDist = (params.nearDoorDist * ANOMALOUS_SPAWN_FAR_DOOR_RATIO)
+                        .coerceAtLeast(params.nearDoorDist)
                     if (enableDoorOriginExit &&
                         livingRoomId != null &&
                         polygonRoomId == livingRoomId
@@ -266,13 +304,42 @@ class PresenceAlgorithmV1_1_1_B03021717(
                             roomById = roomById,
                             doors = doors,
                             livingRoomId = livingRoomId,
-                            preferredFromRoomId = null
+                            preferredFromRoomId = null,
+                            nearDoorAmbiguous = nearAnyDoor.isAmbiguous
                         )
+                        val originBlockedReason = buildOriginBlockedReason(originDecision)
+                        val originScore = originDecision?.candidate?.score ?: -1.0
+                        val originMargin = originDecision?.let { it.candidate.score - it.secondScore } ?: -1.0
                         if (originDecision != null) {
                             if (!originDecision.blockedByLowScore &&
                                 !originDecision.blockedByMargin &&
-                                !originDecision.blockedByLedger
+                                !originDecision.blockedByLedger &&
+                                !originDecision.blockedByAmbiguous
                             ) {
+                                if (enableUnifiedLedgerV16) {
+                                    recordLastSwitch(
+                                        state = state,
+                                        fromRoomId = originDecision.candidate.fromRoomId,
+                                        toRoomId = livingRoomId,
+                                        doorId = originDecision.candidate.doorId,
+                                        timestampMs = originDecision.candidate.anchorTimestampMs
+                                    )
+                                    state.currentPresenceRoomId = livingRoomId
+                                    state.doorOriginInitWaitFrames = 0
+                                    resetStateAfterCommittedEvent(state)
+                                    pendingTransitions.remove(obs.trackId)
+                                    rejectedReasons.add(
+                                        "track=${obs.trackId} ORIGIN_INIT_BIND_ONLY " +
+                                            "from=${originDecision.candidate.fromRoomId} " +
+                                            "door=${originDecision.candidate.doorId} " +
+                                            "score=${fmt(originDecision.candidate.score)} " +
+                                            "cross=${originDecision.candidate.crossDetected} " +
+                                            "anchorF=${originDecision.candidate.anchorFrameSeq} " +
+                                            "originBlockedReason=$originBlockedReason"
+                                    )
+                                    appendGroundPointHistory(state, estimatedGroundPoint)
+                                    continue
+                                }
                                 val switched = applyTransition(
                                     trackId = obs.trackId,
                                     fromRoomId = originDecision.candidate.fromRoomId,
@@ -304,7 +371,8 @@ class PresenceAlgorithmV1_1_1_B03021717(
                                             "door=${originDecision.candidate.doorId} " +
                                             "score=${fmt(originDecision.candidate.score)} " +
                                             "cross=${originDecision.candidate.crossDetected} " +
-                                            "anchorF=${originDecision.candidate.anchorFrameSeq}"
+                                            "anchorF=${originDecision.candidate.anchorFrameSeq} " +
+                                            "originBlockedReason=$originBlockedReason"
                                     )
                                     appendGroundPointHistory(state, estimatedGroundPoint)
                                     continue
@@ -315,26 +383,179 @@ class PresenceAlgorithmV1_1_1_B03021717(
                                         "from=${originDecision.candidate.fromRoomId} door=${originDecision.candidate.doorId} " +
                                         "score=${fmt(originDecision.candidate.score)} second=${fmt(originDecision.secondScore)} " +
                                         "low=${originDecision.blockedByLowScore} margin=${originDecision.blockedByMargin} " +
-                                        "ledger=${originDecision.blockedByLedger}"
+                                        "ledger=${originDecision.blockedByLedger} " +
+                                        "ambiguous=${originDecision.blockedByAmbiguous} " +
+                                        "originBlockedReason=$originBlockedReason"
                                 )
                             }
                         }
-                        if (state.doorOriginInitWaitFrames < DOOR_ORIGIN_INIT_WAIT_FRAMES) {
+
+                        if (enableAnomalousLedgerV161 &&
+                            originDecision != null &&
+                            originDecision.blockedByLedger &&
+                            originDecision.fromCount <= 0 &&
+                            !nearAnyDoor.isAmbiguous &&
+                            originScore >= ANOMALOUS_ORIGIN_MIN_SCORE &&
+                            originMargin >= ANOMALOUS_ORIGIN_MIN_MARGIN
+                        ) {
+                            val dedupBucket = toAnomalousDedupBucket(eventTimestampMs)
+                            val dedupKey = "${originDecision.candidate.fromRoomId}@${originDecision.candidate.doorId}"
+                            val dedupHit = anomalousOriginLastBucketByKey[dedupKey] == dedupBucket
+                            if (!dedupHit) {
+                                val beforeCounts = internalPresenceCounts.toMap()
+                                addPresence(livingRoomId, 1)
+                                events.add(
+                                    PresenceSwitchEvent(
+                                        trackId = obs.trackId,
+                                        fromRoomId = originDecision.candidate.fromRoomId,
+                                        toRoomId = livingRoomId,
+                                        doorId = originDecision.candidate.doorId,
+                                        reason = PresenceEventReason.ANOMALOUS_ORIGIN
+                                    )
+                                )
+                                anomalousOriginLastBucketByKey[dedupKey] = dedupBucket
+                                val afterCounts = internalPresenceCounts.toMap()
+                                recordLastSwitch(
+                                    state = state,
+                                    fromRoomId = originDecision.candidate.fromRoomId,
+                                    toRoomId = livingRoomId,
+                                    doorId = originDecision.candidate.doorId,
+                                    timestampMs = originDecision.candidate.anchorTimestampMs
+                                )
+                                state.currentPresenceRoomId = livingRoomId
+                                state.doorOriginInitWaitFrames = 0
+                                resetStateAfterCommittedEvent(state)
+                                pendingTransitions.remove(obs.trackId)
+                                val deltaText = formatPresenceDelta(beforeCounts, afterCounts)
+                                rejectedReasons.add(
+                                    "track=${obs.trackId} eventType=ANOMALOUS_ORIGIN " +
+                                        "reason=FROM_COUNT_ZERO " +
+                                        "originBlockedReason=$originBlockedReason " +
+                                        "originScore=${fmt(originScore)} secondScore=${fmt(originDecision.secondScore)} " +
+                                        "nearDoorAmbiguous=${nearAnyDoor.isAmbiguous} " +
+                                        "stableInRoomFrames=$stableInRoomFrames distToNearestDoor=${fmt(distToNearestDoor)} " +
+                                        "K_stable=$ANOMALOUS_SPAWN_STABLE_FRAMES farDoorDist=${fmt(farDoorDist)} " +
+                                        "originWindowMaxMs=$ORIGIN_INIT_WAIT_MAX_MS originWindowMaxFrames=$ORIGIN_INIT_WAIT_MAX_FRAMES " +
+                                        "dedupKey=$dedupKey dedupHit=$dedupHit " +
+                                        "fromCount=${originDecision.fromCount} " +
+                                        "beforeCounts=${formatCountsMap(beforeCounts)} " +
+                                        "afterCounts=${formatCountsMap(afterCounts)} " +
+                                        "delta={$deltaText}"
+                                )
+                                appendGroundPointHistory(state, estimatedGroundPoint)
+                                continue
+                            } else {
+                                rejectedReasons.add(
+                                    "track=${obs.trackId} eventType=ANOMALOUS_ORIGIN_SKIP " +
+                                        "reason=DEDUP_HIT dedupKey=$dedupKey dedupHit=$dedupHit"
+                                )
+                            }
+                        }
+
+                        if (!isOriginInitWindowExpired(state, eventTimestampMs)) {
                             state.doorOriginInitWaitFrames += 1
                             rejectedReasons.add(
                                 "track=${obs.trackId} INIT_WAIT_ORIGIN " +
-                                    "frames=${state.doorOriginInitWaitFrames}/$DOOR_ORIGIN_INIT_WAIT_FRAMES room=$polygonRoomId"
+                                    "frames=${state.doorOriginInitWaitFrames}/$ORIGIN_INIT_WAIT_MAX_FRAMES " +
+                                    "elapsedMs=${originWindowElapsedMs(state, eventTimestampMs)}/$ORIGIN_INIT_WAIT_MAX_MS " +
+                                    "room=$polygonRoomId"
                             )
                             appendGroundPointHistory(state, estimatedGroundPoint)
                             continue
                         }
                     }
+
+                    if (enableAnomalousLedgerV161) {
+                        val originDecision = if (enableDoorOriginExit &&
+                            livingRoomId != null &&
+                            polygonRoomId == livingRoomId
+                        ) {
+                            resolveDoorOriginToLiving(
+                                state = state,
+                                roomById = roomById,
+                                doors = doors,
+                                livingRoomId = livingRoomId,
+                                preferredFromRoomId = null,
+                                nearDoorAmbiguous = nearAnyDoor.isAmbiguous
+                            )
+                        } else {
+                            null
+                        }
+                        val originBlocked = originDecision == null ||
+                            originDecision.blockedByLowScore ||
+                            originDecision.blockedByMargin ||
+                            originDecision.blockedByAmbiguous ||
+                            originDecision.blockedByLedger
+                        val originBlockedReason = buildOriginBlockedReason(originDecision)
+                        val inRoomStableEnough = stableInRoomFrames >= ANOMALOUS_SPAWN_STABLE_FRAMES
+                        val farFromDoors = distToNearestDoor.isFinite() && distToNearestDoor >= farDoorDist
+                        if (originBlocked && inRoomStableEnough && farFromDoors) {
+                            val dedupBucket = toAnomalousDedupBucket(eventTimestampMs)
+                            val dedupKey = polygonRoomId
+                            val dedupHit = anomalousSpawnLastBucketByRoom[dedupKey] == dedupBucket
+                            val lastSpawnTs = anomalousSpawnLastTimestampByRoom[dedupKey] ?: -1L
+                            val cooldownHit = lastSpawnTs >= 0L &&
+                                eventTimestampMs >= lastSpawnTs &&
+                                (eventTimestampMs - lastSpawnTs) < ANOMALOUS_SPAWN_ROOM_COOLDOWN_MS
+                            if (!dedupHit && !cooldownHit) {
+                                val beforeCounts = internalPresenceCounts.toMap()
+                                addPresence(polygonRoomId, 1)
+                                events.add(
+                                    PresenceSwitchEvent(
+                                        trackId = obs.trackId,
+                                        fromRoomId = ANOMALOUS_SPAWN_FROM_ROOM_ID,
+                                        toRoomId = polygonRoomId,
+                                        doorId = nearAnyDoor.bestDoorId ?: ANOMALOUS_SPAWN_DOOR_ID,
+                                        reason = PresenceEventReason.ANOMALOUS_SPAWN
+                                    )
+                                )
+                                anomalousSpawnLastBucketByRoom[dedupKey] = dedupBucket
+                                anomalousSpawnLastTimestampByRoom[dedupKey] = eventTimestampMs
+                                val afterCounts = internalPresenceCounts.toMap()
+                                state.currentPresenceRoomId = polygonRoomId
+                                state.doorOriginInitWaitFrames = 0
+                                resetStateAfterCommittedEvent(state)
+                                pendingTransitions.remove(obs.trackId)
+                                val deltaText = formatPresenceDelta(beforeCounts, afterCounts)
+                                rejectedReasons.add(
+                                    "track=${obs.trackId} eventType=ANOMALOUS_SPAWN " +
+                                        "reason=UNEXPLAINED_CONFIRMED " +
+                                        "originBlockedReason=$originBlockedReason " +
+                                        "nearDoorAmbiguous=${nearAnyDoor.isAmbiguous} " +
+                                        "stableInRoomFrames=$stableInRoomFrames distToNearestDoor=${fmt(distToNearestDoor)} " +
+                                        "K_stable=$ANOMALOUS_SPAWN_STABLE_FRAMES farDoorDist=${fmt(farDoorDist)} " +
+                                        "originWindowMaxMs=$ORIGIN_INIT_WAIT_MAX_MS originWindowMaxFrames=$ORIGIN_INIT_WAIT_MAX_FRAMES " +
+                                        "dedupKey=$dedupKey dedupHit=$dedupHit cooldownHit=$cooldownHit " +
+                                        "beforeCounts=${formatCountsMap(beforeCounts)} " +
+                                        "afterCounts=${formatCountsMap(afterCounts)} " +
+                                        "delta={$deltaText}"
+                                )
+                                appendGroundPointHistory(state, estimatedGroundPoint)
+                                continue
+                            } else {
+                                rejectedReasons.add(
+                                    "track=${obs.trackId} eventType=ANOMALOUS_SPAWN_SKIP " +
+                                        "reason=${if (dedupHit) "DEDUP_HIT" else "COOLDOWN_HIT"} " +
+                                        "dedupKey=$dedupKey dedupHit=$dedupHit cooldownHit=$cooldownHit"
+                                )
+                            }
+                        }
+                    }
+
                     state.currentPresenceRoomId = polygonRoomId
                     state.doorOriginInitWaitFrames = 0
                     clearSwitchEvidence(state)
-                    addPresence(polygonRoomId, 1)
-                    rejectedReasons.add("track=${obs.trackId} INIT room=$polygonRoomId")
+                    resetInitBindingState(state)
+                    if (enableUnifiedLedgerV16) {
+                        rejectedReasons.add("track=${obs.trackId} INIT_BIND_ONLY room=$polygonRoomId")
+                    } else {
+                        addPresence(polygonRoomId, 1)
+                        rejectedReasons.add("track=${obs.trackId} INIT room=$polygonRoomId")
+                    }
                 } else {
+                    if (!isConfirmedNow) {
+                        resetInitBindingState(state)
+                    }
                     rejectedReasons.add("track=${obs.trackId} INIT_WAIT confirmed=$isConfirmedNow room=${polygonRoomId ?: "UNKNOWN"}")
                 }
                 appendGroundPointHistory(state, estimatedGroundPoint)
@@ -353,12 +574,14 @@ class PresenceAlgorithmV1_1_1_B03021717(
                     roomById = roomById,
                     doors = doors,
                     livingRoomId = livingRoomId,
-                    preferredFromRoomId = fromRoomId
+                    preferredFromRoomId = fromRoomId,
+                    nearDoorAmbiguous = nearAnyDoor.isAmbiguous
                 )
                 if (originDecision != null) {
                     if (!originDecision.blockedByLowScore &&
                         !originDecision.blockedByMargin &&
-                        !originDecision.blockedByLedger
+                        !originDecision.blockedByLedger &&
+                        !originDecision.blockedByAmbiguous
                     ) {
                         val switched = applyTransition(
                             trackId = obs.trackId,
@@ -395,11 +618,79 @@ class PresenceAlgorithmV1_1_1_B03021717(
                             continue
                         }
                     } else {
+                        if (originDecision.blockedByLedger) {
+                            val originScore = originDecision.candidate.score
+                            val originMargin = originDecision.candidate.score - originDecision.secondScore
+                            rejectedReasons.add(
+                                "track=${obs.trackId} ORIGIN_EXIT_LEDGER_BLOCK " +
+                                    "branch=ORIGIN_EXIT " +
+                                    "from=$fromRoomId to=$livingRoomId door=${originDecision.candidate.doorId} " +
+                                    "fromCount=${originDecision.fromCount} blockedByLedger=true " +
+                                    "originScore=${fmt(originScore)} secondScore=${fmt(originDecision.secondScore)} " +
+                                    "originMargin=${fmt(originMargin)} " +
+                                    "nearDoorAmbiguous=${nearAnyDoor.isAmbiguous} " +
+                                    "originBlockedReason=${buildOriginBlockedReason(originDecision)}"
+                            )
+                        }
+                        if (enableAnomalousLedgerV161 &&
+                            originDecision.blockedByLedger &&
+                            originDecision.fromCount <= 0 &&
+                            !originDecision.blockedByAmbiguous &&
+                            originDecision.candidate.score >= ANOMALOUS_ORIGIN_MIN_SCORE &&
+                            (originDecision.candidate.score - originDecision.secondScore) >= ANOMALOUS_ORIGIN_MIN_MARGIN
+                        ) {
+                            val dedupBucket = toAnomalousDedupBucket(eventTimestampMs)
+                            val dedupKey = "$fromRoomId@${originDecision.candidate.doorId}"
+                            val dedupHit = anomalousOriginLastBucketByKey[dedupKey] == dedupBucket
+                            if (!dedupHit) {
+                                val beforeCounts = internalPresenceCounts.toMap()
+                                addPresence(livingRoomId, 1)
+                                events.add(
+                                    PresenceSwitchEvent(
+                                        trackId = obs.trackId,
+                                        fromRoomId = fromRoomId,
+                                        toRoomId = livingRoomId,
+                                        doorId = originDecision.candidate.doorId,
+                                        reason = PresenceEventReason.ANOMALOUS_ORIGIN
+                                    )
+                                )
+                                anomalousOriginLastBucketByKey[dedupKey] = dedupBucket
+                                val afterCounts = internalPresenceCounts.toMap()
+                                recordLastSwitch(
+                                    state = state,
+                                    fromRoomId = fromRoomId,
+                                    toRoomId = livingRoomId,
+                                    doorId = originDecision.candidate.doorId,
+                                    timestampMs = originDecision.candidate.anchorTimestampMs
+                                )
+                                state.currentPresenceRoomId = livingRoomId
+                                resetStateAfterCommittedEvent(state)
+                                pendingTransitions.remove(obs.trackId)
+                                rejectedReasons.add("track=${obs.trackId} eventResetApplied=true lastSwitchKept=true")
+                                rejectedReasons.add(
+                                    "track=${obs.trackId} ORIGIN_EXIT_ANOMALOUS_COMMIT " +
+                                        "eventType=ANOMALOUS_ORIGIN " +
+                                        "reason=ORIGIN_EXIT_LEDGER_BOOTSTRAP " +
+                                        "dedupKey=$dedupKey dedupHit=$dedupHit " +
+                                        "beforeCounts=${formatCountsMap(beforeCounts)} " +
+                                        "afterCounts=${formatCountsMap(afterCounts)}"
+                                )
+                                appendGroundPointHistory(state, estimatedGroundPoint)
+                                continue
+                            } else {
+                                rejectedReasons.add(
+                                    "track=${obs.trackId} ORIGIN_EXIT_ANOMALOUS_SKIP " +
+                                        "eventType=ANOMALOUS_ORIGIN reason=DEDUP_HIT " +
+                                        "dedupKey=$dedupKey dedupHit=$dedupHit"
+                                )
+                            }
+                        }
                         rejectedReasons.add(
                             "track=${obs.trackId} ORIGIN_EXIT_SKIP from=$fromRoomId door=${originDecision.candidate.doorId} " +
                                 "score=${fmt(originDecision.candidate.score)} second=${fmt(originDecision.secondScore)} " +
                                 "low=${originDecision.blockedByLowScore} margin=${originDecision.blockedByMargin} " +
-                                "ledger=${originDecision.blockedByLedger}"
+                                "ledger=${originDecision.blockedByLedger} ambiguous=${originDecision.blockedByAmbiguous} " +
+                                "originBlockedReason=${buildOriginBlockedReason(originDecision)}"
                         )
                     }
                 } else {
@@ -641,6 +932,19 @@ class PresenceAlgorithmV1_1_1_B03021717(
             rejectedReasons.add("NO_OBSERVATION")
         } else if (rejectedReasons.isEmpty()) {
             rejectedReasons.add("NO_DECISION")
+        }
+
+        if (enableUnifiedLedgerV16 &&
+            events.isEmpty() &&
+            internalPresenceCounts != framePresenceCountsBefore
+        ) {
+            val deltaText = formatPresenceDelta(
+                before = framePresenceCountsBefore,
+                after = internalPresenceCounts
+            )
+            internalPresenceCounts.clear()
+            internalPresenceCounts.putAll(framePresenceCountsBefore)
+            rejectedReasons.add("ledgerGuardRevert=true reason=NO_EVENT_COUNT_DELTA delta={$deltaText}")
         }
 
         return PresenceFrameResult(
@@ -1681,6 +1985,7 @@ class PresenceAlgorithmV1_1_1_B03021717(
         state.lastScoredDoorId = null
         state.groundPointHistory.clear()
         state.doorOriginSamples.clear()
+        resetInitBindingState(state)
         clearSwitchEvidence(state)
     }
 
@@ -1706,6 +2011,7 @@ class PresenceAlgorithmV1_1_1_B03021717(
         state.lastSwitchDoorId = null
         state.lastSwitchTimestampMs = -1L
         state.lastSwitchFrameSeq = -1L
+        resetInitBindingState(state)
         state.groundPointHistory.clear()
         state.doorOriginSamples.clear()
         state.switchEvidenceByCandidate.clear()
@@ -1721,6 +2027,72 @@ class PresenceAlgorithmV1_1_1_B03021717(
             jumpTriggered -> "JUMP"
             else -> "NONE"
         }
+    }
+
+    private fun normalizeEventTimestampMs(timestampMs: Long): Long {
+        if (timestampMs >= 0L) return timestampMs
+        return frameSeq * DEFAULT_FRAME_INTERVAL_MS
+    }
+
+    private fun updateInitBindingState(
+        state: TrackRuntimeState,
+        polygonRoomId: String,
+        eventTimestampMs: Long
+    ) {
+        if (state.initWindowStartTimestampMs < 0L) {
+            state.initWindowStartTimestampMs = eventTimestampMs
+            state.initWindowStartFrameSeq = frameSeq
+        }
+        if (state.initStableRoomId == polygonRoomId) {
+            state.initStableRoomFrames += 1
+        } else {
+            state.initStableRoomId = polygonRoomId
+            state.initStableRoomFrames = 1
+        }
+    }
+
+    private fun originWindowElapsedMs(state: TrackRuntimeState, eventTimestampMs: Long): Long {
+        if (state.initWindowStartTimestampMs >= 0L) {
+            return (eventTimestampMs - state.initWindowStartTimestampMs).coerceAtLeast(0L)
+        }
+        if (state.initWindowStartFrameSeq >= 0L) {
+            val frameDelta = (frameSeq - state.initWindowStartFrameSeq).coerceAtLeast(0L)
+            return frameDelta * DEFAULT_FRAME_INTERVAL_MS
+        }
+        return 0L
+    }
+
+    private fun isOriginInitWindowExpired(
+        state: TrackRuntimeState,
+        eventTimestampMs: Long
+    ): Boolean {
+        val frameDelta = if (state.initWindowStartFrameSeq >= 0L) {
+            (frameSeq - state.initWindowStartFrameSeq).coerceAtLeast(0L)
+        } else {
+            0L
+        }
+        return originWindowElapsedMs(state, eventTimestampMs) >= ORIGIN_INIT_WAIT_MAX_MS ||
+            frameDelta >= ORIGIN_INIT_WAIT_MAX_FRAMES
+    }
+
+    private fun resetInitBindingState(state: TrackRuntimeState) {
+        state.initWindowStartTimestampMs = -1L
+        state.initWindowStartFrameSeq = -1L
+        state.initStableRoomId = null
+        state.initStableRoomFrames = 0
+    }
+
+    private fun toAnomalousDedupBucket(eventTimestampMs: Long): Long {
+        return eventTimestampMs / ANOMALOUS_DEDUP_BUCKET_MS
+    }
+
+    private fun buildOriginBlockedReason(originDecision: DoorOriginDecision?): String {
+        if (originDecision == null) return "NO_ORIGIN_DECISION"
+        if (originDecision.blockedByLowScore) return "blockedByLowScore"
+        if (originDecision.blockedByMargin) return "blockedByMargin"
+        if (originDecision.blockedByAmbiguous) return "nearDoorAmbiguous"
+        if (originDecision.blockedByLedger) return "blockedByLedger"
+        return "NONE"
     }
 
     private fun recordLastSwitch(
@@ -1894,10 +2266,11 @@ class PresenceAlgorithmV1_1_1_B03021717(
         obs: PresenceTrackObservation,
         groundPoint: PresencePoint
     ) {
+        val sampleTimestampMs = normalizeEventTimestampMs(obs.timestampMs)
         state.doorOriginSamples.addLast(
             DoorOriginSample(
                 frameSeq = frameSeq,
-                timestampMs = obs.timestampMs,
+                timestampMs = sampleTimestampMs,
                 point = groundPoint
             )
         )
@@ -1911,7 +2284,8 @@ class PresenceAlgorithmV1_1_1_B03021717(
         roomById: Map<String, PresenceRoomSnapshot>,
         doors: List<PresenceDoorSnapshot>,
         livingRoomId: String,
-        preferredFromRoomId: String?
+        preferredFromRoomId: String?,
+        nearDoorAmbiguous: Boolean
     ): DoorOriginDecision? {
         val samples = state.doorOriginSamples.toList()
         if (samples.size <= DOOR_ORIGIN_DELTA_WINDOW_FRAMES) return null
@@ -1995,16 +2369,23 @@ class PresenceAlgorithmV1_1_1_B03021717(
         val sorted = candidates.sortedByDescending { it.score }
         val best = sorted.first()
         val secondScore = sorted.getOrNull(1)?.score ?: 0.0
+        val fromCount = if (best.fromRoomId == OUTSIDE_ROOM_ID) {
+            Int.MAX_VALUE
+        } else {
+            internalPresenceCounts[best.fromRoomId] ?: 0
+        }
         val blockedByLowScore = best.score < DOOR_ORIGIN_MIN_SCORE
         val blockedByMargin = (best.score - secondScore) < DOOR_ORIGIN_MIN_MARGIN
         val blockedByLedger = best.fromRoomId != OUTSIDE_ROOM_ID &&
-            (internalPresenceCounts[best.fromRoomId] ?: 0) <= 0
+            fromCount <= 0
         return DoorOriginDecision(
             candidate = best,
             secondScore = secondScore,
+            fromCount = fromCount,
             blockedByLedger = blockedByLedger,
             blockedByLowScore = blockedByLowScore,
-            blockedByMargin = blockedByMargin
+            blockedByMargin = blockedByMargin,
+            blockedByAmbiguous = nearDoorAmbiguous
         )
     }
 
@@ -2487,6 +2868,35 @@ class PresenceAlgorithmV1_1_1_B03021717(
 
     private fun fmt(v: Double): String = String.format("%.3f", v)
 
+    private fun formatPresenceDelta(
+        before: Map<String, Int>,
+        after: Map<String, Int>
+    ): String {
+        val keys = linkedSetOf<String>().apply {
+            addAll(before.keys)
+            addAll(after.keys)
+        }
+        return keys.mapNotNull { key ->
+            val b = before[key] ?: 0
+            val a = after[key] ?: 0
+            val d = a - b
+            if (d == 0) {
+                null
+            } else {
+                "$key:${if (d > 0) "+" else ""}$d"
+            }
+        }.joinToString(",")
+    }
+
+    private fun formatCountsMap(counts: Map<String, Int>): String {
+        if (counts.isEmpty()) return "{}"
+        return counts.entries.joinToString(
+            prefix = "{",
+            postfix = "}",
+            separator = ","
+        ) { (key, value) -> "$key:$value" }
+    }
+
     companion object {
         const val OUTSIDE_ROOM_ID = "__outside__"
         private const val IDENTITY_RESET_GAP_FRAMES = 18
@@ -2509,7 +2919,16 @@ class PresenceAlgorithmV1_1_1_B03021717(
         private const val DOOR_ORIGIN_CROSS_WEIGHT = 0.7
         private const val DOOR_ORIGIN_MIN_SCORE = 0.50
         private const val DOOR_ORIGIN_MIN_MARGIN = 0.15
-        private const val DOOR_ORIGIN_INIT_WAIT_FRAMES = 8
+        private const val ORIGIN_INIT_WAIT_MAX_FRAMES = 12L
+        private const val ORIGIN_INIT_WAIT_MAX_MS = 500L
+        private const val ANOMALOUS_ORIGIN_MIN_SCORE = 0.70
+        private const val ANOMALOUS_ORIGIN_MIN_MARGIN = 0.15
+        private const val ANOMALOUS_DEDUP_BUCKET_MS = 500L
+        private const val ANOMALOUS_SPAWN_STABLE_FRAMES = 5
+        private const val ANOMALOUS_SPAWN_FAR_DOOR_RATIO = 3.0
+        private const val ANOMALOUS_SPAWN_ROOM_COOLDOWN_MS = 1000L
+        private const val ANOMALOUS_SPAWN_FROM_ROOM_ID = "__anomalous_spawn__"
+        private const val ANOMALOUS_SPAWN_DOOR_ID = "__anomalous_spawn_door__"
 
         private fun keypointBodyWeight(index: Int): Double {
             return when (index) {

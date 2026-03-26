@@ -14,14 +14,21 @@ import java.util.concurrent.CopyOnWriteArrayList
 object RoomRepository {
 
     private const val TAG = "RoomRepository"
-    private const val FILE_NAME = "room_config.json"
+    private const val LEGACY_FILE_NAME = "room_config.json"
 
     private val cachedRooms = CopyOnWriteArrayList<RoomConfig>()
     private var configFile: File? = null
+    private var loadedBaselineCanonicalJson: String = ""
 
     fun init(context: Context) {
-        configFile = File(context.filesDir, FILE_NAME)
-        loadFromFile()
+        VideoRoomConfigManager.init(context)
+        val legacyFile = File(context.filesDir, LEGACY_FILE_NAME)
+        val persistedFile = AppSettings.activeRoomConfigPath
+            ?.takeIf { it.isNotBlank() }
+            ?.let(::File)
+            ?.takeIf { it.exists() && it.isFile }
+        configFile = persistedFile ?: legacyFile
+        loadFromCurrentFile(createIfMissing = persistedFile == null)
     }
 
     fun getAllRooms(): List<RoomConfig> {
@@ -47,7 +54,6 @@ object RoomRepository {
             isLivingBlindZone = isLivingBlindZone
         )
         cachedRooms.add(newRoom)
-        saveToFile()
     }
 
     fun updateRoom(room: RoomConfig) {
@@ -55,7 +61,6 @@ object RoomRepository {
         if (index != -1) {
             ensureRoomThemeColor(room)
             cachedRooms[index] = room
-            saveToFile()
         }
     }
 
@@ -64,7 +69,6 @@ object RoomRepository {
         if (room.isSovereignTerritory) return false
 
         cachedRooms.remove(room)
-        saveToFile()
         return true
     }
 
@@ -73,7 +77,6 @@ object RoomRepository {
         if (index != -1) {
             val room = cachedRooms[index]
             cachedRooms[index] = room.copy(isRecorded = true)
-            saveToFile()
         }
     }
 
@@ -87,7 +90,6 @@ object RoomRepository {
                 isRecorded = isRecorded
             )
             Log.d(TAG, "Updated room [$roomId] boundary: ${vertices.size} points")
-            saveToFile()
         } else {
             Log.w(TAG, "Room not found: $roomId")
         }
@@ -99,6 +101,43 @@ object RoomRepository {
 
     fun resetAllStatus() {
         // ...
+    }
+
+    fun currentConfigFile(): File? = configFile
+
+    fun currentConfigDisplayName(): String? = configFile?.nameWithoutExtension
+
+    fun hasMeaningfulConfig(): Boolean {
+        val hasSubRooms = cachedRooms.any { !it.isSovereignTerritory }
+        val livingRoomRecorded = cachedRooms.any { it.isSovereignTerritory && it.boundaryVertices.size >= 3 }
+        return hasSubRooms || livingRoomRecorded
+    }
+
+    fun hasUnsavedChanges(): Boolean {
+        return currentCanonicalJson() != loadedBaselineCanonicalJson
+    }
+
+    fun switchToConfigFile(file: File, persistSelection: Boolean = true, createIfMissing: Boolean = false): Boolean {
+        configFile = file
+        loadFromCurrentFile(createIfMissing = createIfMissing)
+        if (persistSelection && file.exists()) {
+            AppSettings.setActiveRoomConfigPath(file.absolutePath)
+        }
+        return true
+    }
+
+    fun saveAsConfigFile(file: File): Boolean {
+        return try {
+            file.parentFile?.mkdirs()
+            configFile = file
+            saveToFile()
+            loadedBaselineCanonicalJson = currentCanonicalJson()
+            AppSettings.setActiveRoomConfigPath(file.absolutePath)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save config file: ${file.absolutePath}", e)
+            false
+        }
     }
 
     // --- 纯数据处理：备份与恢复 ---
@@ -137,6 +176,7 @@ object RoomRepository {
                 cachedRooms.addAll(restoredRooms)
                 ensureMissingThemeColors()
                 saveToFile()
+                loadedBaselineCanonicalJson = currentCanonicalJson()
                 Log.i(TAG, "Restored ${restoredRooms.size} rooms from backup")
                 true
             } else {
@@ -274,13 +314,14 @@ object RoomRepository {
         return vertices
     }
 
-    private fun loadFromFile() {
+    private fun loadFromCurrentFile(createIfMissing: Boolean) {
         cachedRooms.clear()
         val file = configFile ?: return
 
         if (!file.exists()) {
-            Log.i(TAG, "Config file missing, creating defaults")
-            createDefaultRoom()
+            Log.i(TAG, "Config file missing: ${file.absolutePath}")
+            createDefaultRoom(persist = createIfMissing)
+            loadedBaselineCanonicalJson = currentCanonicalJson()
             return
         }
 
@@ -297,14 +338,16 @@ object RoomRepository {
             if (ensureMissingThemeColors()) {
                 saveToFile()
             }
+            loadedBaselineCanonicalJson = currentCanonicalJson()
 
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load room config", e)
-            createDefaultRoom()
+            createDefaultRoom(persist = false)
+            loadedBaselineCanonicalJson = currentCanonicalJson()
         }
     }
 
-    private fun createDefaultRoom() {
+    private fun createDefaultRoom(persist: Boolean) {
         cachedRooms.clear()
         cachedRooms.add(
             RoomConfig(
@@ -314,12 +357,15 @@ object RoomRepository {
                 isRecorded = false
             )
         )
-        saveToFile()
+        if (persist) {
+            saveToFile()
+        }
     }
 
     private fun saveToFile() {
         val file = configFile ?: return
         try {
+            file.parentFile?.mkdirs()
             val rootObj = JSONObject()
             val jsonArray = JSONArray()
             for (room in cachedRooms) {
@@ -332,6 +378,20 @@ object RoomRepository {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save room config", e)
         }
+    }
+
+    private fun currentCanonicalJson(): String {
+        return buildRootJson().toString()
+    }
+
+    private fun buildRootJson(): JSONObject {
+        val rootObj = JSONObject()
+        val jsonArray = JSONArray()
+        for (room in cachedRooms) {
+            jsonArray.put(serializeRoom(room))
+        }
+        rootObj.put("rooms", jsonArray)
+        return rootObj
     }
 
     private fun ensureRoomThemeColor(room: RoomConfig) {

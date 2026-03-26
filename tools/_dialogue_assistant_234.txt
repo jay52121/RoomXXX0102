@@ -1,0 +1,13 @@
+无异议，方案可执行，我按你给的“1.6.1 最终方案”落地。
+
+我将按这个顺序改：
+
+1. `PresenceEventReason` 增加 `ANOMALOUS_ORIGIN / ANOMALOUS_SPAWN`。  
+2. 在主流程加入 `originWindowMax` 上限与 `originBlockedReason` 明确判定。  
+3. 实现两类异常事件的严格触发条件（含 `K_stable / farDoorDist / score/margin/ambiguous`）。  
+4. 实现去重（`(roomId,timeBucket)` 与 `(fromRoom,doorId,timeBucket)`）+ cooldown。  
+5. 保持并校验 `events=[]` 不允许改账本。  
+6. 补齐你要求的日志字段与验收场景输出口径。  
+7. 版本切到 `1.6.1`，并更新 `codexHistory.md`、`dialogueHistory.md`。
+
+你回复“开始”后我就按此直接改代码并回你验收结果。

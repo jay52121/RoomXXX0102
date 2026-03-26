@@ -1,0 +1,13 @@
+已完成两部分：
+
+1) 播放回跳诊断日志增强（代码）
+- MainActivity：在 `togglePause`、`+/-1帧`、`+/-5s` 处增加 `RoomPlayerDiag` 日志，记录前后 `playState / position / isPlaying`。
+- VideoFeeder：在 `seekByMs` 请求、`setOnSeekComplete`、`pause/resume`、`setStillMode` 增加日志；新增 `playLoopAnomaly`，用于识别“播放中位置不前进/倒跳”。
+- 以上日志仅在 `pauseSwitchLog=true`（切换时记录暂停判定日志）时输出。
+
+2) Wiki 文档
+- 在 `wiki.md` 新增 `1.7 播放往复回跳（播放器卡死）排查`：
+  - bug现象简述；
+  - 必开开关；
+  - 仅播放器相关抓取命令；
+  - 重点字段与快速判读口径。

@@ -1,0 +1,14 @@
+已按你要求完成三件事：
+
+1. 清除不该有的扣减逻辑  
+- 移除了 `identityResetApplied` 分支里的直接 `addPresence(-1)`，避免再出现“无真实门事件却因ID重置扣减”。
+
+2. 版本号升级为 1.5.2  
+- 新增并启用 `V1.5.2(B03052250)`，设置页会显示为最新版本。
+
+3. logcat 增加最近帧诊断  
+- 在 `pauseSwitchLog=true` 下，遇到异常原因（identityReset/pendingDisabled/pendingDropped/ledgerBlock）会自动输出：
+  - `presenceAnomaly ...`
+  - `presenceRecent ...`
+  - `recentFrame ...`
+- 你可以直接复制这段给我分析“为什么没触发”。

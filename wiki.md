@@ -464,3 +464,31 @@ adb logcat -d -v threadtime | findstr /I "RoomPlayerDiag VideoFeeder MediaPlayer
 - `overdueTriggered=false` 且 `RoomPlayerDiag` 有频繁 `seekByMs request`：优先排查谁在触发 seek。
 - `playState=PLAYING` 但 `beforePlaying/afterPlaying=false`：优先排查状态机与播放器同步点。
 - `playLoopAnomaly stallCount` 连续升高且 `delta<=0`：说明播放位置未前进或倒跳，需沿调用链回溯最近一次 seek/pause 操作来源。
+
+## 1.8 TFLite GPU 并发崩溃（destroyed mutex）
+
+### 1.8.1 现象简述
+- 启动后几秒偶发直接闪退，重启后可能暂时正常。
+- 日志关键字：
+  - `FORTIFY: pthread_mutex_lock called on a destroyed mutex`
+  - `Fatal signal 6 (SIGABRT)`
+  - 调用栈位于 `libtensorflowlite_gpu_jni.so` / `NativeInterpreterWrapper_run`
+
+### 1.8.2 已确认根因
+- `VideoFeeder` 以固定周期提交推理，若单帧推理耗时超过调度间隔，容易产生并发 `Interpreter.run()`。
+- TFLite `Interpreter + GPU Delegate` 非线程安全；并发运行会触发 JNI/GPU 侧 mutex 生命周期冲突。
+
+### 1.8.3 修复策略（V1.6后）
+- 推理执行改为单线程串行（single-thread executor）。
+- 增加 `inFlight` 防重入：上一帧未完成时新帧直接丢弃，不排队。
+- 日志改为异常触发：仅在连续阻塞（回压）时输出 `inferenceBackpressure`。
+
+### 1.8.4 抓取建议（仅遇到问题时）
+```powershell
+adb logcat -c
+adb logcat -v threadtime | findstr /I "libtensorflowlite_gpu_jni NativeInterpreterWrapper_run FORTIFY SIGABRT RoomPlayerDiag VideoFeeder"
+```
+
+### 1.8.5 判读口径
+- 若出现 `destroyed mutex + libtensorflowlite_gpu_jni + NativeInterpreterWrapper_run`，优先按“推理并发”处理，不归因到房间计数算法。
+- 若同时看到 `inferenceBackpressure`，说明推理耗时已接近/超过调度间隔，应继续关注设备负载与帧率配置。

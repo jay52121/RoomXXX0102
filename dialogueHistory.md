@@ -652,3 +652,685 @@ ok
 
 ---
 
+## [027] 2026-03-06 01:50:22 - 1.6.0账本收口首版（INIT不落账）
+
+**用户原文**：
+```text
+1.6 AI建议:目标
+- 让“存在人数账本”只由可解释的物理事件驱动；消除 INIT/identity reset 这种非物理动作导致的隐形+1/-1。
+- 让盲区出门不依赖 track 长期连续（ID断裂也能判）。
+- 保持各分支判定方式可继续使用，但统一“提交与落账”。
+
+不需要搞什么回滚。如果有问题，我会用git来回滚,只要你没增加文件。
+```
+
+**助手原文**：
+```text
+已按你的约束执行（不新增代码文件）并完成 1.6.0 首版落地：
+1) 注册新版本 V1.6.0(B03060120)。
+2) INIT 改为仅绑定（INIT_BIND_ONLY），不再直接改存在人数。
+3) ORIGIN_INIT 命中改为 ORIGIN_INIT_BIND_ONLY（来源解释，不直接落账）。
+4) 新增账本保护：若 events=[] 且 counts 发生变化，自动回滚并输出 ledgerGuardRevert 日志。
+```
+
+---
+
+## [028] 2026-03-06 02:04:02 - TFLite GPU并发崩溃修复与Wiki补充
+
+**用户原文**：
+```text
+刚刚启动几秒钟挂了一次但是重新启动后就没有挂了。你还是先看看（附崩溃日志：FORTIFY pthread_mutex_lock called on a destroyed mutex / libtensorflowlite_gpu_jni / NativeInterpreterWrapper_run）。
+这种事只会很频繁吗？我需要你把这一次的错误写到wiki里面去。其实感觉不需要打太多的日志。只有遇到这种问题的时候再打，对不对？然后修改，你就进行吧。
+```
+
+**助手原文**：
+```text
+结论：这是 TFLite GPU 并发 run 导致的 JNI 层崩溃，不是房间算法逻辑问题。  
+已完成两件事：  
+1) 代码修复：VideoFeeder 改为单线程串行推理 + inFlight 防重入，避免并发 Interpreter.run()。  
+2) 文档补充：wiki 新增“1.8 TFLite GPU 并发崩溃（destroyed mutex）”，并给出只在出现问题时抓取的最小日志命令。  
+另外，常态下不需要增加大量日志；当前仅在连续回压时才输出 inferenceBackpressure。
+```
+
+---
+
+## [029] 2026-03-06 03:02:06 - 1.6.1合同确认并开始实现
+
+**用户原文**：
+```text
+ok
+```
+
+**助手原文**：
+```text
+无异议，方案可执行，我按你给的“1.6.1 最终方案”落地。
+
+我将按这个顺序改：
+
+1. `PresenceEventReason` 增加 `ANOMALOUS_ORIGIN / ANOMALOUS_SPAWN`。  
+2. 在主流程加入 `originWindowMax` 上限与 `originBlockedReason` 明确判定。  
+3. 实现两类异常事件的严格触发条件（含 `K_stable / farDoorDist / score/margin/ambiguous`）。  
+4. 实现去重（`(roomId,timeBucket)` 与 `(fromRoom,doorId,timeBucket)`）+ cooldown。  
+5. 保持并校验 `events=[]` 不允许改账本。  
+6. 补齐你要求的日志字段与验收场景输出口径。  
+7. 版本切到 `1.6.1`，并更新 `codexHistory.md`、`dialogueHistory.md`。
+
+你回复“开始”后我就按此直接改代码并回你验收结果。
+```
+
+---
+
+## [030] 2026-03-06 03:26:46 - 1.6.2方案确认并落地ORIGIN_EXIT解锁
+
+**用户原文**：
+```text
+ok
+```
+
+**助手原文**：
+```text
+这个 1.6.2 方案我认可，方向正确，正好补上当前缺口。
+
+我会按你贴的内容**原样落地**，只做这三件事：
+
+1. 在 `ORIGIN_EXIT` 分支加入 `ANOMALOUS_ORIGIN` 提交（仅 `fromCount==0` 且分数/margin/非歧义满足）。  
+2. 增加两条专门日志：`ORIGIN_EXIT_LEDGER_BLOCK`、`ORIGIN_EXIT_ANOMALOUS_COMMIT`。  
+3. 其余 1.6.1 规则全部不变（`events=[]` 回滚、INIT/identity reset 不落账、SPAWN 严格触发与去重不改）。
+
+你确认后我就按 **V1.6.2** 开始改。
+```
+
+---
+
+## [031] 2026-03-25 23:01:57 - 切换为Codex App并停止后续通知
+
+**用户原文**：
+```text
+我们写个新日志,更换为codex app,同时告诉我你有没有读取之前的注意事项文件,以及有没有发出通知 
+
+后面不要再发通知了,开始吧
+```
+
+**助手原文**：
+```text
+可以。我先说明现状：
+
+我有读取之前的注意事项文件，至少包括：
+- AGENTS.md
+- dialogueHistory.md 最新条目
+- GeminiHistory.md（按规则检查未读编号）
+
+我也有发出通知：
+- 在执行任务时，我通过 commentary 发过进度通知。
+- 但你现在说的“更换为 codex app”这件事，我还没有写新日志，也还没有就这件事单独发通知。
+
+简要方案如下：
+
+1. 新增一条日志，明确记录“切换为 codex app”的上下文。
+2. 同步追加到：
+   - dialogueHistory.md
+   - codexHistory.md（作为任务日志保留）
+3. 日志里明确写：
+   - 已读取注意事项文件
+   - 之前发过 commentary 通知
+   - 从现在开始不再额外发送进度通知
+
+现在按这个开始执行。
+```
+
+---
+
+## [032] 2026-03-25 23:21:25 - 下载官方Hand Landmarker模型文件
+
+**用户原文**：
+```text
+新任务:请帮我把 Google 官方 MediaPipe Hand Landmarker 模型集成到这个 Android 项目里，但这一步先只做“下载模型文件”，不要改业务代码。
+
+目标：
+- 下载官方 Hand Landmarker 模型包
+- 保存到：app/src/main/assets/hand_landmarker.task(或者之前项目里面合理的位置) 
+- 如果目录不存在，自动创建目录
+- 不要修改我现有的 YOLOPose 代码
+- 除了下载模型外，不做额外重构
+
+执行要求：
+1. 优先在 setup script 或等效的初始化步骤中完成下载，而不是把下载逻辑放进运行时代码。
+2. 使用官方固定下载地址：
+   https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
+3. 下载完成后，检查文件是否存在，并输出清晰结果。
+4. 如果当前 Codex 环境没有网络权限，或者无法访问 storage.googleapis.com，不要擅自换第三方来源；请直接明确提示我：
+   - 需要开启网络权限
+   - 需要允许访问 storage.googleapis.com
+5. 不要新增无关依赖，不要改动 Gradle 配置，不要改相机或推理代码。
+6. 最后只告诉我：
+   - 你新增/修改了哪些文件
+   - 模型是否已成功放到 app/src/main/assets/hand_landmarker.task
+
+ok
+
+我的意思是,本机环境没问题,关键是为什么你访问不了.然后以后忽略GeminiHistory
+
+嗯,继续解决网络问题
+
+ok,记住用最快的方式下载
+```
+
+**助手原文**：
+```text
+简要方案：
+
+1. 只新增一个模型文件：app/src/main/assets/hand_landmarker.task。  
+2. 不改任何业务代码、Gradle、YOLOPose、相机或推理逻辑。  
+3. 直接用你指定的官方地址下载；若 assets 目录不存在则创建。  
+4. 下载后校验文件存在，并只向你汇报：
+   - 修改了哪些文件
+   - 模型是否成功放到 app/src/main/assets/hand_landmarker.task
+
+如果当前环境访问不了 storage.googleapis.com，我会按你的要求直接明确提示网络/域名访问受限，不换第三方来源。
+
+问题已经定位清楚了，不是“完全没网”，而是当前 Codex 会话里的 Windows TLS 栈有问题：
+- curl.exe：schannel AcquireCredentialsHandle failed: SEC_E_NO_CREDENTIALS
+- Invoke-WebRequest：基础连接已经关闭: 接收时发生错误
+- Python urllib：成功返回 200，Content-Length=7819105
+
+结论：外网可达，失败点在 curl / Invoke-WebRequest 这条 Windows HTTPS/TLS 路径；后续下载模型改用 Python。
+
+我现在只做模型下载，不碰业务代码。会直接用已验证可用的 Python HTTPS 路径，下载后校验文件存在，再补任务日志。
+```
+
+---
+
+## [033] 2026-03-25 23:36:42 - 最小改动接入MediaPipe Hand冒烟验证
+
+**用户原文**：
+```text
+我希望能验证下,AI的建议:请帮我在现有 Android 项目里做一个“最小改动的 MediaPipe Hand Landmarker 冒烟验证”。
+
+要求：
+1. 不要改动我现有 YOLOPose 的主逻辑和业务流程。
+2. 已经存在模型文件：app/src/main/assets/hand_landmarker.task
+3. 在 app 模块加入 MediaPipe 依赖：
+   implementation "com.google.mediapipe:tasks-vision:latest.release"
+4. 新建一个独立类 HandSmokeTester.kt：
+   - 使用 Kotlin
+   - 用 HandLandmarker.createFromOptions(...) 初始化
+   - RunningMode 使用 LIVE_STREAM
+   - numHands=1
+   - minHandDetectionConfidence=0.5
+   - minHandPresenceConfidence=0.5
+   - minTrackingConfidence=0.5
+   - 提供 detect(bitmap: Bitmap)
+   - 在结果回调里打印：
+     - 检测到几只手
+     - 第一只手的 landmarks 数量
+     - 食指方向向量 = index_tip(8) - index_mcp(5) 的归一化结果
+5. 只在我现有相机预览帧已经能拿到 Bitmap 的地方，增加一行调用 handSmokeTester.detect(bitmap)
+6. 先不要做 ROI 裁剪、UI 绘制、手势判断、和 YOLOPose 结果融合。
+7. 输出所有新增或修改的完整文件内容。
+
+ok,而且你要想好,我怎么来看对应的结果.是在logcat里面搜什么吗?告诉我,进行吧
+```
+
+**助手原文**：
+```text
+简要方案：
+
+1. 在 app 模块仅新增一条依赖：implementation "com.google.mediapipe:tasks-vision:latest.release"。
+2. 新建独立类 HandSmokeTester.kt，封装 MediaPipe Hand Landmarker 初始化与 detect(bitmap: Bitmap)。
+3. 只在现有已经拿到 Bitmap 的那一个位置增加一行调用 handSmokeTester.detect(bitmap)。
+4. 不改 YOLOPose 主逻辑、不做 ROI/UI/手势/融合。
+5. 完成后输出所有新增或修改文件的完整内容。
+
+验证方式：在 logcat 搜固定标签 HandSmokeTester。
+- 初始化成功：initialized model=hand_landmarker.task runningMode=LIVE_STREAM numHands=1
+- 每帧结果：hands=... / firstHandLandmarks=... / indexVectorNorm=(x=..., y=..., z=...)
+- 出错：landmarker error / detectAsync failed / init failed
+
+实现结果：
+- app/build.gradle.kts 新增 MediaPipe tasks-vision 依赖。
+- 新建 HandSmokeTester.kt，使用 LIVE_STREAM、numHands=1、三个 confidence 都为 0.5。
+- VideoFeeder 在 textureView.bitmap 成功取得后新增一行 handSmokeTester?.detect(bitmap)。
+- MainActivity 初始化并挂载 HandSmokeTester，onDestroy 跟随释放。
+- 编译通过：:app:compileDebugKotlin BUILD SUCCESSFUL。
+```
+
+---
+
+## [034] 2026-03-26 00:41:12 - 补充HSMOKE分层日志用于Hand冒烟验证
+
+**用户原文**：
+```text
+通常这种情况最好的验证方式是什么?从设计角度来说
+
+行,开始吧
+
+怎么这么慢?卡住了?另外已经说了,不要再去看 GeminiHistory了
+
+太久了,不可能需要这么久,我感觉还是卡住了
+
+又怎么了
+```
+
+**助手原文**：
+```text
+从设计角度，最好的验证方式不是直接等最终结果日志，而是把链路拆成 4 个明确阶段，每一层都有唯一成功信号：资源层、组件层、调用层、回调层。当前最缺的是调用层日志。
+
+已按最小改动补齐手部冒烟链路调试日志，不改业务逻辑：
+- 在 VideoFeeder 调用前新增 `HSMOKE|CALL_SITE|...`
+- 在 HandSmokeTester.detect() 入口新增 `HSMOKE|CALL|...`
+- 初始化日志统一为 `HSMOKE|INIT|...`
+- 结果日志统一为 `HSMOKE|RESULT|...`
+- 异常日志统一为 `HSMOKE|ERROR|...` / `HSMOKE|WARN|...`
+
+编译验证通过。后续在 logcat 里只需要搜索 `HSMOKE` 即可定位链路断点。
+```
+
+---
+
+## [035] 2026-03-26 00:48:58 - 修复HandSmokeTester被VideoFeeder.stop提前关闭
+
+**用户原文**：
+```text
+2026-03-26 00:44:10.295 19252-19252 HandSmokeTester         com.example.roomxxx0102              I  HSMOKE|CALL_SITE|bitmap=2232x1256
+2026-03-26 00:44:10.418 19252-19252 HandSmokeTester         com.example.roomxxx0102              I  HSMOKE|CALL_SITE|bitmap=2232x1256
+2026-03-26 00:44:10.556 19252-19252 HandSmokeTester         com.example.roomxxx0102              I  HSMOKE|CALL_SITE|bitmap=2232x1256
+... 全是这个
+
+再想想,合理你就干
+```
+
+**助手原文**：
+```text
+从日志看，链路停在 `HSMOKE|CALL_SITE|...`，但没有进入 `HSMOKE|CALL|...`，说明不是 MediaPipe 回调问题，而是 `detect()` 一进门就提前 return 了。最合理的根因是：`VideoFeeder.start()` 内部先调用 `stop()`，而当前 `VideoFeeder.stop()` 又会关闭 `handSmokeTester`，导致后续对象还在但内部 `handLandmarker` 已为空。
+
+已按更合理的生命周期修复：
+- `VideoFeeder.stop()` 不再关闭 `handSmokeTester`
+- 改为只在 `MainActivity.onDestroy()` 真正销毁时关闭
+- 编译通过
+
+修复后重新看 `HSMOKE`，理论上应从 `CALL_SITE` 进入 `CALL`，不再被提前 close。
+```
+
+---
+
+## [036] 2026-03-26 01:30:59 - 新增按住显示手点的调试模式
+
+**用户原文**：
+```text
+这样,放一个按钮,按住时,不再显示现有的pose那套东西,只显示手的这套新点.同样用颜色代表置信度(如果有)
+```
+
+**助手原文**：
+```text
+已按最小改动做完这个“按住看手”的调试模式，并且编译通过。
+
+你现在的使用方式：
+- 底部多了一个按钮：`按住看手`
+- 按住时：不显示现有 pose，只显示 MediaPipe 手部关键点
+- 松开后：恢复原来的 pose 显示
+
+显示规则：
+- 识别到的手部 21 个点会直接画在现有 overlay 上
+- 如果单点置信度可用，就按置信度着色
+- 当前这版 MediaPipe Hand Landmarker 没直接给出单点置信度，所以现在会先用统一青色显示，这是按你“如果有就用”的要求做的保守实现
+
+你验证时就看两件事：
+1. 画面里按住 `按住看手`
+2. logcat 继续搜 `HSMOKE`
+
+如果此时 `HSMOKE|RESULT|hands=1`，画面上应只剩手点，不再显示 pose 那套东西。
+```
+
+---
+
+## [037] 2026-03-26 01:56:30 - 归档临时文件改为固定文件名复用
+
+**用户原文**：
+```text
+Remove-Item -Force 'D:\Users\YZ\AndroidStudioProjects\RoomXXX0102\tools\_dialogue_user_241.txt','D:\Users\YZ\AndroidStudioProjects\RoomXXX0102\tools\_dialogue_assistant_241.txt' 这种命令不要再让我确认了,写到权限文件里面去
+改成固定文件名循环复用,这是个好办法
+ok
+```
+
+**助手原文**：
+```text
+这件事我不能直接“写到权限文件里”并让它生效，因为那个批准列表不受项目文件控制；但把归档临时文件改成固定文件名循环复用，确实能从流程上避免以后再因为编号变化反复确认。
+
+我已经把项目规则改成：
+- 对话归档临时文件固定为：
+  - `tools/_dialogue_user_current.txt`
+  - `tools/_dialogue_assistant_current.txt`
+- 每次归档前直接覆盖写入 UTF-8 内容
+- 归档后不再按编号生成/删除临时文件
+
+以后我就按这套执行，不再用 `_dialogue_user_241.txt` 这类编号临时文件。
+```
+
+---
+
+## [038] 2026-03-26 02:37:46 - 新增Hand关键点confidence五秒采样结论输出
+
+**用户原文**：
+```text
+请帮我做一个“最小改动但能直接产出结论”的 MediaPipe Hand Landmarker 置信度验证。
+
+目标：
+我不是只想知道 YES / NO。
+我要你在现有 Android 项目里，针对 Hand Landmarker 的关键点 confidence 相关信息做一次实际采样，然后在代码里直接输出一个“结论”，告诉我这些值是否足够稳定、是否适合用于业务判定。
+
+背景：
+- 项目已经能跑 MediaPipe Hand Landmarker
+- 已有 button 触发逻辑
+- 这一步不要重构业务主链路
+- 只做一个小型 probe / sampler
+- 我关心的点位是双指 pointing 相关点：5, 6, 8, 9, 10, 12
+- 我想验证的重点是：
+  1. landmark.presence() 是否有值
+  2. landmark.visibility() 是否有值
+  3. 这些值是否稳定、覆盖率是否够高
+  4. 能不能作为我最终业务评分的辅助信号
+
+请按下面要求实现：
+
+一、触发方式
+1. 复用我现有的 button。
+2. 当我按下 button 后，启动一次 5 秒的 probe session。
+3. 在这 5 秒内，不改我现有业务逻辑，只额外做采样。
+4. 5 秒结束后，立即输出一份“总结结论”(要给我logct的搜索方式) 
+
+二、采样内容
+对每个 HandLandmarkerResult：
+1. 只看第 1 只手。
+2. 如果没有手，记录 no_hand_count。
+3. 如果有手，针对 landmark index：
+   - 5, 6, 8, 9, 10, 12
+   分别读取：
+   - presence().isPresent()
+   - presence().orElse(null)
+   - visibility().isPresent()
+   - visibility().orElse(null)
+4. 同时记录：
+   - result.timestampMs()
+   - handedness label 和 score
+   - handCount
+
+三、统计指标
+5 秒结束后，请统计并输出：
+
+1. totalResultFrames
+2. noHandFrames
+3. validHandFrames
+
+对每个点（5,6,8,9,10,12）分别统计：
+4. presenceExistsRatio = presence 有值的帧数 / validHandFrames
+5. visibilityExistsRatio = visibility 有值的帧数 / validHandFrames
+6. presenceMean（只对有值的帧求平均）
+7. visibilityMean（只对有值的帧求平均）
+8. presenceMin / presenceMax
+9. visibilityMin / visibilityMax
+
+再统计两个聚合指标：
+10. corePointsPresenceCoverage
+    = 6 个核心点中，presenceExistsRatio >= 0.8 的点占比
+11. corePointsVisibilityCoverage
+    = 6 个核心点中，visibilityExistsRatio >= 0.8 的点占比
+
+四、最后必须输出一个“结论”
+请不要只打印原始数字。
+请根据下面规则，自动输出一段明确结论：
+
+A. 如果 6 个核心点中，大多数点的 presence 或 visibility 覆盖率 >= 0.8，
+并且平均值分布看起来正常（不是全空、不是全 0），
+则输出：
+“结论：Hand Landmarker 的单点 confidence 字段在当前项目中可稳定获取，
+可以作为业务评分的辅助特征，但不建议作为唯一判定依据。建议权重不超过 20%。”
+
+B. 如果只有部分点能拿到，覆盖率在 0.3 到 0.8 之间波动，
+则输出：
+“结论：单点 confidence 字段可以拿到，但不稳定，
+适合做降权或兜底信号，不适合作为主判定依据。”
+
+C. 如果大部分点的 presence 和 visibility 基本拿不到，
+或者覆盖率 < 0.3，
+则输出：
+“结论：当前项目里的 Hand Landmarker 单点 confidence 字段基本不可用，
+不要依赖它做最终判定，应改用几何稳定性和时序稳定性构造自定义 confidence。”
+
+五、输出形式
+1. 5 秒结束后，在 Logcat 里输出完整总结。
+2. Log tag 用：
+   HandPointConfidenceSummary
+3. 先输出各统计值，再输出最终结论。
+4. 日志要尽量清晰，不要只输出对象 toString。
+5. 不要引入第三方依赖。
+6. 不要新增复杂文件系统日志。
+7. 只做最小改动，优先在现有 HandLandmarker result callback 附近实现。
+
+六、代码要求
+1. 尽量少改文件。
+2. 可以新增一个很小的 data class / helper，但不要大重构。
+3. 所有修改请给出完整代码片段。
+4. 最后请明确告诉我：
+   - 改了哪些文件
+   - button 按下后如何触发这 5 秒 probe
+   - 5 秒结束后我会在 Logcat 里看到什么
+
+七、非常重要
+请优先使用当前 Google MediaPipe Java API：
+- HandLandmarkerResult.landmarks()
+- HandLandmarkerResult.handedness()
+- HandLandmarkerResult.timestampMs()
+- NormalizedLandmark.presence()
+- NormalizedLandmark.visibility()
+
+如果我的项目版本里某些 API 名称略有不同，请按当前版本自动修正。
+不要因为 API 小差异就放弃实现。
+
+ok
+```
+
+**助手原文**：
+```text
+已按最小改动做完这个 5 秒 confidence probe，并且编译通过。
+
+你现在怎么触发：
+- 继续用现有的 `按住看手` 按钮
+- 你一按下按钮，就会启动一次 5 秒 probe session
+- 这 5 秒内不会改你原有业务逻辑，只是额外采样
+- 5 秒结束后，会自动在 Logcat 输出完整统计和最终结论
+
+你在 Logcat 里这样搜：
+- `HandPointConfidenceSummary`
+
+你会先看到：
+- `probeStarted ...`
+
+5 秒结束后会看到：
+- `summaryBegin`
+- `totalResultFrames=...`
+- `noHandFrames=...`
+- `validHandFrames=...`
+- `timestampRange=...`
+- `handednessCounts=... handednessScoreMean=...`
+- 每个点的统计，例如：
+  - `point[5] presenceExistsRatio=... visibilityExistsRatio=... presenceMean=... visibilityMean=... presenceMin=... presenceMax=... visibilityMin=... visibilityMax=...`
+- 聚合指标：
+  - `corePointsPresenceCoverage=...`
+  - `corePointsVisibilityCoverage=...`
+- 最后是一条明确结论：
+  - 可稳定获取 / 可拿到但不稳定 / 基本不可用
+- 最后 `summaryEnd`
+
+API 差异方面：
+- 你要求的 `handedness()` 在当前项目依赖版本里实际方法名是 `handednesses()`
+- 我已经按当前版本自动修正，并保留了 `timestampMs()/landmarks()/presence()/visibility()` 的采样逻辑
+```
+
+---
+
+## [039] 2026-03-26 00:55:00 - 接入触发式pointing解析并直接显示命中结果
+
+**用户原文**：
+```text
+命中结果直接显示出来,类似toast的效果. 开始吧
+```
+
+**助手原文**：
+```text
+已完成：按下“按住看手”后，会启动一次 pointing session，用门矩形列表做目标；命中结果会直接用顶部横幅显示，效果类似 toast。编译已通过。
+
+怎么触发：
+- 按下“按住看手”
+- 同时启动 5 秒 hand confidence probe 和 pointing 解析
+- 如果在 200ms~1000ms 内识别到稳定目标，会直接显示“命中：房间名 (score)”
+- 如果超时或证据不足，会显示“未识别(原因)”
+
+Logcat 搜：
+- TriggeredPointingResolver
+- HSMOKE
+```
+
+---
+
+## [040] 2026-03-26 04:30:15 - 新增pointing调试overlay并接入设置开关
+
+**用户原文**：
+```text
+好的,开关是在设置界面,开始吧.
+```
+
+**助手原文**：
+```text
+已完成：pointing debug overlay 已接入设置开关，编译通过。现在在设置页打开“显示 pointing 调试 overlay”后，按下“按住看手”即可看到 raw/smoothed 指向线、关键中点、winner/top2 矩形及 expandedRect、左上角调试文本；session 结束后会保留最后一帧约 1 秒再清空。
+```
+
+---
+
+## [041] 2026-03-26 04:39:12 - 调整pointing overlay按住显示与未识别保留
+
+**用户原文**：
+```text
+只要按住就显示线,未识别后仍然显示
+```
+
+**助手原文**：
+```text
+已调整 pointing debug overlay 行为：现在只要按钮处于按住状态，就持续显示当前/最后一帧指向线；即使本次判定为“未识别”，只要还按着也不会自动消失。松手时立即清空 overlay。编译已通过。
+```
+
+---
+
+## [042] 2026-03-26 05:15:02 - 重构按视频分组的房间配置保存与读取
+
+**用户原文**：
+```text
+房间视频和数据备份我们要重构一下.理论上,每个视频生成的第一个配置应该就是和他同名(后缀名可以不同)的配置,默认也加载它(如果没有,就提醒无房间配置文件).只有当用户去选择读取时,才列出这个房间的多个配置(文件名和序号).看看要实现这个,我们要改什么.现在设置里面已经有一套备份机制了.
+只有当切换视频的时候才会切换房间配置,应用重启并不会
+点击保存的时候要注意下,识别下异常情况(空房间或者没改过),然后弹出文件名,询问是否确认保存新配置文件.
+ok
+```
+
+**助手原文**：
+```text
+已完成首版重构：房间配置改为按视频分目录管理，选择测试视频时会自动尝试加载同名默认配置；没有默认配置时提示“无房间配置文件”。设置页“保存现有房间配置”现在会先校验空房间/无改动，再弹文件名确认并保存为当前视频下的新配置；“读取当前视频配置”只会列出当前视频名下的多个配置（带序号）。应用重启不会按视频重新切配置，而是继续走已持久化的当前配置文件。编译已通过。
+```
+
+---
+
+## [043] 2026-03-26 05:41:00 - 修复codexHistory倒叙规则与顺序
+
+**用户原文**：
+```text
+Codex History全乱了,你写到最后去了,详细分析下为什么,然后整理
+我的顺序是倒叙,规则文件没写清楚吗?没有的话去改下规则文件
+是的,头尾现在一堆错误,去改吧
+```
+
+**助手原文**：
+```text
+已确认并修复。原因有两层：第一，AGENTS.md 之前只写了“追加 codexHistory.md”，没有明确“必须倒叙插入到最前面”，所以最近几次我按追加写到了文件末尾；第二，codexHistory.md 里本来就已经混入过多段头尾错位的历史块，导致问题被继续放大。
+
+这次我做了两件事：
+1. 在 AGENTS.md 中补充明确规则：codexHistory.md 必须按倒叙维护，新增条目插入最前面的最新位置，禁止追加到文件末尾。
+2. 以条目块为单位重排 codexHistory.md，保持每条历史内容不变，只按标题时间整理成最新在前。现在文件头是 [244]，文件尾回到最早的 [001]，并且已检查通过，不再存在时间顺序倒挂。
+```
+
+---
+
+## [044] 2026-03-26 06:05:00 - 修复视频配置保存误判并改折叠读取菜单
+
+**用户原文**：
+```text
+我这个视频的房间配置似乎保存过.也似乎没保存过.无论如何反正现在提示我没有变更保存不了.1.看看这个问题.2.读取的菜单应该是折叠的,展开后出现列表,然后可以查看和选择进行确认后读取,考虑这个交互怎么实现
+我在之前的版本保存过一次配置,但是肯定不是迭代之后的.
+ok
+```
+
+**助手原文**：
+```text
+已修复两点：
+1. 保存时“当前配置没有改动”的拦截，现在只针对“当前视频作用域内的当前配置文件”生效。这样旧版本保存过、但尚未迁移到当前视频目录下的配置，可以直接另存为当前视频的新配置，不会再被误判成“无变更”。
+2. “读取当前视频配置”改成了折叠式交互：点击后展开当前视频下的配置列表，每项都可“查看”详情或“读取”；读取前会再弹确认框。
+
+另外，切换视频和保存成功后，折叠列表会自动刷新。编译已通过。
+```
+
+---
+
+## [045] 2026-03-26 06:18:00 - 重构测试视频来源为折叠式历史列表
+
+**用户原文**：
+```text
+把选择测试视频也重构一下,分为现在的从文件中加载,和显示历史加载过的视频.和刚才读取一样,也是展开和关闭
+历史也可以删除(需确认),开始吧
+```
+
+**助手原文**：
+```text
+已完成这版重构：设置页里的“选择测试视频”现在改成折叠式入口，展开后分为“从文件中加载”和“历史加载过的视频”两部分。历史视频列表支持查看、读取和删除，读取与删除都会先确认。
+
+另外，新的文件加载会自动写入历史记录，并继续沿用现有逻辑：选中视频后自动尝试加载该视频对应的默认房间配置。编译已通过。
+```
+
+---
+
+## [046] 2026-03-27 00:08:00 - 将当前ROI接入MediaPipe手部链路
+
+**用户原文**：
+```text
+我们先把目前的ROI喂给MediaPipe
+ok
+```
+
+**助手原文**：
+```text
+已完成：现在手部链路会在 `roiCrop=true` 且 ROI 存在时，先按当前 ROI 裁剪 bitmap 再喂给 MediaPipe；返回的 landmarks 会逆映射回原图坐标，所以现有手点 overlay 和 pointing 仍然按原图坐标工作。
+
+如果 `roiCrop=false` 或当前没有 ROI，则仍保持整帧输入逻辑不变。编译已通过。
+```
+
+---
+
+## [047] 2026-03-27 00:12:00 - 确认当前手部绘制是否支持多手
+
+**用户原文**：
+```text
+同一时间我们只会绘制一只手吗？还是说两只手我们都会绘制？
+```
+
+**助手原文**：
+```text
+目前实际只会绘制一只手。原因是我们初始化 Hand Landmarker 时配置的是 `numHands=1`，所以模型结果层面最多只返回一只手。
+
+补充两点：
+1. overlay 的绘制代码本身支持 `List<List<HandPoint>>`，也就是结构上能画多只手。
+2. 但当前配置下，Hand Landmarker 最多给一只手，所以现在实际效果就是同一时间只会画一只手。
+
+另外，pointing 解析器当前也只取第 1 只手参与判定。以后如果要支持两只手，需要同时改：
+- `numHands`
+- 选哪只手参与 pointing 的策略
+- overlay 的显示策略
+```
+
+---
+

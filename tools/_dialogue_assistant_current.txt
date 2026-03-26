@@ -1,0 +1,10 @@
+目前实际只会绘制一只手。原因是我们初始化 Hand Landmarker 时配置的是 `numHands=1`，所以模型结果层面最多只返回一只手。
+
+补充两点：
+1. overlay 的绘制代码本身支持 `List<List<HandPoint>>`，也就是结构上能画多只手。
+2. 但当前配置下，Hand Landmarker 最多给一只手，所以现在实际效果就是同一时间只会画一只手。
+
+另外，pointing 解析器当前也只取第 1 只手参与判定。以后如果要支持两只手，需要同时改：
+- `numHands`
+- 选哪只手参与 pointing 的策略
+- overlay 的显示策略

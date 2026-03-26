@@ -1,26 +1,581 @@
 # Codex History
 
-## [221] 2026-03-04 05:30:00 - 房间切换暂停提示追加事件偏差（±ms）
+## [247] 2026-03-27 00:08:00 - 将当前ROI裁剪链路接入MediaPipe Hand Landmarker
 
 **用户指令**：
-> 切换房间的怎么没有显示+-ms  
+> 我们先把目前的ROI喂给MediaPipe。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让 Hand Landmarker 在 `roiCrop=true` 且 ROI 存在时使用当前 ROI 裁剪图输入，同时保持手点 overlay 和 pointing 继续使用原图坐标系。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/analyzer/HandSmokeTester.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、app/src/main/java/com/example/roomxxx0102/logic/pointing/HandLandmarkerPointingAdapter.kt、dialogueHistory.md、codexHistory.md
+    *   涉及方法：HandSmokeTester.detect/onLiveStreamResult/cropBitmapIfNeeded/mapToFullFrame、VideoFeeder.analyzeRunnable、HandLandmarkerPointingAdapter.toObservation
+    *   关键改动：
+      * `VideoFeeder` 调用手部检测时，改为把当前 `nextFrameRoi` 一并传给 `HandSmokeTester`。
+      * `HandSmokeTester` 在 ROI 存在时先裁剪子图送入 MediaPipe，再把返回的 landmark 坐标逆映射回原图归一化坐标。
+      * 手点 overlay 与 pointing observation 均改为消费逆映射后的原图坐标，因此现有显示和目标矩形无需额外改坐标系。
+      * `roiCrop=false` 或 ROI 为空时，继续保持整帧输入逻辑不变。
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [246] 2026-03-26 06:18:00 - 重构测试视频来源入口为折叠式文件加载与历史视频列表
+
+**用户指令**：
+> 把选择测试视频也重构一下，分为现在的从文件中加载，和显示历史加载过的视频；和刚才读取一样，也是展开和关闭；历史也可以删除（需确认）。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将设置页“选择测试视频”重构为折叠式入口，支持从文件加载与历史视频列表，并对历史视频提供查看、读取和确认删除。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/data/repository/AppSettings.kt、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/res/layout/fragment_settings_home.xml、dialogueHistory.md、codexHistory.md
+    *   涉及方法：AppSettings.getTestVideoHistory/pushTestVideoHistory/removeTestVideoHistory、SettingsHomeFragment.loadSelectedVideo/setVideoListExpanded/refreshVideoListContent/showVideoHistoryDetails/confirmLoadVideoHistory/confirmDeleteVideoHistory
+    *   关键改动：
+      * `AppSettings` 新增测试视频历史记录的持久化读写，按最近使用顺序去重保存。
+      * 设置页“选择测试视频”改为折叠式入口；展开后先显示“从文件中加载”按钮，再显示“历史加载过的视频”列表。
+      * 历史视频项支持“查看 / 读取 / 删除”，读取与删除都增加确认步骤。
+      * 通过文件选择器加载新视频后，会自动写入历史并继续复用原有“加载默认房间配置”流程。
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [245] 2026-03-26 06:05:00 - 修复按视频配置保存误判无变更并改为折叠式读取菜单
+
+**用户指令**：
+> 我这个视频的房间配置似乎保存过，也似乎没保存过；现在提示没有变更保存不了，先看看这个问题。读取的菜单应该是折叠的，展开后出现列表，然后可以查看和选择进行确认后读取。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复当前视频配置保存时对旧配置/跨作用域配置误判“没有变更”的问题，并把读取入口改成折叠展开的配置列表交互。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/data/repository/VideoRoomConfigManager.kt、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/res/layout/fragment_settings_home.xml、dialogueHistory.md、codexHistory.md
+    *   涉及方法：VideoRoomConfigManager.isCurrentVideoConfigFile、SettingsHomeFragment.loadDefaultConfigForSelectedVideo/saveCurrentConfigAs/setConfigListExpanded/refreshConfigListContent/showConfigFileDetails/confirmLoadConfigFile
+    *   关键改动：
+      * 新增 `VideoRoomConfigManager.isCurrentVideoConfigFile()`，用于判断当前激活配置文件是否属于当前视频目录。
+      * 保存按钮的“无变更”拦截仅对“当前视频作用域内的当前配置文件”生效，兼容旧版本配置首次迁移为当前视频新配置的场景。
+      * “读取当前视频配置”改为折叠式列表；展开后直接显示当前视频下的配置项。
+      * 每个配置项支持“查看”和“读取”两个动作；读取前会二次确认，避免误切换。
+      * 切换视频和保存成功后会自动刷新折叠列表内容。
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [244] 2026-03-26 05:41:00 - 修复 codexHistory 倒叙规则并整理头尾顺序
+
+**用户指令**：
+> Codex History 全乱了，你写到最后去了；我的顺序是倒叙，规则文件没写清楚的话去改下规则文件；头尾现在一堆错误，去改吧。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：明确 codexHistory.md 的维护规则，并把最近被写乱的头尾条目重新整理成倒叙顺序。
+    *   修改文件：AGENTS.md、codexHistory.md
+    *   涉及方法：codexHistory 条目重排、AGENTS 规则补充
+    *   关键改动：
+      * 在 `AGENTS.md` 中补充规则：`codexHistory.md` 必须按倒叙维护，新增条目插入到最前面的最新位置，禁止追加到文件末尾。
+      * 以条目块为单位重排 `codexHistory.md`，保持每条历史内容不变，仅按标题时间整理为最新在前。
+      * 将本次修复记录为最新条目，便于后续继续按倒叙维护。
+
+---
+
+## [242] 2026-03-26 01:18:00 - 新增Hand Landmarker关键点置信度5秒采样结论输出
+
+**用户指令**：
+> 请帮我做一个“最小改动但能直接产出结论”的 MediaPipe Hand Landmarker 置信度验证。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在不重构现有业务链路的前提下，复用现有手部按钮触发一次 5 秒 confidence probe，对核心点 5/6/8/9/10/12 的 `presence/visibility` 做实际采样、统计，并在 Logcat 直接输出可执行结论。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/analyzer/HandSmokeTester.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、dialogueHistory.md、codexHistory.md
+    *   涉及方法：HandSmokeTester.startConfidenceProbeSession/onLiveStreamResult/sampleConfidenceProbe/emitConfidenceSummary、MainActivity.setupButtons
+    *   关键改动：
+      * 在 `HandSmokeTester` 内新增 5 秒 probe session 与统计器，不改现有 `detect()` 主链路。
+      * 采样对象固定为第一只手，记录 `timestampMs()`、`handCount`、`handednesses()`、以及核心点 `5/6/8/9/10/12` 的 `presence()/visibility()` 是否存在与数值。
+      * 统计输出：`totalResultFrames`、`noHandFrames`、`validHandFrames`，以及每个核心点的覆盖率、均值、最小值、最大值，再输出 `corePointsPresenceCoverage/corePointsVisibilityCoverage`。
+      * 按规则自动生成结论 A/B/C，并统一用 `HandPointConfidenceSummary` 作为日志 tag 输出。
+      * 复用现有 `按住看手` 按钮：按下时启动一次 5 秒 probe，同时保留原有手点显示模式。
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [241] 2026-03-26 01:05:00 - 新增按住显示手点的Hand Overlay调试模式
+
+**用户指令**：
+> 这样,放一个按钮,按住时,不再显示现有的pose那套东西,只显示手的这套新点.同样用颜色代表置信度(如果有)
+> ok
+> 行,开始吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在不改动 YOLOPose 主逻辑的前提下，新增一个“按住只显示手点”的调试模式，用于直接验证 MediaPipe Hand Landmarker 的可视化效果。
+    *   修改文件：app/src/main/res/layout/activity_main.xml、app/src/main/java/com/example/roomxxx0102/logic/analyzer/HandSmokeTester.kt、app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、dialogueHistory.md、codexHistory.md
+    *   涉及方法：HandSmokeTester.onLiveStreamResult、DetectionOverlayView.updateHandData/setHandOnlyState/onDraw、MainActivity.setupButtons/refreshOverlayDisplay/applySettings
+    *   关键改动：
+      * 在底部常规控制栏新增按钮 `btnHandOverlay`，文案为“按住看手”。
+      * `HandSmokeTester` 新增 `HandPoint` 数据结构与 `onHandsResult` 回调；在手部结果回调里把全部 21 点坐标回传给 UI。
+      * `DetectionOverlayView` 新增 hand-only 模式与手点绘制逻辑：按住按钮时不再走现有 pose 绘制，仅绘制手部关键点。
+      * 手点颜色按置信度着色；当前 MediaPipe Hand Landmarker 未直接提供单点置信度时，回退为统一青色显示，满足“如果有则按置信度”的约束。
+      * `MainActivity` 用 `OnTouchListener` 实现“按住显示、松开恢复”，并在 `refreshOverlayDisplay/applySettings` 中统一同步 overlay 模式状态。
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [240] 2026-03-26 00:00:00 - 修复HandSmokeTester被VideoFeeder.stop提前关闭
+
+**用户指令**：
+> 从日志看只有 `HSMOKE|CALL_SITE|...` 没有 `HSMOKE|CALL|...`，要求重新判断根因并直接修复。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复 Hand 冒烟验证链路中 `HandSmokeTester` 被 `VideoFeeder.start()->stop()` 预清理链路提前关闭，导致 `detect()` 一进入就返回的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、dialogueHistory.md、codexHistory.md
+    *   涉及方法：VideoFeeder.stop、MainActivity.onDestroy
+    *   关键改动：
+      * 从 `VideoFeeder.stop()` 中移除 `handSmokeTester?.close()`，避免 `start()` 前置 `stop()` 时把手部检测器提前销毁。
+      * 将 `handSmokeTester?.close()` 保留到 `MainActivity.onDestroy()`，使其生命周期与页面真正销毁对齐。
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [239] 2026-03-26 00:00:00 - 补充HSMOKE分层日志用于Hand冒烟验证
+
+**用户指令**：
+> 认为当前只看到初始化日志，不清楚 `detect(bitmap)` 和回调是否真正跑通；要求用更合理的验证方式排查，并开始补日志。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：为 MediaPipe Hand 冒烟链路补齐“调用层/回调层”可观测日志，快速判断断点发生在何处。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/analyzer/HandSmokeTester.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、dialogueHistory.md、codexHistory.md
+    *   涉及方法：HandSmokeTester.detect/setupHandLandmarker/onLiveStreamResult/onLiveStreamError、VideoFeeder.analyzeRunnable
+    *   关键改动：
+      * 统一所有手部冒烟日志前缀为 `HSMOKE|...`，便于 logcat 单关键字检索。
+      * `VideoFeeder` 在取到 `textureView.bitmap` 后、调用 `handSmokeTester.detect(bitmap)` 前打印：
+        * `HSMOKE|CALL_SITE|bitmap=...`
+      * `HandSmokeTester.detect()` 入口打印：
+        * `HSMOKE|CALL|bitmap=...|ts=...`
+      * 初始化日志调整为：
+        * `HSMOKE|INIT|...`
+      * 结果日志调整为：
+        * `HSMOKE|RESULT|hands=...`
+        * `HSMOKE|RESULT|firstHandLandmarks=...`
+        * `HSMOKE|RESULT|indexVectorNorm=(...)`
+      * 异常日志调整为：
+        * `HSMOKE|ERROR|...`
+        * `HSMOKE|WARN|...`
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [240] 2026-03-26 00:00:00 - 接入触发式pointing解析器并直接显示门命中结果
+
+**用户指令**：
+> 基于现有 MediaPipe Hand Landmarker，实现一个触发式 pointing 解析器：按下现有“按住看手”按钮后启动 session，用门矩形列表代替设备列表，在 200ms~1000ms 内根据双指 pointing 轴和多帧证据判断指向目标，并把命中结果直接显示出来。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在不改 YOLOPose 主链路的前提下，新增纯业务层 pointing 解析器，并在按钮触发后直接给出门目标命中/未识别结果。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/pointing/TriggeredPointingResolver.kt、app/src/main/java/com/example/roomxxx0102/logic/pointing/HandLandmarkerPointingAdapter.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/HandSmokeTester.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、dialogueHistory.md、codexHistory.md
+    *   涉及方法：TriggeredPointingResolver.startSession/updateTargets/submitFrame/cancelSession、HandLandmarkerPointingAdapter.toObservation、HandSmokeTester.detect/onLiveStreamResult、MainActivity.buildPointingTargetRects/startTriggeredPointingSession/handleTriggeredPointingObservation/handleTriggeredPointingDecision
+    *   关键改动：
+      * 新增纯 Kotlin 核心类 `TriggeredPointingResolver`，实现双指 pointing 轴构造、frameQuality、每目标 frameScore、多帧证据累积、FAST/NORMAL/TIMEOUT 决策，以及未识别原因输出。
+      * 新增薄适配层 `HandLandmarkerPointingAdapter`，仅把 `HandLandmarkerResult` 第一只手转换成与目标矩形同坐标系的 `HandObservation`。
+      * `HandSmokeTester` 新增结果观测回调与 `timestamp -> bitmap尺寸` 对齐，确保 hand landmarks 能按像素坐标喂给 resolver；保留原有 `HSMOKE` 冒烟链路。
+      * `MainActivity` 复用现有“按住看手”按钮：按下时构建门矩形目标列表、启动 pointing session；每个 hand result 到来时提交给 resolver；识别成功后用现有横幅直接显示“命中：房间名(score)”，失败则显示“未识别(原因)”。
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [241] 2026-03-26 00:00:00 - 新增pointing调试overlay并接入设置开关
+
+**用户指令**：
+> 为现有 `TriggeredPointingResolver` 增加一个只用于调试的 pointing overlay，帮助可视化真正参与判定的数据；开关放到设置界面，要求显示 raw/smoothed 指向线、关键中点、winner/top2 矩形与 expandedRect、分数与接受路径，并在 session 结束后保留最后一帧约 1 秒。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在不重写 pointing 算法的前提下，把 resolver 当前真实判定数据可视化，并通过设置页开关控制显示。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/pointing/TriggeredPointingResolver.kt、app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、app/src/main/java/com/example/roomxxx0102/data/repository/AppSettings.kt、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/res/layout/fragment_settings_home.xml、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、dialogueHistory.md、codexHistory.md
+    *   涉及方法：TriggeredPointingResolver.startSession/submitFrame/finalizeRecognized/finalizeUnrecognized/latestDebugSnapshot、DetectionOverlayView.setPointingDebugOverlayEnabled/updatePointingDebugSnapshot/onDraw/drawPointingDebugOverlay、AppSettings.init/setPointingDebugOverlayEnabled、SettingsHomeFragment.onViewCreated、MainActivity.handleTriggeredPointingObservation/handleTriggeredPointingDecision/applySettings
+    *   关键改动：
+      * 在 `TriggeredPointingResolver` 新增 `PointingDebugSnapshot`、`PointingTargetDebugInfo`，直接复用 resolver 内部真实参与判定的 raw/smoothed 方向、关键中点、top target 分数、expandedRect、acceptPath、valid/noHand 计数等数据，不在 overlay 内重复算一套。
+      * `DetectionOverlayView` 增加 pointing debug 绘制层：支持画 raw/smoothed 延长线、tip/dip/pip/mcp/smoothedOrigin 点、所有 target rect、winner/top2 的 expandedRect，以及左上角调试文本；session 结束后按 `holdMs` 保留最后一帧约 1 秒。
+      * `AppSettings` 新增 `pointing_debug_overlay_enabled` 持久化开关；`SettingsHomeFragment` 在设置页接入 `显示 pointing 调试 overlay` 开关。
+      * `MainActivity` 在每次 `submitFrame` 后把 `pointingResolver.latestDebugSnapshot()` 推给 overlay；在 Recognized/Unrecognized 后以 `holdMs=1000` 保留最后一帧，`applySettings()` 同步设置页开关状态。
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [242] 2026-03-26 00:00:00 - 调整pointing overlay按住显示与未识别保留
+
+**用户指令**：
+> 只要按住就显示线,未识别后仍然显示
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让 pointing debug overlay 的显示时机与按钮按压态直接绑定，并在未识别后仍保留最后一帧线条直到松手。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、dialogueHistory.md、codexHistory.md
+    *   涉及方法：MainActivity.btnHandOverlay.onTouch、MainActivity.handleTriggeredPointingDecision、DetectionOverlayView.updatePointingDebugSnapshot/drawPointingDebugOverlay
+    *   关键改动：
+      * 按钮松手时立即 `updatePointingDebugSnapshot(null)`，统一由松手清空 overlay。
+      * Recognized/Unrecognized 后，如果按钮仍按住，则不再使用 `1000ms` 自动超时；只有未按住时才保留 1 秒。
+      * overlay 绘制条件从“仅 session active 才画线”调整为“只要当前快照里仍有 smoothed 指向数据就继续画”，因此未识别后的最后一帧也会保留显示。
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [243] 2026-03-26 00:00:00 - 重构按视频分组的房间配置保存与读取
+
+**用户指令**：
+> 房间视频和数据备份要重构：每个视频的第一个配置应与视频同名；只有切换视频时才切换房间配置，应用重启不按视频切；点击保存时要识别空房间/没改过，再弹文件名确认保存新配置文件；只有主动读取时，才列出当前视频下的多个配置。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：把原来的全局单文件房间配置，改成“按视频分目录、多配置文件”的管理方式，并重做设置页的保存/读取流程。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/data/repository/AppSettings.kt、app/src/main/java/com/example/roomxxx0102/data/repository/RoomRepository.kt、app/src/main/java/com/example/roomxxx0102/data/repository/VideoRoomConfigManager.kt、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/res/layout/fragment_settings_home.xml、dialogueHistory.md、codexHistory.md
+    *   涉及方法：AppSettings.init/setActiveRoomConfigPath、RoomRepository.init/switchToConfigFile/saveAsConfigFile/hasMeaningfulConfig/hasUnsavedChanges、VideoRoomConfigManager.currentVideoContext/defaultConfigFileForCurrentVideo/listConfigFilesForCurrentVideo/suggestNextConfigNameForCurrentVideo、SettingsHomeFragment.selectVideoLauncher/loadDefaultConfigForSelectedVideo/saveCurrentConfigAs/confirmOverwriteAndSave、MainActivity.onCreate/onResume
+    *   关键改动：
+      * 新增 `VideoRoomConfigManager`：按视频名创建 `filesDir/room_configs/<视频名>/` 目录，默认配置为 `<视频名>.Room`，额外配置按 `<视频名>_2.Room`、`<视频名>_3.Room` 递增。
+      * `RoomRepository` 从固定 `room_config.json` 改为支持切换当前配置文件；增加当前配置文件、是否为空房间、是否有未保存改动等判断；取消编辑过程中的自动持久化，改为显式保存。
+      * `AppSettings` 新增 `activeRoomConfigPath`，用于启动时恢复上一次真实加载的配置文件；应用重启不再根据当前视频自动切换配置。
+      * 设置页“选择测试视频”后会自动尝试加载该视频的同名默认配置；若不存在则加载临时空配置并提示“无房间配置文件”。
+      * 设置页“保存现有房间配置”先校验“空房间/无改动”，再弹文件名确认，保存到当前视频目录下的新配置文件；若重名则再次确认是否覆盖。
+      * 设置页“读取当前视频配置”不再走外部覆盖式恢复，而是列出当前视频下的多个配置文件（带序号）供用户选择加载。
+      * `MainActivity` 启动顺序改为先初始化 `AppSettings` 再初始化 `RoomRepository`，并在 `onResume()` 根据最新配置与视频源刷新显示。
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [236] 2026-03-25 00:00:00 - 切换为Codex App并同步注意事项状态
+
+**用户指令**：
+> 我们写个新日志,更换为codex app,同时告诉我你有没有读取之前的注意事项文件,以及有没有发出通知  
+> 后面不要再发通知了,开始吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：补记一次上下文切换日志，明确当前已切换为 Codex App，并确认注意事项读取与通知策略。
+    *   修改文件：dialogueHistory.md、codexHistory.md
+    *   涉及方法：tools/dialogue_archive.py append-turn
+    *   关键说明：
+      * 已读取并对齐注意事项文件：`AGENTS.md`、`dialogueHistory.md` 最新条目、`GeminiHistory.md`。
+      * 已记录此前确实发过 commentary 进度通知。
+      * 从本条之后，按用户要求，不再额外发送进度通知。
+
+---
+
+## [237] 2026-03-25 00:00:00 - 下载官方Hand Landmarker模型文件
+
+**用户指令**：
+> 新任务：仅将 Google 官方 MediaPipe Hand Landmarker 模型文件下载到 `app/src/main/assets/hand_landmarker.task`，不要改业务代码、Gradle、YOLOPose、相机或推理逻辑；若网络异常则只用官方地址排查。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将官方 `hand_landmarker.task` 模型文件落到项目 assets 目录，为后续接入做准备。
+    *   修改文件：app/src/main/assets/hand_landmarker.task、dialogueHistory.md、codexHistory.md
+    *   涉及方法：tools/dialogue_archive.py append-turn
+    *   关键处理：
+      * 先诊断当前 Codex 会话外网访问问题，确认 `curl.exe` / `Invoke-WebRequest` 因 Windows TLS/Schannel 凭据链路异常而失败。
+      * 进一步验证 Python `urllib` 可正常访问官方模型地址并返回 `200`。
+      * 使用 Python 直接从官方固定地址下载模型，自动创建 `app/src/main/assets/` 目录并完成落盘。
+      * 校验结果：`app/src/main/assets/hand_landmarker.task` 成功存在，文件大小 `7819105` 字节。
+
+---
+
+## [238] 2026-03-25 00:00:00 - 最小改动接入MediaPipe Hand冒烟验证
+
+**用户指令**：
+> 在现有 Android 项目里做一个“最小改动的 MediaPipe Hand Landmarker 冒烟验证”：新增 `tasks-vision` 依赖、新建独立 `HandSmokeTester.kt`、仅在已有 `Bitmap` 预览帧位置加一行 `handSmokeTester.detect(bitmap)`，不要改 YOLOPose 主逻辑，并告知 logcat 如何查看结果。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在不改 YOLOPose 主流程的前提下，验证官方 `hand_landmarker.task` 能否在现有视频帧链路中正常跑通。
+    *   修改文件：app/build.gradle.kts、app/src/main/java/com/example/roomxxx0102/logic/analyzer/HandSmokeTester.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、dialogueHistory.md、codexHistory.md
+    *   涉及方法：HandSmokeTester.detect/setupHandLandmarker/onLiveStreamResult、VideoFeeder.analyzeRunnable/stop、MainActivity.onCreate/onDestroy
+    *   关键改动：
+      * `app/build.gradle.kts` 增加 `implementation("com.google.mediapipe:tasks-vision:latest.release")`。
+      * 新建 `HandSmokeTester.kt`：使用 `HandLandmarker.createFromOptions(...)`、`LIVE_STREAM`、`numHands=1`、三个 confidence 都为 `0.5`；提供 `detect(bitmap: Bitmap)`；在结果回调打印：
+        * 手数量 `hands=...`
+        * 第一只手 landmark 数量 `firstHandLandmarks=...`
+        * 食指方向归一化向量 `indexVectorNorm=(x=..., y=..., z=...)`
+      * 在 `VideoFeeder` 的 `textureView.bitmap` 成功取得后，新增一行 `handSmokeTester?.detect(bitmap)`。
+      * 在 `MainActivity` 初始化 `HandSmokeTester` 并挂载给 `VideoFeeder`，销毁时随 `VideoFeeder.stop()` 一起释放。
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [235] 2026-03-06 03:20:00 - 1.6.2扩展ORIGIN_EXIT死锁解锁路径
+
+**用户指令**：
+> 按 1.6.2：把 ANOMALOUS_ORIGIN 从 INIT-only 扩展到 ORIGIN_EXIT 主路径；新增 `ORIGIN_EXIT_LEDGER_BLOCK` 和 `ORIGIN_EXIT_ANOMALOUS_COMMIT` 日志；其余 1.6.1 规则不变。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“fromCount==0 时 ORIGIN_EXIT 长期被 ledgerBlock 卡死”的问题，确保在出门主路径也可显式解锁账本。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、dialogueHistory.md、codexHistory.md
+    *   涉及方法：PresenceAlgorithmRegistry.allVersionIds/create、PresenceAlgorithmV1_1_0_B03021639.processFrame(ORIGIN_EXIT分支)
+    *   关键改动：
+      * 新增版本 `V1.6.2(B03060320)` 并纳入主线可选版本与分发。
+      * 将 `1.6.2` 绑定到 `enableDoorOriginExit/enableUnifiedLedgerV16/enableAnomalousLedger`。
+      * 在 ORIGIN_EXIT 被账本阻断时新增专用日志：
+        * `ORIGIN_EXIT_LEDGER_BLOCK`（打印 from/to/door、fromCount、originScore/second/margin、nearDoorAmbiguous、originBlockedReason）。
+      * 在 ORIGIN_EXIT 分支新增异常提交：
+        * 条件：`fromCount==0` + `score>=0.70` + `margin>=0.15` + 非歧义 + 去重未命中；
+        * 行为：提交 `ANOMALOUS_ORIGIN`，落账 `living+=1`、`from不扣`；
+        * 提交日志：`ORIGIN_EXIT_ANOMALOUS_COMMIT`（含 `reason=ORIGIN_EXIT_LEDGER_BOOTSTRAP` 与 `beforeCounts->afterCounts`）。
+      * 保持 1.6.1 既有规则不变：`events=[]` 回滚、INIT/identityReset 不落账、ANOMALOUS_SPAWN 严格触发与去重。
+
+---
+
+## [234] 2026-03-06 02:25:00 - 1.6.1异常事件解死锁与防刷账本
+
+**用户指令**：
+> 按最终方案实现 1.6.1：保持 `events=[]` 不改账本，补齐 `originWindow` 上限、`originBlockedReason`、异常事件严格触发与去重，直接编码。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在 1.6 主框架下解开“账本全零导致 ledgerBlock 卡死”，并避免异常路径刷账本。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/RoomTransitionEstimator.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：PresenceEventReason(enum)、PresenceAlgorithmRegistry.allVersionIds/create、PresenceAlgorithmV1_1_0_B03021639.processFrame、resolveDoorOriginToLiving、appendDoorOriginSample、resetStateAfterCommittedEvent、resetTrackIdentityState、isOriginInitWindowExpired、buildOriginBlockedReason
+    *   关键改动：
+      * 新增版本 `V1.6.1(B03060220)` 并注册为最新可选。
+      * 新增事件原因：`ANOMALOUS_ORIGIN`、`ANOMALOUS_SPAWN`（并预留 `LEDGER_BOOTSTRAP` 枚举）。
+      * `originWindow` 增加硬上限：`500ms / 12帧`，避免无限等待。
+      * `originBlockedReason` 明确化：`blockedByLowScore / blockedByMargin / nearDoorAmbiguous / blockedByLedger / NO_ORIGIN_DECISION`。
+      * `ANOMALOUS_ORIGIN` 严格触发：`fromCount==0` 且 `score>=0.70` 且 `margin>=0.15` 且非门歧义；落账策略 `living +1, from不扣`。
+      * `ANOMALOUS_SPAWN` 严格触发：`stable>=5帧` 且 `distToNearestDoor>=3*nearDoorDist` 且 origin 不可提交；落账 `room +1`。
+      * 去重改为空间+时间键：
+        * spawn：`(roomId, 500ms桶)` + `roomCooldown=1000ms`
+        * origin：`(fromRoom,doorId,500ms桶)`
+      * 保持硬约束：`events.isEmpty()` 且 counts 变化时回滚并打印 `ledgerGuardRevert=true reason=NO_EVENT_COUNT_DELTA`。
+
+---
+
+## [233] 2026-03-06 02:00:00 - 修复TFLite GPU并发崩溃并补充Wiki
+
+**用户指令**：
+> 刚刚启动几秒钟挂了一次但是重新启动后就没有挂了...  
+> 我需要你把这一次的错误写到wiki里面去...只有遇到这种问题的时候再打...然后修改，你就进行吧。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复 `pthread_mutex_lock called on a destroyed mutex`（TFLite GPU JNI 崩溃），并将故障特征与抓取方法写入 Wiki。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、wiki.md、codexHistory.md
+    *   涉及方法：VideoFeeder.analyzeRunnable.run、VideoFeeder.submitInferenceTask（新增）、VideoFeeder.stop
+    *   关键改动：
+      * 将“每100ms新建线程推理”改为“单线程串行推理执行器”。
+      * 增加 `inferenceInFlight` 防重入，上一帧未完成时直接跳过新任务，避免并发 `Interpreter.run()`。
+      * 日志收敛为异常触发：仅当连续回压达到阈值时输出 `inferenceBackpressure`，避免常态刷屏。
+      * Wiki 新增 `1.8 TFLite GPU 并发崩溃（destroyed mutex）`，包含现象、根因、修复策略与 logcat 命令。
+
+---
+
+## [232] 2026-03-06 01:20:00 - 1.6.0账本收口首版（INIT不落账+无事件变更回滚）
+
+**用户指令**：
+> 1.6 AI建议:目标...（统一提交与落账）  
+> 不需要搞什么回滚。如果有问题，我会用git来回滚,只要你没增加文件。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：按 1.6 思路先收口“存在账本只能由事件提交改动”，消除 `INIT/identity reset` 引发的隐形 `+1/-1`。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmRegistry.create、PresenceAlgorithmV1_1_0_B03021639.processFrame、formatPresenceDelta
+    *   关键改动：
+      * 新增版本 `V1.6.0(B03060120)`，加入主线可选版本与创建分发。
+      * `V1.6.0` 继承 `ENTER_BLIND_ONLY` 与 Door-Origin 出门能力（`enableDoorOriginExit=true`）。
+      * 新增开关 `enableUnifiedLedgerV16`，在 `V1.6.0` 生效：
+        * `INIT` 阶段改为 `INIT_BIND_ONLY`，仅绑定 track->room，不再直接 `addPresence(+1)`。
+        * `ORIGIN_INIT` 命中时改为 `ORIGIN_INIT_BIND_ONLY`，仅做来源解释与状态绑定，不直接落账。
+      * 增加“无事件人数变化保护”：
+        * 当 `events.isEmpty()` 且账本发生变化时，自动回滚到帧前账本，并输出  
+          `ledgerGuardRevert=true reason=NO_EVENT_COUNT_DELTA delta={...}`。
+      * 结果：保证 `events=[]` 不再导致账本变化，账本变更统一由显式提交事件驱动。 
+
+---
+
+## [231] 2026-03-06 00:55:00 - 播放往复回跳诊断日志增强与Wiki排查流程
+
+**用户指令**：
+> 好的，你着手处理吧，然后。只有等下一次，遇到了才能知道。怎么录log了,把它写到wiki里面去,带上这个bug本身简述.wiki项目:"播放往复回跳"
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：为“播放往复回跳（画面卡住来回跳、声音可能继续）”增加播放器链路诊断日志，并将抓取流程与判读口径写入 Wiki。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、wiki.md、codexHistory.md
+    *   涉及方法：MainActivity.onSeekBackwardRequested、onSeekForwardRequested、togglePause、logPlayerDiag；VideoFeeder.setupMediaPlayer(setOnSeekCompleteListener/setOnPreparedListener)、setStillMode、pause、resume、seekByMs、computeTemporalAdvanced、stop、logPlayerDiag
+    *   关键改动：
+      * `MainActivity` 增加 `RoomPlayerDiag` 上层日志：
+        * `togglePause` 记录前后 `playState`、`position`、`isPlaying`；
+        * `±1帧/±5s` seek 记录动作类型、seek前后位置、播放态、逐帧seek调试值。
+      * `VideoFeeder` 增加底层日志：
+        * seek请求参数（`delta/target/mode/captureAsStep`）；
+        * seek完成回调状态（`pos/isPlaying/pending`）；
+        * pause/resume/setStillMode 状态切换；
+        * `playLoopAnomaly`：播放中位置不前进或倒跳时输出 `delta/stallCount`。
+      * 新增 `wiki.md` 章节 `1.7 播放往复回跳（播放器卡死）排查`：
+        * bug现象简述；
+        * 必开开关；
+        * 仅播放器相关的 logcat 抓取命令；
+        * 关键字段与快速判读口径。
+
+---
+
+## [230] 2026-03-06 00:20:00 - 1.5.3 Door-Origin出门归因重构并下线1.5.2
+
+**用户指令**：
+> 1.这个是不是只管出门?管哪些出门? 2.1.5.2不需要保留.  
 > ok
 
 **实现方案 (Implementation)**：
 
 *   **变更摘要**
-    *   任务目的：为“检测到房间切换 … 已自动暂停/已停止+1帧长按”提示补充与标注事件的时间偏差（±ms）。
-    *   修改文件：
-      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
-      * codexHistory.md
-    *   涉及方法：
-      * MainActivity.runOnUiThread（检测结果处理分支）
-      * MainActivity.nearestRuntimeDeltaMs（复用）
-      * MainActivity.appendRuntimeEventsForValidation（调用时机前移）
+    *   任务目的：按 1.5.3 方案接入“Door-Origin / Door-Crossing”出门归因主链路，覆盖“出到客厅”场景；同时将 1.5.2 从可选版本下线（仅保留归档）。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/RoomTransitionEstimator.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceBaselineArchive.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
+    *   涉及方法：PresenceEventReason 枚举、PresenceAlgorithmRegistry 版本分发、PresenceAlgorithmV1_1_0_B03021639.processFrame、resetStateAfterCommittedEvent、resetTrackIdentityState、appendDoorOriginSample、resolveDoorOriginToLiving、computeDoorOriginNormalTowardRoom
     *   关键改动：
-      * 在切换提示文案中追加 `偏差=+/-xxxms`（无可比事件时显示 `偏差=无可比事件`）。
-      * 复用现有事件类型映射与最近偏差计算，不改变智能匹配暂停逻辑。
-      * `RoomPauseSwitch` 日志补充 `switchType` 与 `offset` 字段，便于复盘。
+      * 新增版本 `V1.5.3(B03052330)`，并从 `allVersionIds` 中移除 `1.5.2`，`1.5.2` 仅保留在归档列表。
+      * 新增事件原因 `ORIGIN_SWITCH`，用于区分门源归因触发的“出到客厅”。
+      * 在主流程中新增 Door-Origin 窗口：
+        * 每帧追加地面点样本 `doorOriginSamples`；
+        * 对连接客厅的候选门计算：门口接近积分 `P` + 跨门槛方向性 `C`；
+        * 评分 `Score = 0.7*C + 0.3*P`，并执行低分/小优势/账本阻断三重门控。
+      * 接入两条提交路径：
+        * `INIT` 阶段：CONFIRMED 且落在客厅时，优先回溯门源（支持次卧/入户等来源）；
+        * 常规阶段：当前在非客厅且当前帧进入客厅时，优先走 `ORIGIN_SWITCH` 提交。
+      * 新增 `INIT_WAIT_ORIGIN`（最多 8 帧）以避免 lock 帧“探头未出门”就误提交。
+      * 事件级重置与身份重置均清理 Door-Origin 缓存，避免跨人串证据。
+
+---
+
+## [229] 2026-03-05 23:45:00 - 移除播放记录功能并回归logcat抓取
+
+**用户指令**：
+> 看来不需要了,这次根本没出发出门事件.删掉那个记录播放功能吧,我们还是用logcat来做抓你要的东西.告诉我怎么抓就行  
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：移除“开始记录播放/停止记录播放”功能，避免与进出门排查混用，统一回归 `logcat` 抓取诊断。
+    *   修改文件：app/src/main/res/layout/activity_main.xml、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：setupButtons、onCreate（pose 回调 runOnUiThread）、pauseForSmartMatchAnomaly、onSeekBackwardRequested、onSeekForwardRequested、refreshDebugPanelButton、togglePause、hardRestartPlayback
+    *   关键改动：
+      * 删除布局按钮 `btnPlayTrace`。
+      * 删除 `MainActivity` 中播放记录相关字段与方法：
+        * `isPlayTraceRecording/playTrace*`
+        * `appendPlayTrace/buildPlayTraceReport/togglePlayTraceRecording/refreshPlayTraceButton/maybeAppendPlayTraceHeartbeat`
+      * 移除所有播放记录写入调用（心跳、切换事件、扣减兜底、seek、暂停、硬重启、智能匹配暂停）。
+      * 收口此前为记录功能新增的 `source` 参数，恢复 `togglePause/onSeekForwardRequested/onSeekBackwardRequested` 的简洁签名与调用。
+
+---
+
+## [228] 2026-03-05 23:10:00 - 新增播放链路录制按钮并停止即复制
+
+**用户指令**：
+> 我觉得这个不是因为它引起的，你先去掉这个东西.在调试面板里面加个按钮(开始记录播放,点击后变成停止记录播放).然后你想一下需要哪些信息放到这里面来，我把它记录好之后如果下次遇到了再发给你。  
+> 停止后就直接复制,不需要长按.开始吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：移除播放按键防抖，并在调试面板场景新增“播放链路录制”按钮，支持一键开始/停止，停止即自动复制完整诊断文本。
+    *   修改文件：app/src/main/res/layout/activity_main.xml、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：setupButtons、togglePause、appendPlayTrace、buildPlayTraceReport、togglePlayTraceRecording、refreshPlayTraceButton、maybeAppendPlayTraceHeartbeat、onSeekBackwardRequested、onSeekForwardRequested、hardRestartPlayback、onCreate(视频帧回调内runOnUiThread)
+    *   关键改动：
+      * 新增按钮 `btnPlayTrace`（开始记录播放/停止记录播放），仅在调试面板开启时显示。
+      * `togglePlayTraceRecording` 在“停止记录”时直接复制报告到剪贴板，不再依赖长按。
+      * 移除 `togglePause` 中的连点防抖逻辑，保留状态切换并追加操作来源日志。
+      * 录制内容增强：
+        * 手动/自动暂停来源（`manual_toggle`、`auto_pause_switch_event`、`auto_pause_count_delta`、`smart_match_pause`）。
+        * seek 来源（点击/长按）。
+        * 房间切换与扣减兜底判定摘要（`switch_event`、`count_delta_fallback`）。
+        * 低频播放心跳（`heartbeat`：`mpPlaying/posDelta/frameDelta`），用于定位“声音在走但画面不动”。
+      * 报告结构包含 `trace + presenceRecent + recentFrames`，便于一次复制后直接复盘。
+
+---
+
+## [227] 2026-03-05 22:35:00 - 1.5.2：移除identity扣减并补充异常最近帧logcat
+
+**用户指令**：
+> 那我们要做两件事，第一件事就是把扣减先关掉。然后就是确定一下为什么出门1.5的逻辑没有生效。  
+> 不需要这么搞。你先清除掉不该有的逻辑然后把版本号记为一点5.2。然后。在log cat里面去记录最近帧的情况，我会手动复制给你。看一下为什么没有触发？
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：去除 1.5.1 中不应存在的 identity reset 直接扣减；升级为 1.5.2；在 logcat 增加可复制的最近帧诊断输出，便于排查“为何未触发出门逻辑”。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceBaselineArchive.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.processFrame（identityReset分支）、PresenceAlgorithmRegistry.create/resolve/buildOptions、MainActivity.onCreate（pose回调）、MainActivity.logPresenceAnomalyDiagnostics、MainActivity.hardRestartPlayback
+    *   关键改动：
+      * **移除 identity reset 直接扣减**：删除 `identityResetApplied` 分支中的 `addPresence(beforeRoomId, -1)`，仅保留状态重置与诊断文本。
+      * **版本升级到 1.5.2**：
+        * 新增 `VERSION_V1_5_2_B03052250`
+        * 加入 `allVersionIds`（成为最新）
+        * `create` 主线映射支持 `1.5.2`
+        * `PresenceBaselineArchive.ACTIVE_VERSION_ID` 指向 `1.5.2`
+      * **1.5.2 策略对齐**：`blindPendingPolicy` 中 `1.5.2` 与 `1.5.1` 一致，采用 `ENTER_BLIND_ONLY`。
+      * **增加 logcat 最近帧诊断**（仅 `pauseSwitchLog=true` 时）：
+        * 当出现 `identityResetApplied/pendingDisabled/pendingDropped/ledgerBlockApplied` 异常原因，输出 `presenceAnomaly` 汇总行；
+        * 同步输出 `presenceRecent` 与 `recentFrame` 列表，方便人工复制。
+      * **重播重置清理**：`hardRestartPlayback` 增加异常日志去重状态清空，避免新回合诊断被抑制。
+
+---
+
+## [226] 2026-03-05 22:05:00 - 增加“无事件扣减”暂停兜底与原因归因日志
+
+**用户指令**：
+> 有扣减,但是没有暂停  
+> 可以，没问题。嗯。但是这样的日志够吗？你知道这是因为什么原因扣减，这样打的话。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“presenceCounts 发生扣减但无 events，导致未触发切换暂停”的遗漏，并补齐可归因日志。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：MainActivity.onCreate（poseAnalyzer 回调内 runOnUiThread）、extractNegativeCountDelta、formatNegativeCountDelta、resolveCountDeltaLikelyCause、hardRestartPlayback
+    *   关键改动：
+      * 新增“计数扣减兜底暂停”：
+        * 条件：`presenceResult.events` 为空，且相对上一帧存在负向人数差分；
+        * 触发：在 `pauseOnSwitch=true` 且 `playStateBefore!=PAUSED` 下执行自动暂停。
+      * 新增归因解析：
+        * 从 `rejectedReasons` 中优先提取 `identityResetApplied` 的 `resetReason/track/gap/jump`；
+        * 次级识别 `pendingDropped/pendingDisabled` 与 `ledgerBlockApplied`。
+      * 统一写入 `RoomPauseSwitch` 日志：
+        * `switch=COUNT_DELTA_FALLBACK`、`deltaMap`、`likelyCause`、`playStateBefore/After`、`shouldAutoPause/didAutoPause`。
+      * 在 `hardRestartPlayback` 中清空 `lastPresenceCountsForPause`，避免重启后误判差分。
+
+---
+
+## [224] 2026-03-05 21:45:00 - 切换事件统一纳入暂停触发（含扣减类切换）
+
+**用户指令**：
+> 这样你先把这个做成一个暂停事件也就是说切换的时候它会暂停。因为他出门扣减肯定也算是一次暂停对吧？所以说怎么你想想把它做进我们之前的暂停切换房间逻辑里面去。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将扣减类切换事件（如盲区 `PENDING_CONFIRMED`）纳入统一“切换自动暂停”流程，避免仅在 `PLAYING` 时才触发导致的漏停。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：MainActivity 中 poseAnalyzer 回调的切换暂停判定段
+    *   关键改动：
+      * `shouldAutoPause` 从 `playStateBefore == PlayState.PLAYING` 调整为 `playStateBefore != PlayState.PAUSED`。
+      * 保持原有 `RoomPauseSwitch` 日志链路不变，仍输出 `shouldAutoPause/didAutoPause/playStateBefore/playStateAfter/reason` 等字段，便于验证扣减切换是否进入暂停流程。
 
 ---
 
@@ -131,6 +686,58 @@
 
 ---
 
+## [223] 2026-03-04 15:35:00 - 修复播放连点导致画面来回震动
+
+**用户指令**：
+> 有时多点了几次播放,视频就来回震动,没法继续播放.但是声音还在走
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复播放键快速连点时出现“画面反复跳动但音频继续”的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、codexHistory.md
+    *   涉及方法：MainActivity.togglePause、VideoFeeder.clearStepSeekTransientState
+    *   关键改动：
+      * `MainActivity.togglePause` 新增 280ms 防抖（`SystemClock.elapsedRealtime()`），防止一次连点触发多次状态连跳。
+      * 状态切换前统一 `stopSeekHold()`，避免长按逐帧 seek 任务在状态切换后继续干扰。
+      * 切回 `PLAYING` 时调用 `videoFeeder.clearStepSeekTransientState()`，清空逐帧步进与 +10ms 补偿残留。
+      * `VideoFeeder` 新增 `clearStepSeekTransientState()`：重置 `pendingForwardNudge/pendingSeekState/lastStepSeekDebug`，避免历史 seek 残留继续拉扯画面。
+
+---
+
+## [222] 2026-03-04 15:20:00 - 增加身份断裂重置与账本守恒拦截
+
+**用户指令**：
+> gpt的回复,注意看下注意事项,然后开始吧...  
+> 1) Identity reset（处理 trackId 复用串人）  
+> 2) Event-level reset（处理“刚切完又反向”残留）  
+> 3) 账本守恒硬保护（先上硬拦 + 日志）
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复 trackId 复用导致“串人反向切换”与提交后缓存残留导致“刚切完又反向”的问题，并增加账本守恒硬保护。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
+    *   涉及方法：processFrame、evaluateVisibleEnterByScore、applyTransition、resetStateAfterCommittedEvent、resetTrackIdentityState、buildIdentityResetReason
+    *   关键改动：
+      * 新增 **Identity reset**：
+        * 触发条件：`gapFrames >= 18` 或 `jumpDist >= 0.25`（支持 `GAP/JUMP/GAP+JUMP` 诊断）。
+        * 触发后：清空该 track 的 room/evidence/candidate/stableDoor/groundHistory/lastScored/lastSwitch/hold 等状态，并移除 pending。
+        * 同时对旧 `currentRoom` 做一次 `-1`，再按首帧重定位流程重新初始化，避免串人继承旧账本。
+      * 新增 **Event-level reset**：
+        * 每次 `applyTransition` 成功后执行，清空证据与跨帧缓存（候选、evidence、hold、groundHistory、stableDoor、lastScored），保留 `lastSwitch` 供 anti-bounce 使用。
+      * 新增 **账本守恒硬保护**：
+        * 对非 `outside` 相关转移，若 `presenceCounts[fromRoom] == 0`，直接阻断该次转移。
+        * 输出日志：`ledgerBlockApplied=true blockReason=FROM_COUNT_ZERO fromCount=...`，并附带候选/ss/e 上下文。
+      * 提交链路接入：
+        * `VISIBLE_SWITCH` / `VISIBLE_POLYGON_SYNC` / `PENDING_CONFIRMED` 三条转移路径都改为先检查 `applyTransition` 返回值，再决定是否写入 `lastSwitch` 和更新 `currentRoom`。
+      * 调试字段补齐：
+        * `identityResetApplied/resetReason/gapFrames/jumpDist/roomNowBefore/roomNowAfter`
+        * `eventResetApplied=true lastSwitchKept=true`
+        * `ledgerBlockApplied/blockReason/fromCount`
+
+---
+
 ## [202] 2026-03-04 15:08:00 - 修复 V1.3.4 编译错误（min 导入缺失）
 
 **用户指令**：
@@ -201,6 +808,30 @@
       * ENTER_VISIBLE 确认帧改为独立常量 `ENTER_VISIBLE_CONFIRM_FRAMES=2`（不改 `eth/beta`）。
       * EXIT_TO_LIVING 与盲区门 stable/pending 分支保持不变。
       * 调试日志新增并压缩输出：`pacE/ins/itr/pbs/crs/ess/sRef/vRef/rRef`，并同步 schema。
+
+---
+
+## [221] 2026-03-04 05:30:00 - 房间切换暂停提示追加事件偏差（±ms）
+
+**用户指令**：
+> 切换房间的怎么没有显示+-ms  
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：为“检测到房间切换 … 已自动暂停/已停止+1帧长按”提示补充与标注事件的时间偏差（±ms）。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * codexHistory.md
+    *   涉及方法：
+      * MainActivity.runOnUiThread（检测结果处理分支）
+      * MainActivity.nearestRuntimeDeltaMs（复用）
+      * MainActivity.appendRuntimeEventsForValidation（调用时机前移）
+    *   关键改动：
+      * 在切换提示文案中追加 `偏差=+/-xxxms`（无可比事件时显示 `偏差=无可比事件`）。
+      * 复用现有事件类型映射与最近偏差计算，不改变智能匹配暂停逻辑。
+      * `RoomPauseSwitch` 日志补充 `switchType` 与 `offset` 字段，便于复盘。
 
 ---
 
@@ -314,6 +945,24 @@
 
 ---
 
+## [201] 2026-03-04 04:45:00 - 修复PresenceAlgorithmRegistry默认参数签名崩溃
+
+**用户指令**：
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复 `NoSuchMethodError: PresenceAlgorithmRegistry.create$default / PresenceEstimatorParams.<init>` 启动崩溃。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：MainActivity.ensurePresenceAlgorithmVersion
+    *   关键改动：
+      * 将 `PresenceAlgorithmRegistry.create(selectedId)` 改为显式调用
+        `PresenceAlgorithmRegistry.create(selectedId, PresenceEstimatorParams())`，
+        避免运行时走 Kotlin 合成默认参数方法 `create$default`，从而规避参数签名漂移导致的崩溃。
+
+---
+
 ## [216] 2026-03-04 04:38:00 - 增加EventValidation链路诊断日志并支持长按匹配信息区复制
 
 **用户指令**：
@@ -346,24 +995,6 @@
       * 匹配信息条支持长按识别（命中条幅区域），长按后静默复制“智能匹配诊断快照”。
       * 本次编译通过后已执行提示音命令（`[console]::beep(...)`）。
       * 编译校验通过：`:app:compileDebugKotlin` 成功。
-
----
-
-## [201] 2026-03-04 04:45:00 - 修复PresenceAlgorithmRegistry默认参数签名崩溃
-
-**用户指令**：
-> ok
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：修复 `NoSuchMethodError: PresenceAlgorithmRegistry.create$default / PresenceEstimatorParams.<init>` 启动崩溃。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
-    *   涉及方法：MainActivity.ensurePresenceAlgorithmVersion
-    *   关键改动：
-      * 将 `PresenceAlgorithmRegistry.create(selectedId)` 改为显式调用
-        `PresenceAlgorithmRegistry.create(selectedId, PresenceEstimatorParams())`，
-        避免运行时走 Kotlin 合成默认参数方法 `create$default`，从而规避参数签名漂移导致的崩溃。
 
 ---
 
@@ -617,24 +1248,36 @@
 
 ---
 
-## [205] 2026-03-03 20:25:00 - 事件类型命名中文化（进子房间/出子房间）与切换暂停提示联动
+## [207] 2026-03-04 01:59:00 - 修复PoseResult签名崩溃并改为侧路分数渲染
 
 **用户指令**：
-> 重新命名：之前的出门改“出子房间”，进门改“进子房间”；提示不要英文。  
-> “切换房间后暂停播放”的提示也要带上新的类型提示。
+> 运行后一秒就崩溃（NoSuchMethodError，PoseResult 构造）。  
+> 分数显示仍要保留，并且是一行长字符串拼接，不要重叠。
 
 **实现方案 (Implementation)**：
 
 *   **变更摘要**
-    *   任务目的：统一事件类型对外文案，去除 ENTER/EXIT 英文暴露，并在自动暂停提示中带上中文类型。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/res/layout/activity_main.xml、codexHistory.md
-    *   涉及方法：MainActivity.eventTypeLabel、MainActivity.refreshEventMarkerControls、MainActivity.addMarkedEvent、MainActivity.confirmDeleteCurrentMarkedEvents、MainActivity.maybeRunSmartMatchValidation、MainActivity.handleRuntimeEventMatching、MainActivity pose 回调切换暂停提示分支
+    *   任务目的：消除 `PoseResult` 构造签名变更引发的运行时崩溃，同时保留“ID左侧切换分”显示。
+    *   修改文件：
+      * app/src/main/java/com/example/roomxxx0102/data/model/PoseData.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/drawers/PoseDrawer.kt
+      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
+      * codexHistory.md
+      * dialogueHistory.md
+    *   涉及方法：
+      * PoseResult 数据结构
+      * DetectionOverlayView.updatePoseData / onDraw
+      * PoseDrawer.draw
+      * MainActivity poseAnalyzer 回调（Presence分数映射到UI）
     *   关键改动：
-      * 新增 `eventTypeLabel`：`ENTER -> 进子房间`，`EXIT -> 出子房间`。
-      * 智能匹配提示文案全部替换为中文类型（无匹配/已匹配/异常重复匹配）。
-      * 标注新增成功提示与删除按钮动态文案替换为中文类型。
-      * 自动暂停提示从“检测到房间切换，已自动暂停”改为“检测到房间切换(进子房间/出子房间)，已自动暂停”。
-      * 工具栏按钮文案改为“记录进子房间事件 / 记录出子房间事件”。
+      * 回退 `PoseResult` 扩展字段，恢复原始构造签名，修复 `NoSuchMethodError`。
+      * 改为侧路传参：`updatePoseData(..., switchHints)` 传 `trackId -> (score, EventType)`。
+      * `PoseDrawer` 同一基线分段绘制：
+        * 左段：切换分（按事件类型着色）
+        * 右段：`ID:xx 置信度 Lock`
+        * 视觉上是一行长字符串，不重叠。
+      * 编译校验通过：`:app:compileDebugKotlin` 成功。
 
 ---
 
@@ -674,39 +1317,6 @@
 
 ---
 
-## [207] 2026-03-04 01:59:00 - 修复PoseResult签名崩溃并改为侧路分数渲染
-
-**用户指令**：
-> 运行后一秒就崩溃（NoSuchMethodError，PoseResult 构造）。  
-> 分数显示仍要保留，并且是一行长字符串拼接，不要重叠。
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：消除 `PoseResult` 构造签名变更引发的运行时崩溃，同时保留“ID左侧切换分”显示。
-    *   修改文件：
-      * app/src/main/java/com/example/roomxxx0102/data/model/PoseData.kt
-      * app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt
-      * app/src/main/java/com/example/roomxxx0102/ui/drawers/PoseDrawer.kt
-      * app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt
-      * codexHistory.md
-      * dialogueHistory.md
-    *   涉及方法：
-      * PoseResult 数据结构
-      * DetectionOverlayView.updatePoseData / onDraw
-      * PoseDrawer.draw
-      * MainActivity poseAnalyzer 回调（Presence分数映射到UI）
-    *   关键改动：
-      * 回退 `PoseResult` 扩展字段，恢复原始构造签名，修复 `NoSuchMethodError`。
-      * 改为侧路传参：`updatePoseData(..., switchHints)` 传 `trackId -> (score, EventType)`。
-      * `PoseDrawer` 同一基线分段绘制：
-        * 左段：切换分（按事件类型着色）
-        * 右段：`ID:xx 置信度 Lock`
-        * 视觉上是一行长字符串，不重叠。
-      * 编译校验通过：`:app:compileDebugKotlin` 成功。
-
----
-
 ## [200] 2026-03-03 20:45:00 - 移除旧房间切换提示，仅保留智能匹配提示
 
 **用户指令**：
@@ -724,6 +1334,27 @@
       * 删除旧分支 `if (presenceSwitchBanner != null && !AppSettings.isSmartMatchPauseEnabled) { ... }`。
       * 保留并继续使用智能匹配提示、异常提示、以及“切换后自动暂停”提示。
       * 编译校验通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [205] 2026-03-03 20:25:00 - 事件类型命名中文化（进子房间/出子房间）与切换暂停提示联动
+
+**用户指令**：
+> 重新命名：之前的出门改“出子房间”，进门改“进子房间”；提示不要英文。  
+> “切换房间后暂停播放”的提示也要带上新的类型提示。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：统一事件类型对外文案，去除 ENTER/EXIT 英文暴露，并在自动暂停提示中带上中文类型。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/res/layout/activity_main.xml、codexHistory.md
+    *   涉及方法：MainActivity.eventTypeLabel、MainActivity.refreshEventMarkerControls、MainActivity.addMarkedEvent、MainActivity.confirmDeleteCurrentMarkedEvents、MainActivity.maybeRunSmartMatchValidation、MainActivity.handleRuntimeEventMatching、MainActivity pose 回调切换暂停提示分支
+    *   关键改动：
+      * 新增 `eventTypeLabel`：`ENTER -> 进子房间`，`EXIT -> 出子房间`。
+      * 智能匹配提示文案全部替换为中文类型（无匹配/已匹配/异常重复匹配）。
+      * 标注新增成功提示与删除按钮动态文案替换为中文类型。
+      * 自动暂停提示从“检测到房间切换，已自动暂停”改为“检测到房间切换(进子房间/出子房间)，已自动暂停”。
+      * 工具栏按钮文案改为“记录进子房间事件 / 记录出子房间事件”。
 
 ---
 
@@ -848,6 +1479,26 @@
 
 ---
 
+## [199] 2026-03-03 18:05:00 - 事件标记按视频名持久化
+
+**用户指令**：
+> 对于。 每一个节点的设置你都要给我做持久化呀。而且这个持久化的文件应该和。 视频名称的文件一致。 也就是说每一个视频都可以对应一个持久化的。 事件标记系统。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将事件标记从内存态升级为“按视频独立持久化”，避免切换视频或重启后丢失。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/validation/EventMarkerManager.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：EventMarkerManager.init、bindVideo、addEvent、removeEventsNearFrame、clearBoundVideoEvents、loadEventsForVideo、saveEventsForVideo、resolveVideoBaseName、MainActivity.onCreate
+    *   关键改动：
+      * `EventMarkerManager` 新增 `init(context)`，在 `filesDir/event_markers/` 目录管理事件文件。
+      * `bindVideo(videoKey)` 时按 `videoKey` 自动加载对应事件文件；未命中则创建空列表。
+      * `addEvent/removeEventsNearFrame/clearBoundVideoEvents` 自动触发保存/删除文件。
+      * 文件命名以视频名为基础：`<videoName>.events.json`；无法提取视频名时回退到稳定哈希名。
+      * `MainActivity.onCreate` 增加 `eventMarkerManager.init(applicationContext)`，确保持久化能力生效。
+
+---
+
 ## [198] 2026-03-03 09:20:00 - 智能校验阶段1：事件列表管理与顶部刻度UI
 
 **用户指令**：
@@ -955,34 +1606,6 @@
 
 ---
 
-## [194] 2026-03-03 05:32:00 - V1.3 入户回弹修复：进入可视房间增加门证据门槛
-
-**用户指令**：
-> 1.3 里离开入户门判断没问题，问题是第二次又进了入户；要么分数有问题，要么阈值有问题。
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：修复“入户->客厅刚成立后，下一帧又被客厅->入户回弹”的误触发，且不影响 `V1.2.3`。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/RoomTransitionEstimator.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
-    *   涉及方法：PresenceEstimatorParams、PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmRegistry.create、MainActivity.toReadablePresenceDecision、MainActivity.buildPresenceShortKeyLegend
-    *   关键改动：
-      * 新增参数：
-        * `enterVisibleRequireDoorEvidence`
-        * `enterVisibleDoorAssistMin`
-      * `DOOR:ENTER_VISIBLE` 新增通过条件：
-        * `enterVisibleDoorEvidencePass = !requireDoorEvidence || enterMotionPass || doorAssistScore >= enterVisibleDoorAssistMin`
-      * `V1.3.0(B03030116)` 显式启用：
-        * `enterVisibleRequireDoorEvidence=true`
-        * `enterVisibleDoorAssistMin=0.10`
-      * `V1.2.3(B03030020)` 显式关闭该门槛，保持不受影响。
-      * 省流日志 `x[]` 新增短键：
-        * `evdeR`（enterVisibleRequireDoorEvidence）
-        * `evdeP`（enterVisibleDoorEvidencePass）
-        * `evdaM`（enterVisibleDoorAssistMin）
-
----
-
 ## [189] 2026-03-03 07:45:00 - 新增“切换时暂停判定日志”开关并输出每次切换判定结果
 
 **用户指令**：
@@ -1031,6 +1654,173 @@
       * 新增“短窗+长窗”推进估计：`LONG` 可用时用长窗，否则在 EXIT 场景标记 `FALLBACK` 并回退短窗；
       * 新增日志字段：`doorProximityScoreEff`、`motionWindowUsed`、`doorAdvanceDeltaShort`、`doorAdvanceDeltaLong`、`exitDpsHoldApplied`；
       * 同步短键与 schema：`dpe/dadS/dadL/mwu/xvdh`。
+
+---
+
+## [187] 2026-03-03 06:28:00 - 仅对ENTER_VISIBLE改为“PoseGate只作用姿态项”
+
+**用户指令**：
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“门口证据足够但被 PoseGate 全量压分导致不过线”的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore
+    *   关键改动：
+      * 在 `useSwitchScoreIntegrator=true` 且 `DOOR:ENTER_VISIBLE` 场景下，
+        将公式从
+        `pg * (a*ngp*pts + (1-a)*das)`
+        改为
+        `a*pg*ngp*pts + (1-a)*das`。
+      * 其余场景（如 EXIT_TO_LIVING）保持原有积分公式不变。
+
+---
+
+## [186] 2026-03-03 06:18:00 - 切换为单主线运行并增加baseline参数指纹
+
+**用户指令**：
+> 老版本做一份存档，不要再做分支管理；并且要能看到当前到底跑的是什么。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：避免多版本分支继续引入参数错配；将运行策略收敛为“单主线 + 存档追溯”，并在日志中明确输出实际生效参数指纹。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmEngine.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceBaselineArchive.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmEngine.runtimeTag、PresenceAlgorithmRegistry.create、PresenceAlgorithmRegistry.resolveVersionId、PresenceAlgorithmRegistry.paramsHash、MainActivity 中 Presence 日志输出点
+    *   关键改动：
+      * 运行入口只保留 `V1.3.1(B03030340)` 作为可选版本（`AUTO` 也解析到该版本）。
+      * 历史版本不再作为运行分支，转为归档清单（`PresenceBaselineArchive`）。
+      * 在 `V1.3.1` 运行时固定使用主线 baseline 参数，并生成运行标签：
+        * `versionId|b=baselineId|h=paramsHash`
+      * 主界面和调试面板中的 `presenceAlgo`、切换日志都改为输出 `runtimeTag`，可直接核对“当前真实生效参数”。
+      * 同时修正 `V1.3.1` 主线参数中的 `grayPoseMinConfidenceForSwitch=0.45`（避免再次落错分支）。
+
+---
+
+## [184] 2026-03-03 06:00:00 - 修复V1.3.1阈值改动误落分支
+
+**用户指令**：
+> 还是不行
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复前次参数调整未实际作用于 `V1.3.1` 的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmRegistry.create（`VERSION_V1_3_1_B03030340` 参数块）
+    *   关键改动：
+      * 将 `V1.3.1` 的 `grayPoseMinConfidenceForSwitch` 明确改为 `0.45`（此前误改到其他版本分支）。
+
+---
+
+## [183] 2026-03-03 05:50:00 - V1.3.1姿态门控阈值下调
+
+**用户指令**：
+> 好,就该这个
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：确认“进厨房不过”主因后，仅放宽姿态门控阈值，避免 `PoseGate` 过度压分。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmRegistry.create（V1.3.1 参数画像）
+    *   关键改动：
+      * `grayPoseMinConfidenceForSwitch: 0.55 -> 0.45`（仅 `V1.3.1(B03030340)`）
+      * 其余积分公式、阈值和日志字段均保持不变。
+
+---
+
+## [182] 2026-03-03 05:42:00 - EXIT_TO_LIVING场景取消近门门控压分
+
+**用户指令**：
+> 第一个入户到客厅就没pass  
+> 还是不行
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“可视房间/入户 -> 客厅”在门线附近抖动时被 `nearGateForPose` 压分导致积分过不了阈值的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore
+    *   关键改动：
+      * 在 `V1.3.1` 单分数模式下，`isVisibleExitToLiving=true` 时将 `nearGateForPose` 固定为 `1.0`；
+      * 其余场景（尤其客厅->可视子房间）仍保留 `nearGateForPose` 约束，避免远处误入。
+
+---
+
+## [181] 2026-03-03 05:33:00 - V1.3.1首段入户触发阈值微调
+
+**用户指令**：
+> 第一个入户到客厅就没pass  
+> ok（同意先调参数）
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在不改公式结构的前提下，提升“入户->客厅”首段触发通过率。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmRegistry.create（V1.3.1 参数画像）
+    *   关键改动：
+      * `poseNearGateDps0: 0.20 -> 0.12`
+      * `switchEvidenceThreshold: 0.62 -> 0.56`
+      * 仅作用于 `V1.3.1(B03030340)`，其余版本不变。
+
+---
+
+## [194] 2026-03-03 05:32:00 - V1.3 入户回弹修复：进入可视房间增加门证据门槛
+
+**用户指令**：
+> 1.3 里离开入户门判断没问题，问题是第二次又进了入户；要么分数有问题，要么阈值有问题。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“入户->客厅刚成立后，下一帧又被客厅->入户回弹”的误触发，且不影响 `V1.2.3`。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/RoomTransitionEstimator.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
+    *   涉及方法：PresenceEstimatorParams、PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmRegistry.create、MainActivity.toReadablePresenceDecision、MainActivity.buildPresenceShortKeyLegend
+    *   关键改动：
+      * 新增参数：
+        * `enterVisibleRequireDoorEvidence`
+        * `enterVisibleDoorAssistMin`
+      * `DOOR:ENTER_VISIBLE` 新增通过条件：
+        * `enterVisibleDoorEvidencePass = !requireDoorEvidence || enterMotionPass || doorAssistScore >= enterVisibleDoorAssistMin`
+      * `V1.3.0(B03030116)` 显式启用：
+        * `enterVisibleRequireDoorEvidence=true`
+        * `enterVisibleDoorAssistMin=0.10`
+      * `V1.2.3(B03030020)` 显式关闭该门槛，保持不受影响。
+      * 省流日志 `x[]` 新增短键：
+        * `evdeR`（enterVisibleRequireDoorEvidence）
+        * `evdeP`（enterVisibleDoorEvidencePass）
+        * `evdaM`（enterVisibleDoorAssistMin）
+
+---
+
+## [180] 2026-03-03 05:18:00 - 落地V1.3.1单分数积分判定并修复算法版本可见性
+
+**用户指令**：
+> 采用“单一分数 + 连续帧积分”方案（含 pac<0.20 硬拒绝、tau=0.002、完整日志新增字段）；并修复设置页当前算法看不到的问题。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将 V1.3.1 切换为“单分数+积分证据”判定，消除硬门槛互相打架；同时修复设置页算法版本显示异常。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、app/src/main/res/layout/fragment_settings_home.xml、app/src/main/res/values/arrays.xml、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.processFrame、SettingsHomeFragment.onViewCreated、SettingsHomeFragment.onResume、MainActivity.toReadablePresenceDecision、MainActivity.buildPresenceShortKeyLegend、RoiLogAggregator.snapshotForPanel
+    *   关键改动：
+      * `V1.3.1` 启用单分数门控：
+        * `SwitchScore = PoseGate * ClearGate * (alpha * NearGateForPose * PoseTerm + (1-alpha) * DoorTerm)`
+        * `pac < 0.20` 硬拒绝；`clearGate` 使用 `sigmoid((diff-margin)/tau)`，`tau=0.002`
+      * 新增候选积分证据：
+        * `E(t)=clip(beta*E(t-1)+SwitchScore,0,Emax)`，参数 `beta=0.72, Eth=0.62, Emax=2.0`
+        * 候选切换后清空积分，逐帧衰减避免旧证据污染。
+      * `V1.3.1` 关闭硬歧义拒绝与退出近门硬门槛（改由分数抑制）。
+      * 日志保持完整并新增字段：
+        * `switchScore/evidenceScore/evidenceThreshold/poseGate/clearGate/nearGateForPose/doorScoreGap`
+        * 同步更新 `schema` 与短键解析。
+      * 设置页“人数算法版本”控件改为与“日志更新频率”同款 `Spinner`，并在 `onResume` 强制同步当前选中，确保当前算法可见。
+      * 资源列表补充 `V1.3.1(B03030340)`。
 
 ---
 
@@ -1132,6 +1922,30 @@
 
 ---
 
+## [019] 2026-03-03 03:45:00 - 更换算法选择控件并压缩Presence日志为纯值序列
+
+**用户指令**：
+> 设置页不是新增一行,是现在的控件有问题,所以看不到,你就直接用日志更新频率那个控件应该就没问题  
+> 日志冗余还是很多啊,理论上应该每条里面只有参数没有变量名了啊,然后用格式来组织.
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“当前算法看不到”并将 Presence 日志进一步压缩到“值序列”级别。
+    *   修改文件：app/src/main/res/layout/fragment_settings_home.xml、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、codexHistory.md
+    *   涉及方法：SettingsHomeFragment.onViewCreated、SettingsHomeFragment.onResume、SettingsHomeFragment.syncPresenceSelector、MainActivity.toReadablePresenceDecision、RoiLogAggregator.appendPresenceSnapshotIfNeeded、RoiLogAggregator.parsePresenceHistoryEntry、RoiLogAggregator.formatCompressedEntry
+    *   关键改动：
+      * 将 `spn_presence_algorithm_version` 替换为 `btn_presence_algorithm_version`，采用“按钮 + 单选弹窗”方式选算法，避免 Spinner 在当前主题下不可见。
+      * 每次进入设置页与切换后都刷新按钮文本，保证当前算法始终直观可见。
+      * `presence decision` 输出改为纯值序列：
+        * `REASON|h[...值...]|m[...值...]|x[...值...]`
+        * 其中 `h/m/x` 的顺序定义仅保留在 `presence schema` 一行。
+      * `presenceRecent` 历史项改为纯值分段格式：
+        * `[{frame},{ms},{hash}]|{event}|{decision}|{counts}`
+        * 去掉 `event=/decision=/counts=` 等字段名冗余。
+
+---
+
 ## [189] 2026-03-03 03:20:00 - 设置页算法选择可见性修复与Presence日志序列化省流
 
 **用户指令**：
@@ -1151,6 +1965,29 @@
 
 ---
 
+## [018] 2026-03-03 03:20:00 - 设置页算法选择可见性修复与Presence日志序列化省流
+
+**用户指令**：
+> 设置页不是新增一行,是现在的控件有问题,所以看不到,你就直接用日志更新频率那个控件应该就没问题  
+> 顺序说明不需要放在wiki,写在日志里面就行.
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“人数算法版本”下拉当前值不可见，并将 Presence 决策日志改为固定顺序短值串，顺序说明直接写入日志。
+    *   修改文件：app/src/main/res/values/arrays.xml、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、codexHistory.md
+    *   涉及方法：SettingsHomeFragment.onViewCreated、SettingsHomeFragment.onResume、SettingsHomeFragment.buildPresenceOptionsInStableOrder、SettingsHomeFragment.syncPresenceSpinnerSelection、MainActivity.toReadablePresenceDecision、MainActivity.buildPresenceShortKeyLegend、RoiLogAggregator.snapshotForPanel
+    *   关键改动：
+      * 设置页新增 `presence_algorithm_labels` 资源数组，并让“人数算法版本”Spinner采用与“日志更新频率”同款绑定方式（`ArrayAdapter.createFromResource`）。
+      * 统一版本选项顺序（`AUTO + allVersionIds`），并在 `onResume` 强制同步 Spinner 当前选中，确保不展开下拉也能看到当前算法。
+      * `presence decision` 改为固定头字段 + 固定指标序列：
+        * 头字段：`h=[f,t,fr,md,er,lc,sg]`
+        * 指标序列：`m=[dd,dps,gpc,des,trc,src,sops,pac,srss,pts,das,scs,scsTh,srssTh,sopsTh,dnd,dad,dld,dalr]`
+        * 附加字段：`x=[pacMin,gpm]`
+      * 在调试面板日志中新增 `presence schema=...`，用于直接解释序列顺序，不再依赖 wiki。
+
+---
+
 ## [188] 2026-03-03 02:48:00 - 进入近门锁存修复（1帧）与短键补齐
 
 **用户指令**：
@@ -1166,6 +2003,31 @@
       * 客厅->可视房间近门判定改为：`dd <= max(dnd * 1.4, 0.025) || mnp`。
       * 增加 1 帧近门锁存，避免 `ENTER_WAIT` 被瞬时抖动清零。
       * 新增 `evrp/evlp/evnl` 日志字段。
+
+---
+
+## [017] 2026-03-03 02:48:00 - 进入近门锁存修复（1帧）与短键补齐
+
+**用户指令**：
+> 这是一次新状态,但是没有成功触发客厅进入厨房.
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“ENTER_WAIT 1/2 后因近门瞬时抖动被重置”的漏触发问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、wiki.md、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、MainActivity.toReadablePresenceDecision、MainActivity.buildPresenceShortKeyLegend
+    *   关键改动：
+      * 客厅->可视房间近门判定从 `dps>0 || mnp` 改为：
+        * `dd <= max(dnd * 1.4, 0.025) || mnp`
+      * 增加 1 帧近门锁存：
+        * 当同一候选已进入 `ENTER_WAIT`（`frames>=1`）时，下一帧近门不满足可继续一次，不立即清零。
+      * 新增日志字段：
+        * `enterVisibleNearDoorRawPass`
+        * `enterVisibleNearDoorLatchPass`
+        * `enterVisibleNearDoorLimit`
+      * 对应短键与 wiki 对照补齐：
+        * `evrp` / `evlp` / `evnl`
 
 ---
 
@@ -1188,6 +2050,28 @@
 
 ---
 
+## [016] 2026-03-03 02:35:00 - Presence日志短键扩展与退出近门阈值放宽
+
+**用户指令**：
+> 日志里面还是有currentGroundX...这些很长的占用... 用尽量短的变量名... 缩写写在wiki。  
+> 然后这次从厨房出来很远才触发出门.
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：压缩 Presence 日志长度并修正“可视房间->客厅”偏晚触发。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、wiki.md、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、MainActivity.toReadablePresenceDecision、MainActivity.buildUnlockClipboardReport、MainActivity.buildDebugPanelClipboardReport
+    *   关键改动：
+      * 退出近门前置放宽：
+        * `exitVisibleNearDoorPass = (doorDist <= max(dynamicNearDist * 1.4, 0.025)) || motionNearDoorPassed`
+      * 日志新增阈值字段：`exitVisibleNearDoorLimit`（后续短键 `xvnl`）。
+      * 短键映射扩展：新增 `upw/ptm/tpc/evnp/xvnp/xvnl/evcp/evtm/evsm/psd/csd/pld/cld/dnx/dny/dmx/dmy/tcx/tcy/pgx/pgy/cgx/cgy/mhs/mnp`。
+      * 剪贴板快照中移除每次重复的 `presence legend` 行。
+      * 在 `wiki.md` 固化完整短键对照，作为唯一参考口径。
+
+---
+
 ## [186] 2026-03-03 02:22:00 - 抑制客厅进子房间提前判定并补充关键点贡献日志
 
 **用户指令**：
@@ -1203,6 +2087,31 @@
     *   关键改动：
       * 新增进入双门槛：`target>=0.75` 且 `source<=0.20`。
       * 新增 `targetTopPoseContributors` 与进入/退出关键判据日志。
+
+---
+
+## [015] 2026-03-03 02:22:00 - 抑制客厅进子房间提前判定并补充关键点贡献日志
+
+**用户指令**：
+> 这里还有一大堆点在外面呢,怎么就进厨房了?  
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：降低“客厅->可视子房间”提前触发，补齐“哪些点把目标房间分拉高”的可观测性。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.buildTopPoseContributors
+    *   关键改动：
+      * 对 `VISIBLE_DOOR_MOTION`（客厅->可视房间）新增双门槛：
+        * `targetRoomContainmentRatio >= 0.75`
+        * `sourceRoomContainmentRatio <= 0.20`
+      * 对 `VISIBLE_OUTSIDE_POSE`（可视房间->客厅）补充近门前置，避免离门较远时仅靠分值误触发。
+      * 调试日志新增：
+        * `enterVisibleContainmentPass`
+        * `enterVisibleTargetContainmentMin`
+        * `enterVisibleSourceContainmentMax`
+        * `targetTopPoseContributors`（目标房间内贡献最高关键点 Top5，格式 `k{idx}:{加权值}@{置信度}`）
 
 ---
 
@@ -1224,6 +2133,26 @@
 
 ---
 
+## [014] 2026-03-03 02:10:00 - 修复V1.3.0远离门口误触发进入（仅限客厅->可视房间）
+
+**用户指令**：
+> 这次效果也很差,来回跳,很远就算进去了... 检查下有没有显著错误...  
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：阻止“客厅->可视子房间”在未靠近门口时，仅凭房间综合分触发 `ENTER_WAIT/ENTER_OK`。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore
+    *   关键改动：
+      * 新增近门前置 `enterVisibleNearDoorPass`，仅在 `VISIBLE_DOOR_MOTION` 规则下生效。
+      * 通过条件补充为：`poseAverageConfidence` 达标 + `enterVisibleNearDoorPass` + `switchConfidenceScore` 达标。
+      * `SCORE_REJECT / ENTER_WAIT / ENTER_OK` 日志新增 `enterVisibleNearDoorPass` 字段，便于确认是否因“未近门”被拒绝。
+      * 退出方向（可视房间->客厅）与统一分公式保持不变，本次不触碰。
+
+---
+
 ## [184] 2026-03-03 01:46:00 - 增强门口法向链路调试日志（仅定位，不改判定）
 
 **用户指令**：
@@ -1237,6 +2166,28 @@
     *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.computeDoorMotionStats
     *   关键改动：
       * 增加法向/横向投影、几何上下文、地面点轨迹、历史窗状态等调试字段。
+
+---
+
+## [013] 2026-03-03 01:46:00 - 增强门口法向链路调试日志（仅定位，不改判定）
+
+**用户指令**：
+> 关键是分数为什么这么低？特别是门口分数为什么会是零？... 你不知道原因就好好重新改日志我们重新去抓。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：补齐“门口接近已命中但门辅助分仍为 0”的全链路定位信息，便于确认法向符号、历史窗取样和地面点是否异常。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.computeDoorMotionStats
+    *   关键改动：
+      * 扩展 `DoorMotionStats` 与候选 `Candidate` 调试字段，新增并透出：
+        * 法向/横向投影：`pastSignedDistance`、`currentSignedDistance`、`pastLateralDistance`、`currentLateralDistance`
+        * 几何上下文：`doorNormalX/Y`、`doorMidX/Y`、`targetCentroidX/Y`
+        * 地面点轨迹：`pastGroundX/Y`、`currentGroundX/Y`
+        * 历史窗状态：`motionHistorySize`、`motionNearDoorPassed`
+      * 在 `SCORE_REJECT / ENTER_WAIT / ENTER_OK` 的 `presence decision` 文本中统一输出上述字段。
+      * 保持判定逻辑与阈值不变，仅增强可观测性。
 
 ---
 
@@ -1256,6 +2207,23 @@
 
 ---
 
+## [012] 2026-03-03 01:30:00 - 修复调试面板开关崩溃（RoiLogAggregator 方法兼容）
+
+**用户指令**：
+> 点击调试面板开关挂了
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复 `NoSuchMethodError: snapshotForPanel()` 导致的主线程崩溃。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、codexHistory.md
+    *   涉及方法：RoiLogAggregator.snapshotForPanel
+    *   关键改动：
+      * 增加无参重载 `snapshotForPanel()`，内部转调带参版本 `snapshotForPanel(includePresenceHistory = true)`。
+      * 保持原有带参接口不变，兼容旧调用路径与热更新/overlay 场景。
+
+---
+
 ## [182] 2026-03-03 01:16:00 - 人数算法V1.3.0：唯一综合分标准（主体分+法向辅助分）
 
 **用户指令**：
@@ -1270,6 +2238,27 @@
     *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.processFrame、PresenceAlgorithmRegistry.create
     *   关键改动：
       * DOOR 模式统一分：`0.35*poseTransitionScore + 0.65*doorAssistScore`。
+      * 发布 `V1.3.0(B03030116)` 并设为 `AUTO_LATEST`。
+
+---
+
+## [011] 2026-03-03 01:16:00 - 人数算法V1.3.0：唯一综合分标准（主体分+法向辅助分）
+
+**用户指令**：
+> 我再说一次,我们应该用一个唯一标准:人在房间内综合分.这个综合分应该主要由pose点和可是区域的关系来计算.辅助是法线向量,主要是为了规避路过门的误判.有这两个来综合计算出一个分值.  
+> 用1.3.0做版本号,进出都是这个分.没问题就开始
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将进/出房间统一到同一个综合分，避免门候选与恢复候选来回切换导致的计数延迟与抖动。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、wiki.md、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.processFrame、PresenceAlgorithmRegistry.create
+    *   关键改动：
+      * DOOR 模式切换分统一为：`0.35*poseTransitionScore + 0.65*doorAssistScore`。
+      * `poseTransitionScore` 由源/目标房间关键点加权归属分计算；`doorAssistScore` 由门法向通过后的门接近度提供。
+      * DOOR 模式统一门槛：门法向通过 + 门接近度门槛 + 姿态置信门槛 + 综合分门槛。
+      * 对“可视子房间 -> 客厅”禁用 `POLYGON_RECOVERY` 候选，防止与门候选交替造成 `ENTER_WAIT` 被反复重置。
       * 发布 `V1.3.0(B03030116)` 并设为 `AUTO_LATEST`。
 
 ---
@@ -1292,6 +2281,27 @@
 
 ---
 
+## [010] 2026-03-03 00:20:00 - 人数算法迭代：进出统一为关键点置信度加权分（脚踝高权重）
+
+**用户指令**：
+> 置信度不应该只是个门槛,还应该参与加权计算.(进出都是),脚应该权重很大(前提算上置信度)  
+> 我们还是用分,不是用比例.进出都靠分,而且理论上这个分能统一.
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：把可视房间进出判定统一到“关键点置信度加权分”，降低人框面积先入门导致的提前误判。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、wiki.md、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.processFrame、PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.computeRoomPoseScore、PresenceAlgorithmRegistry.create
+    *   关键改动：
+      * 新增房间归属分 `computeRoomPoseScore`：按“关键点置信度 × 部位权重”计算房间内得分占比。
+      * 脚踝权重提升为最高（3.0），膝/髋/肩次之，其他点为基础权重。
+      * 进入与离开统一使用该分：`targetRoomContainmentRatio` 与 `sourceRoomContainmentRatio` 均改为关键点加权归属分；`sourceRoomOutsidePoseScore = 1 - sourceRoomContainmentRatio`。
+      * `POLYGON_RECOVERY` 与可视区同步分支改为使用关键点加权分，不再以人框网格面积比例作为主证据。
+      * 发布新版本 `V1.2.3(B03030020)` 并设为 `AUTO_LATEST`。
+
+---
+
 ## [180] 2026-03-02 23:59:00 - 人数算法联调：灰色人体不参与切换，进入更稳、退出更早
 
 **用户指令**：
@@ -1308,6 +2318,28 @@
       * 新增灰色门禁：`poseAverageConfidence < 0.55` 直接 `SKIP_GRAY_POSE`。
       * 新增版本 `V1.2.2(B03022359)` 并作为 `AUTO_LATEST`。
       * 联调参数：`enterThreshold=0.58`、`enterAMin=0.35`、`exitOutsidePoseScoreThreshold=0.08`。
+
+---
+
+## [009] 2026-03-02 23:59:00 - 人数算法联调：灰色人体不参与切换，进入更稳、退出更早
+
+**用户指令**：
+> 我觉得的关键是,当人体还是灰色时不要参与判断,这样就不会因为乱飘的pose点影响判断了.  
+> GeminiHistory暂时不用检查了.你现在只做了灰色,但是其他我说的阈值前后问题也要一起调节吖
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：联调 Presence 切换判定，抑制灰色低质姿态误判，同时优化“进入偏早/退出偏晚”。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、wiki.md、codexHistory.md
+    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmRegistry.create
+    *   关键改动：
+      * 在可视切换评估入口新增灰色门禁：`poseAverageConfidence < 0.55` 直接 `SKIP_GRAY_POSE`，不参与切换判定。
+      * 新增版本 `V1.2.2(B03022359)`，并作为 `AUTO_LATEST` 默认最新。
+      * 参数联调（不新增新参数）：
+        * `enterThreshold = 0.58`
+        * `enterAMin = 0.35`
+        * `exitOutsidePoseScoreThreshold = 0.08`
 
 ---
 
@@ -3088,8 +4120,6 @@ ROI抖动日志:
 
 ---
 
-
-
 ## [066] 2026-01-08 01:18:13 - 仅远程结果显示 BID
 
 **用户指令**：
@@ -4018,628 +5048,3 @@ ROI抖动日志:
     *   涉及方法：无
 
 ---
-
-## [009] 2026-03-02 23:59:00 - 人数算法联调：灰色人体不参与切换，进入更稳、退出更早
-
-**用户指令**：
-> 我觉得的关键是,当人体还是灰色时不要参与判断,这样就不会因为乱飘的pose点影响判断了.  
-> GeminiHistory暂时不用检查了.你现在只做了灰色,但是其他我说的阈值前后问题也要一起调节吖
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：联调 Presence 切换判定，抑制灰色低质姿态误判，同时优化“进入偏早/退出偏晚”。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、wiki.md、codexHistory.md
-    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmRegistry.create
-    *   关键改动：
-      * 在可视切换评估入口新增灰色门禁：`poseAverageConfidence < 0.55` 直接 `SKIP_GRAY_POSE`，不参与切换判定。
-      * 新增版本 `V1.2.2(B03022359)`，并作为 `AUTO_LATEST` 默认最新。
-      * 参数联调（不新增新参数）：
-        * `enterThreshold = 0.58`
-        * `enterAMin = 0.35`
-        * `exitOutsidePoseScoreThreshold = 0.08`
-
----
-
-## [010] 2026-03-03 00:20:00 - 人数算法迭代：进出统一为关键点置信度加权分（脚踝高权重）
-
-**用户指令**：
-> 置信度不应该只是个门槛,还应该参与加权计算.(进出都是),脚应该权重很大(前提算上置信度)  
-> 我们还是用分,不是用比例.进出都靠分,而且理论上这个分能统一.
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：把可视房间进出判定统一到“关键点置信度加权分”，降低人框面积先入门导致的提前误判。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、wiki.md、codexHistory.md
-    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.processFrame、PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.computeRoomPoseScore、PresenceAlgorithmRegistry.create
-    *   关键改动：
-      * 新增房间归属分 `computeRoomPoseScore`：按“关键点置信度 × 部位权重”计算房间内得分占比。
-      * 脚踝权重提升为最高（3.0），膝/髋/肩次之，其他点为基础权重。
-      * 进入与离开统一使用该分：`targetRoomContainmentRatio` 与 `sourceRoomContainmentRatio` 均改为关键点加权归属分；`sourceRoomOutsidePoseScore = 1 - sourceRoomContainmentRatio`。
-      * `POLYGON_RECOVERY` 与可视区同步分支改为使用关键点加权分，不再以人框网格面积比例作为主证据。
-      * 发布新版本 `V1.2.3(B03030020)` 并设为 `AUTO_LATEST`。
-
----
-
-## [011] 2026-03-03 01:16:00 - 人数算法V1.3.0：唯一综合分标准（主体分+法向辅助分）
-
-**用户指令**：
-> 我再说一次,我们应该用一个唯一标准:人在房间内综合分.这个综合分应该主要由pose点和可是区域的关系来计算.辅助是法线向量,主要是为了规避路过门的误判.有这两个来综合计算出一个分值.  
-> 用1.3.0做版本号,进出都是这个分.没问题就开始
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：将进/出房间统一到同一个综合分，避免门候选与恢复候选来回切换导致的计数延迟与抖动。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、wiki.md、codexHistory.md
-    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.processFrame、PresenceAlgorithmRegistry.create
-    *   关键改动：
-      * DOOR 模式切换分统一为：`0.35*poseTransitionScore + 0.65*doorAssistScore`。
-      * `poseTransitionScore` 由源/目标房间关键点加权归属分计算；`doorAssistScore` 由门法向通过后的门接近度提供。
-      * DOOR 模式统一门槛：门法向通过 + 门接近度门槛 + 姿态置信门槛 + 综合分门槛。
-      * 对“可视子房间 -> 客厅”禁用 `POLYGON_RECOVERY` 候选，防止与门候选交替造成 `ENTER_WAIT` 被反复重置。
-      * 发布 `V1.3.0(B03030116)` 并设为 `AUTO_LATEST`。
-
----
-
-## [012] 2026-03-03 01:30:00 - 修复调试面板开关崩溃（RoiLogAggregator 方法兼容）
-
-**用户指令**：
-> 点击调试面板开关挂了
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：修复 `NoSuchMethodError: snapshotForPanel()` 导致的主线程崩溃。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、codexHistory.md
-    *   涉及方法：RoiLogAggregator.snapshotForPanel
-    *   关键改动：
-      * 增加无参重载 `snapshotForPanel()`，内部转调带参版本 `snapshotForPanel(includePresenceHistory = true)`。
-      * 保持原有带参接口不变，兼容旧调用路径与热更新/overlay 场景。
-
----
-
-## [013] 2026-03-03 01:46:00 - 增强门口法向链路调试日志（仅定位，不改判定）
-
-**用户指令**：
-> 关键是分数为什么这么低？特别是门口分数为什么会是零？... 你不知道原因就好好重新改日志我们重新去抓。
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：补齐“门口接近已命中但门辅助分仍为 0”的全链路定位信息，便于确认法向符号、历史窗取样和地面点是否异常。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
-    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.computeDoorMotionStats
-    *   关键改动：
-      * 扩展 `DoorMotionStats` 与候选 `Candidate` 调试字段，新增并透出：
-        * 法向/横向投影：`pastSignedDistance`、`currentSignedDistance`、`pastLateralDistance`、`currentLateralDistance`
-        * 几何上下文：`doorNormalX/Y`、`doorMidX/Y`、`targetCentroidX/Y`
-        * 地面点轨迹：`pastGroundX/Y`、`currentGroundX/Y`
-        * 历史窗状态：`motionHistorySize`、`motionNearDoorPassed`
-      * 在 `SCORE_REJECT / ENTER_WAIT / ENTER_OK` 的 `presence decision` 文本中统一输出上述字段。
-      * 保持判定逻辑与阈值不变，仅增强可观测性。
-
----
-
-## [014] 2026-03-03 02:10:00 - 修复V1.3.0远离门口误触发进入（仅限客厅->可视房间）
-
-**用户指令**：
-> 这次效果也很差,来回跳,很远就算进去了... 检查下有没有显著错误...  
-> ok
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：阻止“客厅->可视子房间”在未靠近门口时，仅凭房间综合分触发 `ENTER_WAIT/ENTER_OK`。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
-    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore
-    *   关键改动：
-      * 新增近门前置 `enterVisibleNearDoorPass`，仅在 `VISIBLE_DOOR_MOTION` 规则下生效。
-      * 通过条件补充为：`poseAverageConfidence` 达标 + `enterVisibleNearDoorPass` + `switchConfidenceScore` 达标。
-      * `SCORE_REJECT / ENTER_WAIT / ENTER_OK` 日志新增 `enterVisibleNearDoorPass` 字段，便于确认是否因“未近门”被拒绝。
-      * 退出方向（可视房间->客厅）与统一分公式保持不变，本次不触碰。
-
----
-
-## [015] 2026-03-03 02:22:00 - 抑制客厅进子房间提前判定并补充关键点贡献日志
-
-**用户指令**：
-> 这里还有一大堆点在外面呢,怎么就进厨房了?  
-> ok
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：降低“客厅->可视子房间”提前触发，补齐“哪些点把目标房间分拉高”的可观测性。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
-    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.buildTopPoseContributors
-    *   关键改动：
-      * 对 `VISIBLE_DOOR_MOTION`（客厅->可视房间）新增双门槛：
-        * `targetRoomContainmentRatio >= 0.75`
-        * `sourceRoomContainmentRatio <= 0.20`
-      * 对 `VISIBLE_OUTSIDE_POSE`（可视房间->客厅）补充近门前置，避免离门较远时仅靠分值误触发。
-      * 调试日志新增：
-        * `enterVisibleContainmentPass`
-        * `enterVisibleTargetContainmentMin`
-        * `enterVisibleSourceContainmentMax`
-        * `targetTopPoseContributors`（目标房间内贡献最高关键点 Top5，格式 `k{idx}:{加权值}@{置信度}`）
-
----
-
-## [016] 2026-03-03 02:35:00 - Presence日志短键扩展与退出近门阈值放宽
-
-**用户指令**：
-> 日志里面还是有currentGroundX...这些很长的占用... 用尽量短的变量名... 缩写写在wiki。  
-> 然后这次从厨房出来很远才触发出门.
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：压缩 Presence 日志长度并修正“可视房间->客厅”偏晚触发。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、wiki.md、codexHistory.md
-    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、MainActivity.toReadablePresenceDecision、MainActivity.buildUnlockClipboardReport、MainActivity.buildDebugPanelClipboardReport
-    *   关键改动：
-      * 退出近门前置放宽：
-        * `exitVisibleNearDoorPass = (doorDist <= max(dynamicNearDist * 1.4, 0.025)) || motionNearDoorPassed`
-      * 日志新增阈值字段：`exitVisibleNearDoorLimit`（后续短键 `xvnl`）。
-      * 短键映射扩展：新增 `upw/ptm/tpc/evnp/xvnp/xvnl/evcp/evtm/evsm/psd/csd/pld/cld/dnx/dny/dmx/dmy/tcx/tcy/pgx/pgy/cgx/cgy/mhs/mnp`。
-      * 剪贴板快照中移除每次重复的 `presence legend` 行。
-      * 在 `wiki.md` 固化完整短键对照，作为唯一参考口径。
-
----
-
-## [017] 2026-03-03 02:48:00 - 进入近门锁存修复（1帧）与短键补齐
-
-**用户指令**：
-> 这是一次新状态,但是没有成功触发客厅进入厨房.
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：修复“ENTER_WAIT 1/2 后因近门瞬时抖动被重置”的漏触发问题。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、wiki.md、codexHistory.md
-    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、MainActivity.toReadablePresenceDecision、MainActivity.buildPresenceShortKeyLegend
-    *   关键改动：
-      * 客厅->可视房间近门判定从 `dps>0 || mnp` 改为：
-        * `dd <= max(dnd * 1.4, 0.025) || mnp`
-      * 增加 1 帧近门锁存：
-        * 当同一候选已进入 `ENTER_WAIT`（`frames>=1`）时，下一帧近门不满足可继续一次，不立即清零。
-      * 新增日志字段：
-        * `enterVisibleNearDoorRawPass`
-        * `enterVisibleNearDoorLatchPass`
-        * `enterVisibleNearDoorLimit`
-      * 对应短键与 wiki 对照补齐：
-        * `evrp` / `evlp` / `evnl`
-
----
-
-## [018] 2026-03-03 03:20:00 - 设置页算法选择可见性修复与Presence日志序列化省流
-
-**用户指令**：
-> 设置页不是新增一行,是现在的控件有问题,所以看不到,你就直接用日志更新频率那个控件应该就没问题  
-> 顺序说明不需要放在wiki,写在日志里面就行.
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：修复“人数算法版本”下拉当前值不可见，并将 Presence 决策日志改为固定顺序短值串，顺序说明直接写入日志。
-    *   修改文件：app/src/main/res/values/arrays.xml、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、codexHistory.md
-    *   涉及方法：SettingsHomeFragment.onViewCreated、SettingsHomeFragment.onResume、SettingsHomeFragment.buildPresenceOptionsInStableOrder、SettingsHomeFragment.syncPresenceSpinnerSelection、MainActivity.toReadablePresenceDecision、MainActivity.buildPresenceShortKeyLegend、RoiLogAggregator.snapshotForPanel
-    *   关键改动：
-      * 设置页新增 `presence_algorithm_labels` 资源数组，并让“人数算法版本”Spinner采用与“日志更新频率”同款绑定方式（`ArrayAdapter.createFromResource`）。
-      * 统一版本选项顺序（`AUTO + allVersionIds`），并在 `onResume` 强制同步 Spinner 当前选中，确保不展开下拉也能看到当前算法。
-      * `presence decision` 改为固定头字段 + 固定指标序列：
-        * 头字段：`h=[f,t,fr,md,er,lc,sg]`
-        * 指标序列：`m=[dd,dps,gpc,des,trc,src,sops,pac,srss,pts,das,scs,scsTh,srssTh,sopsTh,dnd,dad,dld,dalr]`
-        * 附加字段：`x=[pacMin,gpm]`
-      * 在调试面板日志中新增 `presence schema=...`，用于直接解释序列顺序，不再依赖 wiki。
-
----
-
-## [019] 2026-03-03 03:45:00 - 更换算法选择控件并压缩Presence日志为纯值序列
-
-**用户指令**：
-> 设置页不是新增一行,是现在的控件有问题,所以看不到,你就直接用日志更新频率那个控件应该就没问题  
-> 日志冗余还是很多啊,理论上应该每条里面只有参数没有变量名了啊,然后用格式来组织.
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：修复“当前算法看不到”并将 Presence 日志进一步压缩到“值序列”级别。
-    *   修改文件：app/src/main/res/layout/fragment_settings_home.xml、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、codexHistory.md
-    *   涉及方法：SettingsHomeFragment.onViewCreated、SettingsHomeFragment.onResume、SettingsHomeFragment.syncPresenceSelector、MainActivity.toReadablePresenceDecision、RoiLogAggregator.appendPresenceSnapshotIfNeeded、RoiLogAggregator.parsePresenceHistoryEntry、RoiLogAggregator.formatCompressedEntry
-    *   关键改动：
-      * 将 `spn_presence_algorithm_version` 替换为 `btn_presence_algorithm_version`，采用“按钮 + 单选弹窗”方式选算法，避免 Spinner 在当前主题下不可见。
-      * 每次进入设置页与切换后都刷新按钮文本，保证当前算法始终直观可见。
-      * `presence decision` 输出改为纯值序列：
-        * `REASON|h[...值...]|m[...值...]|x[...值...]`
-        * 其中 `h/m/x` 的顺序定义仅保留在 `presence schema` 一行。
-      * `presenceRecent` 历史项改为纯值分段格式：
-        * `[{frame},{ms},{hash}]|{event}|{decision}|{counts}`
-        * 去掉 `event=/decision=/counts=` 等字段名冗余。
-
----
-
-## [180] 2026-03-03 05:18:00 - 落地V1.3.1单分数积分判定并修复算法版本可见性
-
-**用户指令**：
-> 采用“单一分数 + 连续帧积分”方案（含 pac<0.20 硬拒绝、tau=0.002、完整日志新增字段）；并修复设置页当前算法看不到的问题。
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：将 V1.3.1 切换为“单分数+积分证据”判定，消除硬门槛互相打架；同时修复设置页算法版本显示异常。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、app/src/main/res/layout/fragment_settings_home.xml、app/src/main/res/values/arrays.xml、codexHistory.md
-    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore、PresenceAlgorithmV1_1_0_B03021639.processFrame、SettingsHomeFragment.onViewCreated、SettingsHomeFragment.onResume、MainActivity.toReadablePresenceDecision、MainActivity.buildPresenceShortKeyLegend、RoiLogAggregator.snapshotForPanel
-    *   关键改动：
-      * `V1.3.1` 启用单分数门控：
-        * `SwitchScore = PoseGate * ClearGate * (alpha * NearGateForPose * PoseTerm + (1-alpha) * DoorTerm)`
-        * `pac < 0.20` 硬拒绝；`clearGate` 使用 `sigmoid((diff-margin)/tau)`，`tau=0.002`
-      * 新增候选积分证据：
-        * `E(t)=clip(beta*E(t-1)+SwitchScore,0,Emax)`，参数 `beta=0.72, Eth=0.62, Emax=2.0`
-        * 候选切换后清空积分，逐帧衰减避免旧证据污染。
-      * `V1.3.1` 关闭硬歧义拒绝与退出近门硬门槛（改由分数抑制）。
-      * 日志保持完整并新增字段：
-        * `switchScore/evidenceScore/evidenceThreshold/poseGate/clearGate/nearGateForPose/doorScoreGap`
-        * 同步更新 `schema` 与短键解析。
-      * 设置页“人数算法版本”控件改为与“日志更新频率”同款 `Spinner`，并在 `onResume` 强制同步当前选中，确保当前算法可见。
-      * 资源列表补充 `V1.3.1(B03030340)`。
-
----
-
-## [181] 2026-03-03 05:33:00 - V1.3.1首段入户触发阈值微调
-
-**用户指令**：
-> 第一个入户到客厅就没pass  
-> ok（同意先调参数）
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：在不改公式结构的前提下，提升“入户->客厅”首段触发通过率。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、codexHistory.md
-    *   涉及方法：PresenceAlgorithmRegistry.create（V1.3.1 参数画像）
-    *   关键改动：
-      * `poseNearGateDps0: 0.20 -> 0.12`
-      * `switchEvidenceThreshold: 0.62 -> 0.56`
-      * 仅作用于 `V1.3.1(B03030340)`，其余版本不变。
-
----
-
-## [182] 2026-03-03 05:42:00 - EXIT_TO_LIVING场景取消近门门控压分
-
-**用户指令**：
-> 第一个入户到客厅就没pass  
-> 还是不行
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：修复“可视房间/入户 -> 客厅”在门线附近抖动时被 `nearGateForPose` 压分导致积分过不了阈值的问题。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
-    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore
-    *   关键改动：
-      * 在 `V1.3.1` 单分数模式下，`isVisibleExitToLiving=true` 时将 `nearGateForPose` 固定为 `1.0`；
-      * 其余场景（尤其客厅->可视子房间）仍保留 `nearGateForPose` 约束，避免远处误入。
-
----
-
-## [183] 2026-03-03 05:50:00 - V1.3.1姿态门控阈值下调
-
-**用户指令**：
-> 好,就该这个
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：确认“进厨房不过”主因后，仅放宽姿态门控阈值，避免 `PoseGate` 过度压分。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、codexHistory.md
-    *   涉及方法：PresenceAlgorithmRegistry.create（V1.3.1 参数画像）
-    *   关键改动：
-      * `grayPoseMinConfidenceForSwitch: 0.55 -> 0.45`（仅 `V1.3.1(B03030340)`）
-      * 其余积分公式、阈值和日志字段均保持不变。
-
----
-
-## [184] 2026-03-03 06:00:00 - 修复V1.3.1阈值改动误落分支
-
-**用户指令**：
-> 还是不行
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：修复前次参数调整未实际作用于 `V1.3.1` 的问题。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、codexHistory.md
-    *   涉及方法：PresenceAlgorithmRegistry.create（`VERSION_V1_3_1_B03030340` 参数块）
-    *   关键改动：
-      * 将 `V1.3.1` 的 `grayPoseMinConfidenceForSwitch` 明确改为 `0.45`（此前误改到其他版本分支）。
-
----
-
-## [186] 2026-03-03 06:18:00 - 切换为单主线运行并增加baseline参数指纹
-
-**用户指令**：
-> 老版本做一份存档，不要再做分支管理；并且要能看到当前到底跑的是什么。
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：避免多版本分支继续引入参数错配；将运行策略收敛为“单主线 + 存档追溯”，并在日志中明确输出实际生效参数指纹。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmEngine.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceBaselineArchive.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
-    *   涉及方法：PresenceAlgorithmEngine.runtimeTag、PresenceAlgorithmRegistry.create、PresenceAlgorithmRegistry.resolveVersionId、PresenceAlgorithmRegistry.paramsHash、MainActivity 中 Presence 日志输出点
-    *   关键改动：
-      * 运行入口只保留 `V1.3.1(B03030340)` 作为可选版本（`AUTO` 也解析到该版本）。
-      * 历史版本不再作为运行分支，转为归档清单（`PresenceBaselineArchive`）。
-      * 在 `V1.3.1` 运行时固定使用主线 baseline 参数，并生成运行标签：
-        * `versionId|b=baselineId|h=paramsHash`
-      * 主界面和调试面板中的 `presenceAlgo`、切换日志都改为输出 `runtimeTag`，可直接核对“当前真实生效参数”。
-      * 同时修正 `V1.3.1` 主线参数中的 `grayPoseMinConfidenceForSwitch=0.45`（避免再次落错分支）。
-
----
-
-## [187] 2026-03-03 06:28:00 - 仅对ENTER_VISIBLE改为“PoseGate只作用姿态项”
-
-**用户指令**：
-> ok
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：修复“门口证据足够但被 PoseGate 全量压分导致不过线”的问题。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
-    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.evaluateVisibleEnterByScore
-    *   关键改动：
-      * 在 `useSwitchScoreIntegrator=true` 且 `DOOR:ENTER_VISIBLE` 场景下，
-        将公式从
-        `pg * (a*ngp*pts + (1-a)*das)`
-        改为
-        `a*pg*ngp*pts + (1-a)*das`。
-      * 其余场景（如 EXIT_TO_LIVING）保持原有积分公式不变。
-
----
-
-## [199] 2026-03-03 18:05:00 - 事件标记按视频名持久化
-
-**用户指令**：
-> 对于。 每一个节点的设置你都要给我做持久化呀。而且这个持久化的文件应该和。 视频名称的文件一致。 也就是说每一个视频都可以对应一个持久化的。 事件标记系统。
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：将事件标记从内存态升级为“按视频独立持久化”，避免切换视频或重启后丢失。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/validation/EventMarkerManager.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
-    *   涉及方法：EventMarkerManager.init、bindVideo、addEvent、removeEventsNearFrame、clearBoundVideoEvents、loadEventsForVideo、saveEventsForVideo、resolveVideoBaseName、MainActivity.onCreate
-    *   关键改动：
-      * `EventMarkerManager` 新增 `init(context)`，在 `filesDir/event_markers/` 目录管理事件文件。
-      * `bindVideo(videoKey)` 时按 `videoKey` 自动加载对应事件文件；未命中则创建空列表。
-      * `addEvent/removeEventsNearFrame/clearBoundVideoEvents` 自动触发保存/删除文件。
-      * 文件命名以视频名为基础：`<videoName>.events.json`；无法提取视频名时回退到稳定哈希名。
-      * `MainActivity.onCreate` 增加 `eventMarkerManager.init(applicationContext)`，确保持久化能力生效。
-
----
-
-## [222] 2026-03-04 15:20:00 - 增加身份断裂重置与账本守恒拦截
-
-**用户指令**：
-> gpt的回复,注意看下注意事项,然后开始吧...  
-> 1) Identity reset（处理 trackId 复用串人）  
-> 2) Event-level reset（处理“刚切完又反向”残留）  
-> 3) 账本守恒硬保护（先上硬拦 + 日志）
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：修复 trackId 复用导致“串人反向切换”与提交后缓存残留导致“刚切完又反向”的问题，并增加账本守恒硬保护。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
-    *   涉及方法：processFrame、evaluateVisibleEnterByScore、applyTransition、resetStateAfterCommittedEvent、resetTrackIdentityState、buildIdentityResetReason
-    *   关键改动：
-      * 新增 **Identity reset**：
-        * 触发条件：`gapFrames >= 18` 或 `jumpDist >= 0.25`（支持 `GAP/JUMP/GAP+JUMP` 诊断）。
-        * 触发后：清空该 track 的 room/evidence/candidate/stableDoor/groundHistory/lastScored/lastSwitch/hold 等状态，并移除 pending。
-        * 同时对旧 `currentRoom` 做一次 `-1`，再按首帧重定位流程重新初始化，避免串人继承旧账本。
-      * 新增 **Event-level reset**：
-        * 每次 `applyTransition` 成功后执行，清空证据与跨帧缓存（候选、evidence、hold、groundHistory、stableDoor、lastScored），保留 `lastSwitch` 供 anti-bounce 使用。
-      * 新增 **账本守恒硬保护**：
-        * 对非 `outside` 相关转移，若 `presenceCounts[fromRoom] == 0`，直接阻断该次转移。
-        * 输出日志：`ledgerBlockApplied=true blockReason=FROM_COUNT_ZERO fromCount=...`，并附带候选/ss/e 上下文。
-      * 提交链路接入：
-        * `VISIBLE_SWITCH` / `VISIBLE_POLYGON_SYNC` / `PENDING_CONFIRMED` 三条转移路径都改为先检查 `applyTransition` 返回值，再决定是否写入 `lastSwitch` 和更新 `currentRoom`。
-      * 调试字段补齐：
-        * `identityResetApplied/resetReason/gapFrames/jumpDist/roomNowBefore/roomNowAfter`
-        * `eventResetApplied=true lastSwitchKept=true`
-        * `ledgerBlockApplied/blockReason/fromCount`
-
----
-
-## [223] 2026-03-04 15:35:00 - 修复播放连点导致画面来回震动
-
-**用户指令**：
-> 有时多点了几次播放,视频就来回震动,没法继续播放.但是声音还在走
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：修复播放键快速连点时出现“画面反复跳动但音频继续”的问题。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、codexHistory.md
-    *   涉及方法：MainActivity.togglePause、VideoFeeder.clearStepSeekTransientState
-    *   关键改动：
-      * `MainActivity.togglePause` 新增 280ms 防抖（`SystemClock.elapsedRealtime()`），防止一次连点触发多次状态连跳。
-      * 状态切换前统一 `stopSeekHold()`，避免长按逐帧 seek 任务在状态切换后继续干扰。
-      * 切回 `PLAYING` 时调用 `videoFeeder.clearStepSeekTransientState()`，清空逐帧步进与 +10ms 补偿残留。
-      * `VideoFeeder` 新增 `clearStepSeekTransientState()`：重置 `pendingForwardNudge/pendingSeekState/lastStepSeekDebug`，避免历史 seek 残留继续拉扯画面。
-
----
-
-## [224] 2026-03-05 21:45:00 - 切换事件统一纳入暂停触发（含扣减类切换）
-
-**用户指令**：
-> 这样你先把这个做成一个暂停事件也就是说切换的时候它会暂停。因为他出门扣减肯定也算是一次暂停对吧？所以说怎么你想想把它做进我们之前的暂停切换房间逻辑里面去。
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：将扣减类切换事件（如盲区 `PENDING_CONFIRMED`）纳入统一“切换自动暂停”流程，避免仅在 `PLAYING` 时才触发导致的漏停。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
-    *   涉及方法：MainActivity 中 poseAnalyzer 回调的切换暂停判定段
-    *   关键改动：
-      * `shouldAutoPause` 从 `playStateBefore == PlayState.PLAYING` 调整为 `playStateBefore != PlayState.PAUSED`。
-      * 保持原有 `RoomPauseSwitch` 日志链路不变，仍输出 `shouldAutoPause/didAutoPause/playStateBefore/playStateAfter/reason` 等字段，便于验证扣减切换是否进入暂停流程。
-
----
-
-## [226] 2026-03-05 22:05:00 - 增加“无事件扣减”暂停兜底与原因归因日志
-
-**用户指令**：
-> 有扣减,但是没有暂停  
-> 可以，没问题。嗯。但是这样的日志够吗？你知道这是因为什么原因扣减，这样打的话。
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：修复“presenceCounts 发生扣减但无 events，导致未触发切换暂停”的遗漏，并补齐可归因日志。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
-    *   涉及方法：MainActivity.onCreate（poseAnalyzer 回调内 runOnUiThread）、extractNegativeCountDelta、formatNegativeCountDelta、resolveCountDeltaLikelyCause、hardRestartPlayback
-    *   关键改动：
-      * 新增“计数扣减兜底暂停”：
-        * 条件：`presenceResult.events` 为空，且相对上一帧存在负向人数差分；
-        * 触发：在 `pauseOnSwitch=true` 且 `playStateBefore!=PAUSED` 下执行自动暂停。
-      * 新增归因解析：
-        * 从 `rejectedReasons` 中优先提取 `identityResetApplied` 的 `resetReason/track/gap/jump`；
-        * 次级识别 `pendingDropped/pendingDisabled` 与 `ledgerBlockApplied`。
-      * 统一写入 `RoomPauseSwitch` 日志：
-        * `switch=COUNT_DELTA_FALLBACK`、`deltaMap`、`likelyCause`、`playStateBefore/After`、`shouldAutoPause/didAutoPause`。
-      * 在 `hardRestartPlayback` 中清空 `lastPresenceCountsForPause`，避免重启后误判差分。
-
----
-
-## [227] 2026-03-05 22:35:00 - 1.5.2：移除identity扣减并补充异常最近帧logcat
-
-**用户指令**：
-> 那我们要做两件事，第一件事就是把扣减先关掉。然后就是确定一下为什么出门1.5的逻辑没有生效。  
-> 不需要这么搞。你先清除掉不该有的逻辑然后把版本号记为一点5.2。然后。在log cat里面去记录最近帧的情况，我会手动复制给你。看一下为什么没有触发？
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：去除 1.5.1 中不应存在的 identity reset 直接扣减；升级为 1.5.2；在 logcat 增加可复制的最近帧诊断输出，便于排查“为何未触发出门逻辑”。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceBaselineArchive.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
-    *   涉及方法：PresenceAlgorithmV1_1_0_B03021639.processFrame（identityReset分支）、PresenceAlgorithmRegistry.create/resolve/buildOptions、MainActivity.onCreate（pose回调）、MainActivity.logPresenceAnomalyDiagnostics、MainActivity.hardRestartPlayback
-    *   关键改动：
-      * **移除 identity reset 直接扣减**：删除 `identityResetApplied` 分支中的 `addPresence(beforeRoomId, -1)`，仅保留状态重置与诊断文本。
-      * **版本升级到 1.5.2**：
-        * 新增 `VERSION_V1_5_2_B03052250`
-        * 加入 `allVersionIds`（成为最新）
-        * `create` 主线映射支持 `1.5.2`
-        * `PresenceBaselineArchive.ACTIVE_VERSION_ID` 指向 `1.5.2`
-      * **1.5.2 策略对齐**：`blindPendingPolicy` 中 `1.5.2` 与 `1.5.1` 一致，采用 `ENTER_BLIND_ONLY`。
-      * **增加 logcat 最近帧诊断**（仅 `pauseSwitchLog=true` 时）：
-        * 当出现 `identityResetApplied/pendingDisabled/pendingDropped/ledgerBlockApplied` 异常原因，输出 `presenceAnomaly` 汇总行；
-        * 同步输出 `presenceRecent` 与 `recentFrame` 列表，方便人工复制。
-      * **重播重置清理**：`hardRestartPlayback` 增加异常日志去重状态清空，避免新回合诊断被抑制。
-
----
-
-## [228] 2026-03-05 23:10:00 - 新增播放链路录制按钮并停止即复制
-
-**用户指令**：
-> 我觉得这个不是因为它引起的，你先去掉这个东西.在调试面板里面加个按钮(开始记录播放,点击后变成停止记录播放).然后你想一下需要哪些信息放到这里面来，我把它记录好之后如果下次遇到了再发给你。  
-> 停止后就直接复制,不需要长按.开始吧
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：移除播放按键防抖，并在调试面板场景新增“播放链路录制”按钮，支持一键开始/停止，停止即自动复制完整诊断文本。
-    *   修改文件：app/src/main/res/layout/activity_main.xml、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
-    *   涉及方法：setupButtons、togglePause、appendPlayTrace、buildPlayTraceReport、togglePlayTraceRecording、refreshPlayTraceButton、maybeAppendPlayTraceHeartbeat、onSeekBackwardRequested、onSeekForwardRequested、hardRestartPlayback、onCreate(视频帧回调内runOnUiThread)
-    *   关键改动：
-      * 新增按钮 `btnPlayTrace`（开始记录播放/停止记录播放），仅在调试面板开启时显示。
-      * `togglePlayTraceRecording` 在“停止记录”时直接复制报告到剪贴板，不再依赖长按。
-      * 移除 `togglePause` 中的连点防抖逻辑，保留状态切换并追加操作来源日志。
-      * 录制内容增强：
-        * 手动/自动暂停来源（`manual_toggle`、`auto_pause_switch_event`、`auto_pause_count_delta`、`smart_match_pause`）。
-        * seek 来源（点击/长按）。
-        * 房间切换与扣减兜底判定摘要（`switch_event`、`count_delta_fallback`）。
-        * 低频播放心跳（`heartbeat`：`mpPlaying/posDelta/frameDelta`），用于定位“声音在走但画面不动”。
-      * 报告结构包含 `trace + presenceRecent + recentFrames`，便于一次复制后直接复盘。
-
----
-
-## [229] 2026-03-05 23:45:00 - 移除播放记录功能并回归logcat抓取
-
-**用户指令**：
-> 看来不需要了,这次根本没出发出门事件.删掉那个记录播放功能吧,我们还是用logcat来做抓你要的东西.告诉我怎么抓就行  
-> ok
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：移除“开始记录播放/停止记录播放”功能，避免与进出门排查混用，统一回归 `logcat` 抓取诊断。
-    *   修改文件：app/src/main/res/layout/activity_main.xml、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md
-    *   涉及方法：setupButtons、onCreate（pose 回调 runOnUiThread）、pauseForSmartMatchAnomaly、onSeekBackwardRequested、onSeekForwardRequested、refreshDebugPanelButton、togglePause、hardRestartPlayback
-    *   关键改动：
-      * 删除布局按钮 `btnPlayTrace`。
-      * 删除 `MainActivity` 中播放记录相关字段与方法：
-        * `isPlayTraceRecording/playTrace*`
-        * `appendPlayTrace/buildPlayTraceReport/togglePlayTraceRecording/refreshPlayTraceButton/maybeAppendPlayTraceHeartbeat`
-      * 移除所有播放记录写入调用（心跳、切换事件、扣减兜底、seek、暂停、硬重启、智能匹配暂停）。
-      * 收口此前为记录功能新增的 `source` 参数，恢复 `togglePause/onSeekForwardRequested/onSeekBackwardRequested` 的简洁签名与调用。
-
----
-
-## [230] 2026-03-06 00:20:00 - 1.5.3 Door-Origin出门归因重构并下线1.5.2
-
-**用户指令**：
-> 1.这个是不是只管出门?管哪些出门? 2.1.5.2不需要保留.  
-> ok
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：按 1.5.3 方案接入“Door-Origin / Door-Crossing”出门归因主链路，覆盖“出到客厅”场景；同时将 1.5.2 从可选版本下线（仅保留归档）。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/presence/RoomTransitionEstimator.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmRegistry.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceBaselineArchive.kt、app/src/main/java/com/example/roomxxx0102/logic/presence/PresenceAlgorithmV1_1_0_B03021639.kt、codexHistory.md
-    *   涉及方法：PresenceEventReason 枚举、PresenceAlgorithmRegistry 版本分发、PresenceAlgorithmV1_1_0_B03021639.processFrame、resetStateAfterCommittedEvent、resetTrackIdentityState、appendDoorOriginSample、resolveDoorOriginToLiving、computeDoorOriginNormalTowardRoom
-    *   关键改动：
-      * 新增版本 `V1.5.3(B03052330)`，并从 `allVersionIds` 中移除 `1.5.2`，`1.5.2` 仅保留在归档列表。
-      * 新增事件原因 `ORIGIN_SWITCH`，用于区分门源归因触发的“出到客厅”。
-      * 在主流程中新增 Door-Origin 窗口：
-        * 每帧追加地面点样本 `doorOriginSamples`；
-        * 对连接客厅的候选门计算：门口接近积分 `P` + 跨门槛方向性 `C`；
-        * 评分 `Score = 0.7*C + 0.3*P`，并执行低分/小优势/账本阻断三重门控。
-      * 接入两条提交路径：
-        * `INIT` 阶段：CONFIRMED 且落在客厅时，优先回溯门源（支持次卧/入户等来源）；
-        * 常规阶段：当前在非客厅且当前帧进入客厅时，优先走 `ORIGIN_SWITCH` 提交。
-      * 新增 `INIT_WAIT_ORIGIN`（最多 8 帧）以避免 lock 帧“探头未出门”就误提交。
-      * 事件级重置与身份重置均清理 Door-Origin 缓存，避免跨人串证据。
-
----
-
-## [231] 2026-03-06 00:55:00 - 播放往复回跳诊断日志增强与Wiki排查流程
-
-**用户指令**：
-> 好的，你着手处理吧，然后。只有等下一次，遇到了才能知道。怎么录log了,把它写到wiki里面去,带上这个bug本身简述.wiki项目:"播放往复回跳"
-
-**实现方案 (Implementation)**：
-
-*   **变更摘要**
-    *   任务目的：为“播放往复回跳（画面卡住来回跳、声音可能继续）”增加播放器链路诊断日志，并将抓取流程与判读口径写入 Wiki。
-    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、wiki.md、codexHistory.md
-    *   涉及方法：MainActivity.onSeekBackwardRequested、onSeekForwardRequested、togglePause、logPlayerDiag；VideoFeeder.setupMediaPlayer(setOnSeekCompleteListener/setOnPreparedListener)、setStillMode、pause、resume、seekByMs、computeTemporalAdvanced、stop、logPlayerDiag
-    *   关键改动：
-      * `MainActivity` 增加 `RoomPlayerDiag` 上层日志：
-        * `togglePause` 记录前后 `playState`、`position`、`isPlaying`；
-        * `±1帧/±5s` seek 记录动作类型、seek前后位置、播放态、逐帧seek调试值。
-      * `VideoFeeder` 增加底层日志：
-        * seek请求参数（`delta/target/mode/captureAsStep`）；
-        * seek完成回调状态（`pos/isPlaying/pending`）；
-        * pause/resume/setStillMode 状态切换；
-        * `playLoopAnomaly`：播放中位置不前进或倒跳时输出 `delta/stallCount`。
-      * 新增 `wiki.md` 章节 `1.7 播放往复回跳（播放器卡死）排查`：
-        * bug现象简述；
-        * 必开开关；
-        * 仅播放器相关的 logcat 抓取命令；
-        * 关键字段与快速判读口径。
-
----
-

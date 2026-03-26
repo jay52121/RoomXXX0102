@@ -1,0 +1,5 @@
+已完成并已接入原有“切换房间暂停”链路：
+
+1. 你之前这条链路本来就有日志，开关是“切换时记录暂停判定日志”，tag 为 `RoomPauseSwitch`。
+2. 这次把暂停触发范围从“仅 PLAYING”扩展为“非 PAUSED 都触发”，因此包含你说的扣减类切换事件。
+3. 日志字段保持原样：`switch`、`reason`、`shouldAutoPause`、`didAutoPause`、`playStateBefore/After`、`switchType`、`offset`。

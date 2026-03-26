@@ -11,6 +11,7 @@ import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.PointF
+import android.graphics.RectF
 import android.content.res.ColorStateList
 import android.media.MediaPlayer
 import android.net.Uri
@@ -50,8 +51,13 @@ import com.example.roomxxx0102.data.repository.AppSettings
 import com.example.roomxxx0102.data.repository.RoomRepository
 import com.example.roomxxx0102.logic.analyzer.RoiLogAggregator
 import com.example.roomxxx0102.logic.analyzer.RoiTracker
+import com.example.roomxxx0102.logic.analyzer.HandSmokeTester
 import com.example.roomxxx0102.logic.analyzer.YoloAnalyzer
 import com.example.roomxxx0102.logic.analyzer.YoloPoseAnalyzer
+import com.example.roomxxx0102.logic.pointing.HandObservation
+import com.example.roomxxx0102.logic.pointing.PointingDecision
+import com.example.roomxxx0102.logic.pointing.TargetRect
+import com.example.roomxxx0102.logic.pointing.TriggeredPointingResolver
 import com.example.roomxxx0102.logic.presence.PresenceOutsideMode
 import com.example.roomxxx0102.logic.presence.PresenceKeypoint
 import com.example.roomxxx0102.logic.presence.PresencePoint
@@ -83,6 +89,9 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.Executors
+import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
 
 class MainActivity : ComponentActivity() {
 
@@ -111,7 +120,11 @@ class MainActivity : ComponentActivity() {
 
     private var yoloAnalyzer: YoloAnalyzer? = null
     private var poseAnalyzer: YoloPoseAnalyzer? = null
+    private var handSmokeTester: HandSmokeTester? = null
     private var videoFeeder: VideoFeeder? = null
+    private var isHandOverlayPressed = false
+    private val pointingResolver = TriggeredPointingResolver()
+    private var pointingTargetLabelById: Map<String, String> = emptyMap()
 
     private var isVideoMode = true
     private var currentLivingRoomBoundary: List<PointF> = emptyList()
@@ -182,8 +195,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        RoomRepository.init(applicationContext)
         AppSettings.init(applicationContext)
+        RoomRepository.init(applicationContext)
         eventMarkerManager.init(applicationContext)
         ensurePresenceAlgorithmVersion()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -481,6 +494,17 @@ class MainActivity : ComponentActivity() {
         videoFeeder = VideoFeeder(this, textureView).apply {
             this.yoloAnalyzer = this@MainActivity.yoloAnalyzer
             this.poseAnalyzer = this@MainActivity.poseAnalyzer
+            this.handSmokeTester = HandSmokeTester(this@MainActivity).also {
+                this@MainActivity.handSmokeTester = it
+                it.onHandsResult = { hands ->
+                    runOnUiThread {
+                        overlayView.updateHandData(hands)
+                    }
+                }
+                it.onPointingObservation = { observation ->
+                    handleTriggeredPointingObservation(observation)
+                }
+            }
             this.onStepNudge = { msg ->
                 overlayView.showUnlockBanner(msg)
             }
@@ -618,6 +642,106 @@ class MainActivity : ComponentActivity() {
             }
         }
         return doors
+    }
+
+    private fun buildPointingTargetRects(
+        imageWidth: Int,
+        imageHeight: Int
+    ): Pair<List<TargetRect>, Map<String, String>> {
+        if (imageWidth <= 0 || imageHeight <= 0) return emptyList<TargetRect>() to emptyMap()
+        val rooms = RoomRepository.getAllRooms()
+        val doorSnapshots = buildPresenceDoorSnapshots(rooms)
+        val roomNameById = rooms.associate { it.id to it.name }
+        val imageDiagonal = hypot(imageWidth.toFloat(), imageHeight.toFloat())
+        val paddingPx = max(imageDiagonal * 0.02f, 24f)
+        val targets = doorSnapshots.mapNotNull { door ->
+            val ax = (door.a.x * imageWidth.toDouble()).toFloat()
+            val ay = (door.a.y * imageHeight.toDouble()).toFloat()
+            val bx = (door.b.x * imageWidth.toDouble()).toFloat()
+            val by = (door.b.y * imageHeight.toDouble()).toFloat()
+            val rect = RectF(
+                min(ax, bx) - paddingPx,
+                min(ay, by) - paddingPx,
+                max(ax, bx) + paddingPx,
+                max(ay, by) + paddingPx
+            )
+            if (rect.width() <= 0f || rect.height() <= 0f) {
+                null
+            } else {
+                TargetRect(
+                    id = door.doorId,
+                    rect = rect
+                )
+            }
+        }
+        val labels = doorSnapshots.associate { door ->
+            door.doorId to (roomNameById[door.roomBId] ?: door.doorId)
+        }
+        return targets to labels
+    }
+
+    private fun startTriggeredPointingSession() {
+        val bitmap = textureView.bitmap
+        if (bitmap == null) {
+            overlayView.showUnlockBanner("指向识别启动失败")
+            return
+        }
+        val (targets, labels) = buildPointingTargetRects(bitmap.width, bitmap.height)
+        pointingTargetLabelById = labels
+        val startTimestampMs = SystemClock.uptimeMillis()
+        pointingResolver.startSession(targets, startTimestampMs)
+        if (targets.isEmpty()) {
+            handleTriggeredPointingDecision(pointingResolver.submitFrame(null))
+            return
+        }
+        Log.i(
+            "TriggeredPointingResolver",
+            "POINTING|START|targets=${targets.joinToString { "${it.id}:${it.rect.centerX().toInt()},${it.rect.centerY().toInt()}" }}"
+        )
+    }
+
+    private fun handleTriggeredPointingObservation(observation: HandObservation) {
+        if (!pointingResolver.isActive()) return
+        val decision = pointingResolver.submitFrame(observation)
+        runOnUiThread {
+            overlayView.updatePointingDebugSnapshot(pointingResolver.latestDebugSnapshot())
+        }
+        if (decision !is PointingDecision.Pending) {
+            runOnUiThread {
+                handleTriggeredPointingDecision(decision)
+            }
+        }
+    }
+
+    private fun handleTriggeredPointingDecision(decision: PointingDecision) {
+        when (decision) {
+            is PointingDecision.Pending -> Unit
+            is PointingDecision.Recognized -> {
+                val label = pointingTargetLabelById[decision.targetId] ?: decision.targetId
+                val message = "命中：$label (${String.format(Locale.US, "%.2f", decision.score)})"
+                overlayView.showUnlockBanner(message)
+                Log.i(
+                    "TriggeredPointingResolver",
+                    "POINTING|RECOGNIZED|target=${decision.targetId}|label=$label|score=${String.format(Locale.US, "%.3f", decision.score)}|elapsed=${decision.elapsedMs}|path=${decision.diagnostics.acceptPath}|top3=${decision.diagnostics.top3Targets}"
+                )
+                overlayView.updatePointingDebugSnapshot(
+                    pointingResolver.latestDebugSnapshot(),
+                    holdMs = if (isHandOverlayPressed) 0L else 1000L
+                )
+            }
+            is PointingDecision.Unrecognized -> {
+                val message = "未识别(${decision.reason})"
+                overlayView.showUnlockBanner(message)
+                Log.i(
+                    "TriggeredPointingResolver",
+                    "POINTING|UNRECOGNIZED|reason=${decision.reason}|score=${String.format(Locale.US, "%.3f", decision.score)}|elapsed=${decision.elapsedMs}|path=${decision.diagnostics.acceptPath}|top3=${decision.diagnostics.top3Targets}"
+                )
+                overlayView.updatePointingDebugSnapshot(
+                    pointingResolver.latestDebugSnapshot(),
+                    holdMs = if (isHandOverlayPressed) 0L else 1000L
+                )
+            }
+        }
     }
 
     private fun buildPresenceEventText(
@@ -915,6 +1039,7 @@ class MainActivity : ComponentActivity() {
         val btnMarkExitEvent = findViewById<Button>(R.id.btnMarkExitEvent)
         val btnJumpNextEvent = findViewById<Button>(R.id.btnJumpNextEvent)
         val btnDeleteCurrentEvent = findViewById<Button>(R.id.btnDeleteCurrentEvent)
+        val btnHandOverlay = findViewById<Button>(R.id.btnHandOverlay)
         btnPause.setOnClickListener { togglePause(it as Button) }
         btnPause.setOnLongClickListener {
             hardRestartPlayback()
@@ -938,6 +1063,27 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(this, "已复制调试面板信息", Toast.LENGTH_SHORT).show()
             }
             true
+        }
+        btnHandOverlay.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    isHandOverlayPressed = true
+                    handSmokeTester?.startConfidenceProbeSession()
+                    startTriggeredPointingSession()
+                    if (pointingResolver.isActive()) {
+                        overlayView.showUnlockBanner("手点采样+指向识别中")
+                    }
+                    updateHandOverlayMode()
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    isHandOverlayPressed = false
+                    overlayView.updatePointingDebugSnapshot(null)
+                    updateHandOverlayMode()
+                    true
+                }
+                else -> false
+            }
         }
         overlayView.setOnUnlockBannerLongPressListener {
             onValidationBannerLongPressed()
@@ -1502,6 +1648,25 @@ class MainActivity : ComponentActivity() {
             overlayView.setLivingRoomVertices(livingRoom.boundaryVertices)
         }
         overlayView.setSubRooms(allRooms.filter { !it.isSovereignTerritory })
+        updateHandOverlayMode()
+    }
+
+    fun onRoomConfigChangedFromSettings() {
+        refreshOverlayDisplay()
+        if (editorView.visibility == View.VISIBLE) {
+            applyModeSelection(editorView.currentMode)
+        }
+    }
+
+    fun onVideoSourceChangedFromSettings() {
+        if (isVideoMode) {
+            startVideoMode()
+        }
+    }
+
+    private fun updateHandOverlayMode() {
+        overlayView.setHandOnlyState(isHandOverlayPressed)
+        overlayView.setPoseState(AppSettings.isPoseModeEnabled && !isHandOverlayPressed)
     }
 
     private fun toggleEditModeUI(isEditing: Boolean) {
@@ -1561,7 +1726,8 @@ class MainActivity : ComponentActivity() {
     private fun applySettings() {
         overlayView.setDebugBoxState(AppSettings.isDebugBoxShown)
         overlayView.setCenterPointState(AppSettings.isCenterPointShown)
-        overlayView.setPoseState(AppSettings.isPoseModeEnabled)
+        overlayView.setPointingDebugOverlayEnabled(AppSettings.isPointingDebugOverlayEnabled)
+        updateHandOverlayMode()
         videoFeeder?.isPoseMode = AppSettings.isPoseModeEnabled
         if (!isVideoMode) { unbindCamera(); startCameraMode() }
     }
@@ -2454,6 +2620,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         videoFeeder?.stop()
+        handSmokeTester?.close()
+        handSmokeTester = null
         unbindCamera()
     }
 

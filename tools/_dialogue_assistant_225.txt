@@ -1,0 +1,7 @@
+已加“无事件扣减”兜底暂停，并且日志可归因：
+
+1. 当本帧没有切换事件但人数出现负向差分时，走 `COUNT_DELTA_FALLBACK` 暂停链路。
+2. 在 `RoomPauseSwitch` 日志里新增：
+   - `deltaMap`（哪些房间被扣减）
+   - `likelyCause`（优先解析 identityReset 的 resetReason/track/gap/jump；其次 pendingDropped/ledgerBlock）
+3. 仍复用原有 `pauseOnSwitch` 开关与 `shouldAutoPause/didAutoPause/playStateBefore/After` 字段。

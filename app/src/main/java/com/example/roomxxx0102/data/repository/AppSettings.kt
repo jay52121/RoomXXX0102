@@ -2,6 +2,7 @@ package com.example.roomxxx0102.data.repository
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.json.JSONArray
 
 /**
  * **应用全局配置 (App Settings)**
@@ -15,10 +16,13 @@ object AppSettings {
     private const val KEY_ENABLE_POSE = "enable_pose"
     private const val KEY_ENABLE_ROI_CROP = "enable_roi_crop"
     private const val KEY_TEST_VIDEO_URI = "test_video_uri"
+    private const val KEY_TEST_VIDEO_HISTORY = "test_video_history"
+    private const val KEY_ACTIVE_ROOM_CONFIG_PATH = "active_room_config_path"
     private const val KEY_ENABLE_NEW_TRACKER = "enable_new_tracker"
     private const val KEY_ROI_LOG_MODE = "roi_log_mode"
     private const val KEY_STILL_STANDARD_FRAME = "still_standard_frame"
     private const val KEY_CLIPBOARD_DEBUG_ON_STEP = "clipboard_debug_on_step"
+    private const val KEY_POINTING_DEBUG_OVERLAY_ENABLED = "pointing_debug_overlay_enabled"
     private const val KEY_PRESENCE_ALGO_VERSION = "presence_algorithm_version"
     private const val KEY_PAUSE_ON_ROOM_SWITCH = "pause_on_room_switch"
     private const val KEY_PAUSE_DECISION_LOG_ON_SWITCH = "pause_decision_log_on_switch"
@@ -38,6 +42,8 @@ object AppSettings {
         private set
     var testVideoUri: String? = null
         private set
+    var activeRoomConfigPath: String? = null
+        private set
     var isNewTrackerPredictionEnabled: Boolean = false
         private set
     var roiLogMode: Int = ROI_LOG_MODE_TIME
@@ -45,6 +51,8 @@ object AppSettings {
     var isStillStandardFrameEnabled: Boolean = false
         private set
     var isClipboardDebugOnStepEnabled: Boolean = false
+        private set
+    var isPointingDebugOverlayEnabled: Boolean = false
         private set
     var presenceAlgorithmVersion: String = PRESENCE_ALGO_AUTO
         private set
@@ -70,10 +78,12 @@ object AppSettings {
         isPoseModeEnabled = prefs.getBoolean(KEY_ENABLE_POSE, true)
         isRoiRealCropEnabled = prefs.getBoolean(KEY_ENABLE_ROI_CROP, false)
         testVideoUri = prefs.getString(KEY_TEST_VIDEO_URI, null)
+        activeRoomConfigPath = prefs.getString(KEY_ACTIVE_ROOM_CONFIG_PATH, null)
         isNewTrackerPredictionEnabled = prefs.getBoolean(KEY_ENABLE_NEW_TRACKER, false)
         roiLogMode = prefs.getInt(KEY_ROI_LOG_MODE, ROI_LOG_MODE_TIME)
         isStillStandardFrameEnabled = prefs.getBoolean(KEY_STILL_STANDARD_FRAME, false)
         isClipboardDebugOnStepEnabled = prefs.getBoolean(KEY_CLIPBOARD_DEBUG_ON_STEP, false)
+        isPointingDebugOverlayEnabled = prefs.getBoolean(KEY_POINTING_DEBUG_OVERLAY_ENABLED, false)
         presenceAlgorithmVersion = prefs.getString(KEY_PRESENCE_ALGO_VERSION, PRESENCE_ALGO_AUTO) ?: PRESENCE_ALGO_AUTO
         isPauseOnRoomSwitchEnabled = prefs.getBoolean(KEY_PAUSE_ON_ROOM_SWITCH, false)
         isPauseDecisionLogOnSwitchEnabled = prefs.getBoolean(KEY_PAUSE_DECISION_LOG_ON_SWITCH, false)
@@ -110,6 +120,56 @@ object AppSettings {
         }
     }
 
+    fun getTestVideoHistory(): List<String> {
+        val raw = prefs.getString(KEY_TEST_VIDEO_HISTORY, null).orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return try {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = array.optString(i).trim()
+                    if (item.isNotBlank()) add(item)
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun pushTestVideoHistory(uri: String) {
+        val normalized = uri.trim()
+        if (normalized.isBlank()) return
+        val merged = mutableListOf(normalized)
+        getTestVideoHistory().forEach { item ->
+            if (item != normalized) merged.add(item)
+        }
+        val limited = merged.take(12)
+        val array = JSONArray()
+        limited.forEach { array.put(it) }
+        prefs.edit().putString(KEY_TEST_VIDEO_HISTORY, array.toString()).apply()
+    }
+
+    fun removeTestVideoHistory(uri: String) {
+        val normalized = uri.trim()
+        val remained = getTestVideoHistory().filter { it != normalized }
+        if (remained.isEmpty()) {
+            prefs.edit().remove(KEY_TEST_VIDEO_HISTORY).apply()
+            return
+        }
+        val array = JSONArray()
+        remained.forEach { array.put(it) }
+        prefs.edit().putString(KEY_TEST_VIDEO_HISTORY, array.toString()).apply()
+    }
+
+    fun setActiveRoomConfigPath(path: String?) {
+        activeRoomConfigPath = path
+        if (path.isNullOrBlank()) {
+            prefs.edit().remove(KEY_ACTIVE_ROOM_CONFIG_PATH).apply()
+        } else {
+            prefs.edit().putString(KEY_ACTIVE_ROOM_CONFIG_PATH, path).apply()
+        }
+    }
+
     fun setNewTrackerPredictionEnabled(enable: Boolean) {
         isNewTrackerPredictionEnabled = enable
         prefs.edit().putBoolean(KEY_ENABLE_NEW_TRACKER, enable).apply()
@@ -128,6 +188,11 @@ object AppSettings {
     fun setClipboardDebugOnStepEnabled(enable: Boolean) {
         isClipboardDebugOnStepEnabled = enable
         prefs.edit().putBoolean(KEY_CLIPBOARD_DEBUG_ON_STEP, enable).apply()
+    }
+
+    fun setPointingDebugOverlayEnabled(enable: Boolean) {
+        isPointingDebugOverlayEnabled = enable
+        prefs.edit().putBoolean(KEY_POINTING_DEBUG_OVERLAY_ENABLED, enable).apply()
     }
 
     fun setPresenceAlgorithmVersion(version: String) {

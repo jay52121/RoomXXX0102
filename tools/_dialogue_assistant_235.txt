@@ -1,0 +1,9 @@
+这个 1.6.2 方案我认可，方向正确，正好补上当前缺口。
+
+我会按你贴的内容**原样落地**，只做这三件事：
+
+1. 在 `ORIGIN_EXIT` 分支加入 `ANOMALOUS_ORIGIN` 提交（仅 `fromCount==0` 且分数/margin/非歧义满足）。  
+2. 增加两条专门日志：`ORIGIN_EXIT_LEDGER_BLOCK`、`ORIGIN_EXIT_ANOMALOUS_COMMIT`。  
+3. 其余 1.6.1 规则全部不变（`events=[]` 回滚、INIT/identity reset 不落账、SPAWN 严格触发与去重不改）。
+
+你确认后我就按 **V1.6.2** 开始改。

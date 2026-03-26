@@ -34,12 +34,18 @@ object PresenceAlgorithmRegistry {
     const val VERSION_V1_5_1_B03052210 = "V1.5.1(B03052210)"
     const val VERSION_V1_5_2_B03052250 = "V1.5.2(B03052250)"
     const val VERSION_V1_5_3_B03052330 = "V1.5.3(B03052330)"
+    const val VERSION_V1_6_0_B03060120 = "V1.6.0(B03060120)"
+    const val VERSION_V1_6_1_B03060220 = "V1.6.1(B03060220)"
+    const val VERSION_V1_6_2_B03060320 = "V1.6.2(B03060320)"
     const val ACTIVE_BASELINE_ID = "MAINLINE_20260303"
 
     private val allVersionIds = listOf(
         VERSION_V1_5_0_B03041530,
         VERSION_V1_5_1_B03052210,
-        VERSION_V1_5_3_B03052330
+        VERSION_V1_5_3_B03052330,
+        VERSION_V1_6_0_B03060120,
+        VERSION_V1_6_1_B03060220,
+        VERSION_V1_6_2_B03060320
     )
 
     private val archivedVersionIds = listOf(
@@ -123,6 +129,9 @@ object PresenceAlgorithmRegistry {
     ): PresenceAlgorithmEngine {
         val resolved = resolveVersionId(selectedId)
         if (
+            resolved == VERSION_V1_6_2_B03060320 ||
+            resolved == VERSION_V1_6_1_B03060220 ||
+            resolved == VERSION_V1_6_0_B03060120 ||
             resolved == VERSION_V1_5_3_B03052330 ||
             resolved == VERSION_V1_5_1_B03052210 ||
             resolved == VERSION_V1_5_0_B03041530 ||
@@ -132,6 +141,9 @@ object PresenceAlgorithmRegistry {
         ) {
             val activeParams = buildActiveMainlineParams(params)
             val runtimeVersionId = when (resolved) {
+                VERSION_V1_6_2_B03060320 -> VERSION_V1_6_2_B03060320
+                VERSION_V1_6_1_B03060220 -> VERSION_V1_6_1_B03060220
+                VERSION_V1_6_0_B03060120 -> VERSION_V1_6_0_B03060120
                 VERSION_V1_5_3_B03052330 -> VERSION_V1_5_3_B03052330
                 VERSION_V1_5_1_B03052210 -> VERSION_V1_5_1_B03052210
                 else -> VERSION_V1_5_0_B03041530

@@ -118,7 +118,14 @@
             android:id="@+id/btnDebugPanel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="调试面板:关" />
+            android:text="调试面板:关"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnHandOverlay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="按住看手" />
     </LinearLayout>
 
     <!-- 5.5 事件标注工具栏（仅静止/暂停 + 调试面板开启时显示） -->

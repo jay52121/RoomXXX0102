@@ -12,11 +12,14 @@ import android.util.Log
 import android.view.Surface
 import android.view.TextureView
 import com.example.roomxxx0102.data.repository.AppSettings
+import com.example.roomxxx0102.logic.analyzer.HandSmokeTester
 import com.example.roomxxx0102.logic.analyzer.RoiLogAggregator
 import com.example.roomxxx0102.logic.analyzer.YoloAnalyzer
 import com.example.roomxxx0102.logic.analyzer.YoloPoseAnalyzer
 import java.io.File
 import java.io.FileInputStream
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
 class VideoFeeder(
@@ -46,6 +49,7 @@ class VideoFeeder(
 
     var yoloAnalyzer: YoloAnalyzer? = null
     var poseAnalyzer: YoloPoseAnalyzer? = null
+    var handSmokeTester: HandSmokeTester? = null
     
     var isPoseMode = false
     
@@ -76,6 +80,10 @@ class VideoFeeder(
     private var mediaPlayer: MediaPlayer? = null
     private var isAnalyzing = false
     private val handler = Handler(Looper.getMainLooper())
+    // 推理必须串行：TFLite Interpreter/GPU Delegate 非线程安全，禁止并发 run()
+    private val inferenceExecutor = Executors.newSingleThreadExecutor()
+    private val inferenceInFlight = AtomicBoolean(false)
+    private var inferenceSkipStreak = 0
 
     private val analyzeRunnable = object : Runnable {
         override fun run() {
@@ -102,6 +110,9 @@ class VideoFeeder(
                 }
                 val bitmap = textureView.bitmap
                 if (bitmap != null) {
+                    val roi = nextFrameRoi
+                    Log.i("HandSmokeTester", "HSMOKE|CALL_SITE|bitmap=${bitmap.width}x${bitmap.height}|roi=${roi ?: "-"}")
+                    handSmokeTester?.detect(bitmap, roi)
                     val currentPosMs = mediaPlayer!!.currentPosition
                     val frameDigest = computeFrameDigest(bitmap)
                     lastAnalyzedFrameDigest = frameDigest
@@ -114,20 +125,12 @@ class VideoFeeder(
                         handler.postDelayed(this, 100)
                         return
                     }
-                    val roi = nextFrameRoi
-                    Thread {
-                        if (isPoseMode) {
-                            poseAnalyzer?.analyzeBitmapAndTrackPoses(
-                                bitmap = bitmap,
-                                roi = roi,
-                                drawOnOverlay = true,
-                                temporalAdvanced = temporalAdvanced,
-                                suppressStagnantUnlock = suppressStagnantUnlock
-                            )
-                        } else {
-                            yoloAnalyzer?.detectOnBitmap(bitmap, drawOnOverlay = true)
-                        }
-                    }.start()
+                    submitInferenceTask(
+                        bitmap = bitmap,
+                        roi = roi,
+                        temporalAdvanced = temporalAdvanced,
+                        suppressStagnantUnlock = suppressStagnantUnlock
+                    )
                 }
                 // 正常频率
                 handler.postDelayed(this, 100)
@@ -579,6 +582,7 @@ class VideoFeeder(
         pendingSeekState = null
         lastSeekCompletePositionMs = null
         lastSeekCompleteAtMs = 0L
+        inferenceSkipStreak = 0
         handler.removeCallbacks(analyzeRunnable)
         val mp = mediaPlayer
         mediaPlayer = null
@@ -588,6 +592,45 @@ class VideoFeeder(
             }
             mp?.release()
         } catch (e: Exception) {}
+    }
+
+    private fun submitInferenceTask(
+        bitmap: android.graphics.Bitmap,
+        roi: RectF?,
+        temporalAdvanced: Boolean,
+        suppressStagnantUnlock: Boolean
+    ) {
+        if (!inferenceInFlight.compareAndSet(false, true)) {
+            inferenceSkipStreak += 1
+            if (inferenceSkipStreak == 10 || inferenceSkipStreak % 30 == 0) {
+                logPlayerDiag(
+                    "inferenceBackpressure " +
+                        "skipStreak=$inferenceSkipStreak " +
+                        "poseMode=$isPoseMode stillMode=$isStillMode"
+                )
+            }
+            return
+        }
+        inferenceSkipStreak = 0
+        inferenceExecutor.execute {
+            try {
+                if (isPoseMode) {
+                    poseAnalyzer?.analyzeBitmapAndTrackPoses(
+                        bitmap = bitmap,
+                        roi = roi,
+                        drawOnOverlay = true,
+                        temporalAdvanced = temporalAdvanced,
+                        suppressStagnantUnlock = suppressStagnantUnlock
+                    )
+                } else {
+                    yoloAnalyzer?.detectOnBitmap(bitmap, drawOnOverlay = true)
+                }
+            } catch (t: Throwable) {
+                Log.e("VideoFeeder", "inference task failed", t)
+            } finally {
+                inferenceInFlight.set(false)
+            }
+        }
     }
 
     private fun logPlayerDiag(message: String) {
