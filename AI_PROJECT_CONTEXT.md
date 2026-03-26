@@ -1,5 +1,5 @@
 # Android Project Context: RoomFlow (Optimized)
-> Generated at: 2026-01-07 00:17:33
+> Generated at: 2026-03-27 02:52:36
 > Strategy: Core Data (Full) | Logic (API Only) | Private Members (Hidden)
 
 ## 1. Project File Structure
@@ -15,13 +15,34 @@ java/
                     repository/
                         AppSettings.kt
                         RoomRepository.kt
+                        VideoRoomConfigManager.kt
                 logic/
                     analyzer/
+                        HandSmokeTester.kt
+                        RoiLogAggregator.kt
                         RoiTracker.kt
                         YoloAnalyzer.kt
                         YoloPoseAnalyzer.kt
+                    pointing/
+                        HandLandmarkerPointingAdapter.kt
+                        TriggeredPointingResolver.kt
+                    presence/
+                        PresenceAlgorithmEngine.kt
+                        PresenceAlgorithmRegistry.kt
+                        PresenceAlgorithmV1_1_0_B03021639.kt
+                        PresenceBaselineArchive.kt
+                        PresenceGeometry.kt
+                        RoomPresenceChangeLogger.kt
+                        RoomTransitionEstimator.kt
                     recorder/
                         RoomRecorder.kt
+                    tracker/
+                        RemoteByteTrackEngine.kt
+                        SimpleTrackerEngine.kt
+                        TrackClient.kt
+                        TrackerEngine.kt
+                    validation/
+                        EventMarkerManager.kt
                     video/
                         VideoFeeder.kt
                 ui/
@@ -49,6 +70,72 @@ java/
                     GeometryUtils.kt
                     RoomColorPalette.kt
 ```
+
+## 1.1 Current Delta Summary
+
+相较于这份文档 2026-01-07 的旧快照，当前项目主结构已经明显扩展，下面这些模块已经成为当前代码主线的一部分：
+
+- `data/repository/VideoRoomConfigManager.kt`
+  - 负责“按视频分目录”的房间配置文件作用域管理。
+  - 与 `AppSettings.activeRoomConfigPath`、`RoomRepository`、`SettingsHomeFragment` 一起构成当前配置加载链路。
+
+- `logic/analyzer/HandSmokeTester.kt`
+  - 当前 MediaPipe Hand Landmarker 接入点。
+  - 已不再只是冒烟验证，还承担 hand overlay、ROI 输入、pointing 观测回传等职责。
+
+- `logic/analyzer/RoiLogAggregator.kt`
+  - 调试面板与 ROI 诊断日志的聚合器。
+  - 当前很多排查流程依赖它输出压缩后的面板快照和日志文本。
+
+- `logic/pointing/*`
+  - `TriggeredPointingResolver.kt`：pointing 的核心判定器。
+  - `HandLandmarkerPointingAdapter.kt`：把 MediaPipe hand 结果映射为 pointing observation。
+
+- `logic/presence/*`
+  - 现在人数/进出房间主线已集中到 presence 目录，而不是只散落在 `MainActivity`。
+  - `PresenceAlgorithmRegistry.kt` 负责算法版本注册与切换。
+  - `PresenceAlgorithmV1_1_0_B03021639.kt` 承载当前主线大量版本增量逻辑。
+  - `RoomTransitionEstimator.kt`、`PresenceGeometry.kt`、`RoomPresenceChangeLogger.kt` 负责切换判定、几何辅助和调试日志。
+  - `PresenceBaselineArchive.kt` 保存版本归档与主线基线。
+
+- `logic/tracker/*`
+  - 当前已存在多套 tracker 实现：`SimpleTrackerEngine`、`RemoteByteTrackEngine`。
+  - `TrackClient.kt` 负责远程 ByteTrack 通讯。
+  - `TrackerEngine.kt` 提供统一抽象。
+
+- `logic/validation/EventMarkerManager.kt`
+  - 负责“事件标记按视频持久化”和运行态校验辅助。
+  - 是当前事件校验与手动标注链路的重要支点。
+
+## 1.2 Current Hot Paths
+
+当前维护项目时，最常碰到的不是单点功能，而是下面几条跨文件主链路：
+
+1. 房间配置链路
+- `AppSettings.activeRoomConfigPath`
+- `VideoRoomConfigManager`
+- `RoomRepository`
+- `SettingsHomeFragment`
+- `MainActivity`
+
+2. Presence 人数与房间切换链路
+- `MainActivity`
+- `PresenceAlgorithmRegistry`
+- `PresenceAlgorithmV1_1_0_B03021639`
+- `RoomTransitionEstimator`
+- `RoomPresenceChangeLogger`
+
+3. 播放器与诊断链路
+- `VideoFeeder`
+- `MainActivity.logPlayerDiag`
+- `wiki.md` 中的 `RoomPlayerDiag` 抓取与判读约定
+
+4. 手部与 pointing 链路
+- `HandSmokeTester`
+- `HandLandmarkerPointingAdapter`
+- `TriggeredPointingResolver`
+- `DetectionOverlayView`
+- `MainActivity`
 
 ## 2. Key Classes & Signatures
 

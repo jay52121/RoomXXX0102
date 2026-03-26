@@ -1,5 +1,103 @@
 # Codex History
 
+## [252] 2026-03-27 03:18:43 - 暂不配置状态改为冷启动持久生效
+
+**用户指令**：
+> 我已经执行了一次不选择,怎么重启app后又给我回来了
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“暂不配置”只在当前运行期生效、重启后又被 `room_config.json` 回退逻辑覆盖的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/data/repository/AppSettings.kt、app/src/main/java/com/example/roomxxx0102/data/repository/RoomRepository.kt、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：AppSettings.setNoRoomConfigSelected/init、RoomRepository.init/switchToConfigFile/saveAsConfigFile、SettingsHomeFragment.buildNoConfigRow、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      * 在 `AppSettings` 新增 `isNoRoomConfigSelected` 持久标记，用于记录用户是否明确选择了“暂不配置”。
+      * `RoomRepository.init()` 启动时优先检查该标记；若为真，则直接进入临时空配置，不再回退到 `room_config.json`。
+      * 用户重新读取已有配置文件或保存新配置文件时，自动清除该标记，恢复正常冷启动配置逻辑。
+      * “暂不配置”按钮现在会同时切到临时空配置、清空 `activeRoomConfigPath`，并写入 `isNoRoomConfigSelected=true`。
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [251] 2026-03-27 03:15:02 - 配置列表新增暂不配置并清除配置记忆
+
+**用户指令**：
+> 我们再加一个功能就是在读取房间配置的。列表里面加一个。暂不配置项,点击后清除选择. 用户就可以去建立新的配置了
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在“读取房间配置”列表中新增“暂不配置”入口，让用户可以主动清除当前配置绑定并从空白状态开始新建配置。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：SettingsHomeFragment.buildNoConfigRow、refreshConfigListContent、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      * 在读取配置的展开列表顶部新增固定项“0. 暂不配置”。
+      * 点击“选择”后调用 `RoomRepository.loadTemporaryEmptyConfig()` 切到临时空配置。
+      * 同时调用 `AppSettings.setActiveRoomConfigPath(null)` 清除“上一次真正加载过的配置文件”记忆，避免重启恢复旧文件。
+      * 当前处于临时空配置时，“暂不配置”会显示 `[当前]`，便于用户识别当前状态。
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [250] 2026-03-27 03:08:02 - 无匹配视频时切换为临时空配置
+
+**用户指令**：
+> 好的,开始吧,我们确认下,对话日志的写入是用的一个脚本,不是你一个字一个字的写
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修正“当前视频无匹配配置时仍像是挂着旧文件”的行为，使其切到临时空配置，同时保留上一次真实加载配置文件的记忆。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/data/repository/RoomRepository.kt、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：RoomRepository.loadTemporaryEmptyConfig、SettingsHomeFragment.loadDefaultConfigForSelectedVideo、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      * 在 `RoomRepository` 新增 `loadTemporaryEmptyConfig()`，用于显式切到“无文件绑定的临时空配置”内存态。
+      * 当前视频默认配置文件存在时，仍按原逻辑加载并持久化选择。
+      * 当前视频默认配置文件不存在时，设置页改为调用 `loadTemporaryEmptyConfig()`，不再继续挂着一个不存在的目标文件。
+      * 这样既能保证当前无匹配视频不加载任何已保存配置文件，也不会抹掉 `activeRoomConfigPath` 对上一次真实加载文件的记忆。
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [249] 2026-03-27 02:52:36 - 维护项目方法总览文档并补齐新增模块
+
+**用户指令**：
+> 直接去读然后维护吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：维护 `AI_PROJECT_CONTEXT.md` 这份项目方法总览文档，使其重新反映当前项目结构与主链路。
+    *   修改文件：AI_PROJECT_CONTEXT.md、codexHistory.md、dialogueHistory.md
+    *   涉及方法：AI_PROJECT_CONTEXT 顶部结构快照、Current Delta Summary、Current Hot Paths、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      * 将 `AI_PROJECT_CONTEXT.md` 的生成时间更新到本次维护时间。
+      * 重写文档顶部的项目文件结构，补齐 `VideoRoomConfigManager`、`pointing`、`presence`、`tracker`、`validation` 等 1 月后新增模块。
+      * 新增 `Current Delta Summary`，明确这份文档相较旧快照新增的主线模块及职责。
+      * 新增 `Current Hot Paths`，总结当前项目最常维护的跨文件主链路，方便后续快速定位。
+
+---
+
+## [248] 2026-03-27 00:18:00 - 放开双手检测并在pointing中优先选择更高的手
+
+**用户指令**：
+> 我们只选择垂直方向更高的一只手。现在开始改。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：放开 Hand Landmarker 的双手检测能力，并在 pointing 输入层改为优先选择画面里更高（y 更小）的那只手。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/analyzer/HandSmokeTester.kt、dialogueHistory.md、codexHistory.md
+    *   涉及方法：HandSmokeTester.setupHandLandmarker/onLiveStreamResult/selectHigherHandIndex
+    *   关键改动：
+      * `numHands` 从 1 调整为 2，允许同一帧返回两只手。
+      * `onHandsResult` 继续保留所有检测到的手，overlay 仍可同时绘制多手。
+      * pointing 不再固定取第一只手，而是按整手平均 y 值选择画面里更高的那只手作为输入。
+      * 编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
 ## [247] 2026-03-27 00:08:00 - 将当前ROI裁剪链路接入MediaPipe Hand Landmarker
 
 **用户指令**：

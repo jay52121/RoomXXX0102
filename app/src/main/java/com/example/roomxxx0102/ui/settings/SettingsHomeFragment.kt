@@ -181,14 +181,15 @@ class SettingsHomeFragment : Fragment() {
             return
         }
         val exists = defaultFile.exists()
-        RoomRepository.switchToConfigFile(
-            file = defaultFile,
-            persistSelection = exists,
-            createIfMissing = false
-        )
         val message = if (exists) {
+            RoomRepository.switchToConfigFile(
+                file = defaultFile,
+                persistSelection = true,
+                createIfMissing = false
+            )
             "已加载默认配置: ${defaultFile.nameWithoutExtension}"
         } else {
+            RoomRepository.loadTemporaryEmptyConfig()
             "无房间配置文件"
         }
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
@@ -313,6 +314,45 @@ class SettingsHomeFragment : Fragment() {
         return row
     }
 
+    private fun buildNoConfigRow(): View {
+        val row = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 8.dp
+            }
+        }
+
+        val isCurrent = RoomRepository.currentConfigFile() == null
+
+        val titleView = TextView(requireContext()).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            text = buildString {
+                append("0. 暂不配置")
+                if (isCurrent) append("  [当前]")
+            }
+            textSize = 13f
+            setTextColor(if (isCurrent) 0xFF4CAF50.toInt() else 0xFF333333.toInt())
+        }
+
+        val clearButton = com.google.android.material.button.MaterialButton(requireContext()).apply {
+            text = "选择"
+            setOnClickListener {
+                RoomRepository.loadTemporaryEmptyConfig()
+                AppSettings.setActiveRoomConfigPath(null)
+                AppSettings.setNoRoomConfigSelected(true)
+                Toast.makeText(context, "已清除当前配置选择", Toast.LENGTH_SHORT).show()
+                refreshConfigListContent()
+            }
+        }
+
+        row.addView(titleView)
+        row.addView(clearButton)
+        return row
+    }
+
     private fun refreshConfigListContent() {
         if (!isConfigListExpanded) return
         val container = binding.layoutConfigList
@@ -326,6 +366,7 @@ class SettingsHomeFragment : Fragment() {
             })
             return
         }
+        container.addView(buildNoConfigRow())
         if (configFiles.isEmpty()) {
             container.addView(TextView(requireContext()).apply {
                 text = "当前视频暂无房间配置"
@@ -708,3 +749,4 @@ class SettingsHomeFragment : Fragment() {
         _binding = null
     }
 }
+

@@ -18,6 +18,7 @@ object AppSettings {
     private const val KEY_TEST_VIDEO_URI = "test_video_uri"
     private const val KEY_TEST_VIDEO_HISTORY = "test_video_history"
     private const val KEY_ACTIVE_ROOM_CONFIG_PATH = "active_room_config_path"
+    private const val KEY_NO_ROOM_CONFIG_SELECTED = "no_room_config_selected"
     private const val KEY_ENABLE_NEW_TRACKER = "enable_new_tracker"
     private const val KEY_ROI_LOG_MODE = "roi_log_mode"
     private const val KEY_STILL_STANDARD_FRAME = "still_standard_frame"
@@ -43,6 +44,8 @@ object AppSettings {
     var testVideoUri: String? = null
         private set
     var activeRoomConfigPath: String? = null
+        private set
+    var isNoRoomConfigSelected: Boolean = false
         private set
     var isNewTrackerPredictionEnabled: Boolean = false
         private set
@@ -79,6 +82,7 @@ object AppSettings {
         isRoiRealCropEnabled = prefs.getBoolean(KEY_ENABLE_ROI_CROP, false)
         testVideoUri = prefs.getString(KEY_TEST_VIDEO_URI, null)
         activeRoomConfigPath = prefs.getString(KEY_ACTIVE_ROOM_CONFIG_PATH, null)
+        isNoRoomConfigSelected = prefs.getBoolean(KEY_NO_ROOM_CONFIG_SELECTED, false)
         isNewTrackerPredictionEnabled = prefs.getBoolean(KEY_ENABLE_NEW_TRACKER, false)
         roiLogMode = prefs.getInt(KEY_ROI_LOG_MODE, ROI_LOG_MODE_TIME)
         isStillStandardFrameEnabled = prefs.getBoolean(KEY_STILL_STANDARD_FRAME, false)
@@ -168,6 +172,11 @@ object AppSettings {
         } else {
             prefs.edit().putString(KEY_ACTIVE_ROOM_CONFIG_PATH, path).apply()
         }
+    }
+
+    fun setNoRoomConfigSelected(selected: Boolean) {
+        isNoRoomConfigSelected = selected
+        prefs.edit().putBoolean(KEY_NO_ROOM_CONFIG_SELECTED, selected).apply()
     }
 
     fun setNewTrackerPredictionEnabled(enable: Boolean) {

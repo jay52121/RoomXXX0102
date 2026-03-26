@@ -22,6 +22,10 @@ object RoomRepository {
 
     fun init(context: Context) {
         VideoRoomConfigManager.init(context)
+        if (AppSettings.isNoRoomConfigSelected) {
+            loadTemporaryEmptyConfig()
+            return
+        }
         val legacyFile = File(context.filesDir, LEGACY_FILE_NAME)
         val persistedFile = AppSettings.activeRoomConfigPath
             ?.takeIf { it.isNotBlank() }
@@ -105,6 +109,12 @@ object RoomRepository {
 
     fun currentConfigFile(): File? = configFile
 
+    fun loadTemporaryEmptyConfig() {
+        configFile = null
+        createDefaultRoom(persist = false)
+        loadedBaselineCanonicalJson = currentCanonicalJson()
+    }
+
     fun currentConfigDisplayName(): String? = configFile?.nameWithoutExtension
 
     fun hasMeaningfulConfig(): Boolean {
@@ -122,6 +132,7 @@ object RoomRepository {
         loadFromCurrentFile(createIfMissing = createIfMissing)
         if (persistSelection && file.exists()) {
             AppSettings.setActiveRoomConfigPath(file.absolutePath)
+            AppSettings.setNoRoomConfigSelected(false)
         }
         return true
     }
@@ -133,6 +144,7 @@ object RoomRepository {
             saveToFile()
             loadedBaselineCanonicalJson = currentCanonicalJson()
             AppSettings.setActiveRoomConfigPath(file.absolutePath)
+            AppSettings.setNoRoomConfigSelected(false)
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save config file: ${file.absolutePath}", e)
@@ -432,3 +444,4 @@ object RoomRepository {
         return changed
     }
 }
+

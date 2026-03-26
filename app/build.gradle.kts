@@ -69,5 +69,5 @@ dependencies {
     implementation(libs.litert)
     implementation(libs.litert.gpu)
     implementation(libs.tensorflow.lite.support)
-    implementation("com.google.mediapipe:tasks-vision:latest.release")
+    implementation("com.google.mediapipe:tasks-vision:0.10.33")
 }

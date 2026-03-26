@@ -170,7 +170,7 @@ class HandSmokeTester(context: Context) {
             val options = HandLandmarker.HandLandmarkerOptions.builder()
                 .setBaseOptions(baseOptions)
                 .setRunningMode(RunningMode.LIVE_STREAM)
-                .setNumHands(1)
+                .setNumHands(2)
                 .setMinHandDetectionConfidence(0.5f)
                 .setMinHandPresenceConfidence(0.5f)
                 .setMinTrackingConfidence(0.5f)
@@ -178,7 +178,7 @@ class HandSmokeTester(context: Context) {
                 .setErrorListener(this::onLiveStreamError)
                 .build()
             handLandmarker = HandLandmarker.createFromOptions(appContext, options)
-            Log.i(TAG, "HSMOKE|INIT|model=$MODEL_ASSET_PATH|runningMode=LIVE_STREAM|numHands=1")
+            Log.i(TAG, "HSMOKE|INIT|model=$MODEL_ASSET_PATH|runningMode=LIVE_STREAM|numHands=2")
         } catch (t: Throwable) {
             Log.e(TAG, "HSMOKE|ERROR|init failed|model=$MODEL_ASSET_PATH", t)
             handLandmarker = null
@@ -201,14 +201,15 @@ class HandSmokeTester(context: Context) {
                     )
                 }
             }
+            val selectedHandIndex = selectHigherHandIndex(mappedHands)
             onPointingObservation?.invoke(
                 HandLandmarkerPointingAdapter.toObservation(
                     timestampMs = result.timestampMs(),
                     imageWidth = imageWidth,
                     imageHeight = imageHeight,
-                    landmarks = mappedHands.firstOrNull().orEmpty(),
+                    landmarks = mappedHands.getOrNull(selectedHandIndex).orEmpty(),
                     handCount = hands.size,
-                    handedness = result.handednesses().firstOrNull()?.firstOrNull()
+                    handedness = result.handednesses().getOrNull(selectedHandIndex)?.firstOrNull()
                 )
             )
             sampleConfidenceProbe(result, hands)
@@ -389,6 +390,18 @@ class HandSmokeTester(context: Context) {
             roi.left + landmark.x() * roi.width(),
             roi.top + landmark.y() * roi.height()
         )
+    }
+
+    private fun selectHigherHandIndex(hands: List<List<HandPoint>>): Int {
+        if (hands.isEmpty()) return 0
+        return hands.indices.minByOrNull { index ->
+            val hand = hands[index]
+            if (hand.isEmpty()) {
+                Float.POSITIVE_INFINITY
+            } else {
+                hand.sumOf { it.y.toDouble() }.toFloat() / hand.size.toFloat()
+            }
+        } ?: 0
     }
 
     private fun formatRoi(roi: RectF?): String {
