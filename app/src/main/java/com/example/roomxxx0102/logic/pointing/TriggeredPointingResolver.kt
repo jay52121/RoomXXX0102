@@ -233,19 +233,13 @@ class TriggeredPointingResolver(
 
     fun submitFrame(observation: HandObservation?): PointingDecision {
         if (!active) return PointingDecision.Pending
-        if (targets.isEmpty()) {
-            return finalizeUnrecognized(
-                reason = UnrecognizedReason.NO_TARGETS,
-                score = 0f,
-                elapsedMs = resolveElapsedMs(observation),
-                acceptPath = AcceptPath.REJECT
-            )
-        }
-
         val timestampMs = observation?.timestampMs ?: fallbackTimestampMs()
         val elapsedMs = (timestampMs - startTimestampMs).coerceAtLeast(0L)
         val evidence = buildEvidence(observation, timestampMs)
         evidences.add(evidence)
+        if (targets.isEmpty()) {
+            return PointingDecision.Pending
+        }
 
         evaluateFastAccept(elapsedMs)?.let { return finalizeRecognized(it, elapsedMs, AcceptPath.FAST) }
         evaluateNormalAccept(elapsedMs)?.let { return finalizeRecognized(it, elapsedMs, AcceptPath.NORMAL) }

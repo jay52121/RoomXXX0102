@@ -53,8 +53,10 @@ class VideoFeeder(
     
     var isPoseMode = false
     
-    // 🔥 下一帧的 ROI，由 MainActivity 设置
+    // 🔥 下一帧的 pose ROI，由 MainActivity 设置
     var nextFrameRoi: RectF? = null
+    // 🔥 下一帧的 hand ROI，由 MainActivity 设置；为空时回退到 pose ROI
+    var nextHandFrameRoi: RectF? = null
     
     // 🔥 新增：静止模式开关
     private var isStillMode = false
@@ -110,9 +112,10 @@ class VideoFeeder(
                 }
                 val bitmap = textureView.bitmap
                 if (bitmap != null) {
-                    val roi = nextFrameRoi
-                    Log.i("HandSmokeTester", "HSMOKE|CALL_SITE|bitmap=${bitmap.width}x${bitmap.height}|roi=${roi ?: "-"}")
-                    handSmokeTester?.detect(bitmap, roi)
+                    val poseRoi = nextFrameRoi
+                    val handRoi = nextHandFrameRoi ?: poseRoi
+                    Log.i("HandSmokeTester", "HSMOKE|CALL_SITE|bitmap=${bitmap.width}x${bitmap.height}|roi=${handRoi ?: "-"}")
+                    handSmokeTester?.detect(bitmap, handRoi)
                     val currentPosMs = mediaPlayer!!.currentPosition
                     val frameDigest = computeFrameDigest(bitmap)
                     lastAnalyzedFrameDigest = frameDigest
@@ -127,7 +130,7 @@ class VideoFeeder(
                     }
                     submitInferenceTask(
                         bitmap = bitmap,
-                        roi = roi,
+                        roi = poseRoi,
                         temporalAdvanced = temporalAdvanced,
                         suppressStagnantUnlock = suppressStagnantUnlock
                     )

@@ -16,15 +16,17 @@ import kotlin.math.min
  * 4. **自适应尺寸**: 根据目标大小自动扩容或缩容。
  * 5. **抗震荡平滑**: 引入死区控制和基于实际帧率自适应的动态 EMA 滤波。
  */
-class RoiTracker {
+class RoiTracker(
+    private val baseRoiSizePx: Float = 640f,
+    private val adaptiveResizeEnabled: Boolean = true
+) {
 
     // 上一次的 ROI 区域 (归一化坐标)
     private var lastRoi: RectF? = null
 
-    // 当前 ROI 物理尺寸 (像素)，初始为 640
-    private val modelInputWidth = 640f
-    private var currentRoiSize = modelInputWidth
-    private var lastRoiSize = modelInputWidth
+    // 当前 ROI 物理尺寸 (像素)
+    private var currentRoiSize = baseRoiSizePx
+    private var lastRoiSize = baseRoiSizePx
 
     // --- 平滑状态变量 ---
     private var roiCenterX = 0.5f // 归一化中心 X
@@ -48,9 +50,16 @@ class RoiTracker {
      * @param imageWidth 原图宽度 (px)
      * @param imageHeight 原图高度 (px)
      * @param targetBox 当前检测到的目标归一化框 (0..1)。如果为 null，则保持原地。
+     * @param targetRoiSizePx 可选的目标 ROI 边长 (px)。传入后会固定使用该尺寸，
+     *        不再执行默认的人体尺寸自适应扩缩逻辑。
      * @return 计算后的 ROI 归一化区域 (0..1)。
      */
-    fun calculate(imageWidth: Int, imageHeight: Int, targetBox: RectF?): RectF {
+    fun calculate(
+        imageWidth: Int,
+        imageHeight: Int,
+        targetBox: RectF?,
+        targetRoiSizePx: Float? = null
+    ): RectF {
         // 更新跟踪状态
         isTracking = (targetBox != null)
 
@@ -66,21 +75,26 @@ class RoiTracker {
         var maxOffsetPx = 0f
         var inDeadZone = false
         if (targetBox != null) {
-            val personW = targetBox.width() * imageWidth
-            val personH = targetBox.height() * imageHeight
-            val maxPersonSide = max(personW, personH)
-
             val minImageSide = min(imageWidth.toFloat(), imageHeight.toFloat())
-            val ratio = if (currentRoiSize > 0f) maxPersonSide / currentRoiSize else 0f
             val prevSize = currentRoiSize
-            
-            if (currentRoiSize <= modelInputWidth) {
-                if (ratio > 0.85f) currentRoiSize = minImageSide
-            } else {
-                if (ratio < 0.35f) currentRoiSize = modelInputWidth
+            if (targetRoiSizePx != null) {
+                currentRoiSize = targetRoiSizePx.coerceIn(baseRoiSizePx, minImageSide)
+            } else if (adaptiveResizeEnabled) {
+                val personW = targetBox.width() * imageWidth
+                val personH = targetBox.height() * imageHeight
+                val maxPersonSide = max(personW, personH)
+                val ratio = if (currentRoiSize > 0f) maxPersonSide / currentRoiSize else 0f
+                if (currentRoiSize <= baseRoiSizePx) {
+                    if (ratio > 0.85f) currentRoiSize = minImageSide
+                } else {
+                    if (ratio < 0.35f) currentRoiSize = baseRoiSizePx
+                }
+                if (prevSize != currentRoiSize) {
+                    RoiLogAggregator.updateRoiSizeChange(prevSize, currentRoiSize, ratio, maxPersonSide)
+                    lastRoiSize = currentRoiSize
+                }
             }
             if (prevSize != currentRoiSize) {
-                RoiLogAggregator.updateRoiSizeChange(prevSize, currentRoiSize, ratio, maxPersonSide)
                 lastRoiSize = currentRoiSize
             }
         }
@@ -113,7 +127,7 @@ class RoiTracker {
                 maxOffsetPx = max(abs(dxPx), abs(dyPx))
 
                 // A. 顶边两点移动判定 (10% 阈值)
-                deadZoneThreshold = 0.1f * modelInputWidth
+                deadZoneThreshold = 0.1f * baseRoiSizePx
                 val topLeftX = targetBox.left
                 val topLeftY = targetBox.top
                 val topRightX = targetBox.right
@@ -153,17 +167,17 @@ class RoiTracker {
                     )
 
                     // B. 响应模式判定
-                    if (maxOffsetPx > 0.25f * modelInputWidth) {
+                    if (maxOffsetPx > 0.25f * baseRoiSizePx) {
                         // [跳变模式]: 偏差 > 25% 框体，直接瞬移对齐
                         roiCenterX = targetCx
                         roiCenterY = targetCy
                     } else {
                         // [EMA 平滑模式]
                         // 确定跟随时间常数 tau (跟随时间)
-                        val tau = if (maxOffsetPx > 0.12f * modelInputWidth) {
-                            0.00008f * modelInputWidth // [快车道]: 约 0.05s (0.00008 * 640)
+                        val tau = if (maxOffsetPx > 0.12f * baseRoiSizePx) {
+                            0.00008f * baseRoiSizePx // [快车道]: 约 0.05s (0.00008 * 640)
                         } else {
-                            0.00025f * modelInputWidth // [标准]: 约 0.16s (0.00025 * 640)
+                            0.00025f * baseRoiSizePx // [标准]: 约 0.16s (0.00025 * 640)
                         }
 
                         // 跟随系数 alpha = 1 - exp(-dt / tau)

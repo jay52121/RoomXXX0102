@@ -54,7 +54,9 @@ class DetectionOverlayView @JvmOverloads constructor(
     private var showPose = false
     private var showHandOnly = false
     private var handResults: List<List<HandSmokeTester.HandPoint>> = emptyList()
+    private var selectedHandIndex: Int? = null
     private var showPointingDebugOverlay = false
+    private var livePointingSnapshot: PointingDebugSnapshot? = null
     private var pointingDebugSnapshot: PointingDebugSnapshot? = null
     private var pointingDebugVisibleUntilMs = 0L
     // 🔥 新增：是否处于编辑模式
@@ -70,6 +72,10 @@ class DetectionOverlayView @JvmOverloads constructor(
     private var prevRoiBox: RectF? = null // 🔥 记录上一帧 ROI
     private var isRoiStable = false      // 🔥 是否保持静止
     private var isRoiTracking = false
+    private var handRoiBox: RectF? = null
+    private var prevHandRoiBox: RectF? = null
+    private var isHandRoiStable = false
+    private var isHandRoiTracking = false
     private var roiRatio: Float? = null
     private val roiPaint = Paint().apply {
         color = Color.YELLOW
@@ -84,6 +90,12 @@ class DetectionOverlayView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
         setShadowLayer(3f, 0f, 0f, Color.BLACK)
         typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
+    private val handRoiPaint = Paint().apply {
+        color = Color.CYAN
+        style = Paint.Style.STROKE
+        strokeWidth = 5f
+        pathEffect = DashPathEffect(floatArrayOf(14f, 8f), 0f)
     }
     // 🔥 稳定点画笔
     private val stableIndicatorPaint = Paint().apply {
@@ -187,6 +199,12 @@ class DetectionOverlayView @JvmOverloads constructor(
         color = Color.parseColor("#88FFFFFF")
         style = Paint.Style.STROKE
         strokeWidth = 4f
+        isAntiAlias = true
+    }
+    private val pointingGuidePaint = Paint().apply {
+        color = Color.parseColor("#B0B0B0")
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
         isAntiAlias = true
     }
     private val pointingSmoothPaint = Paint().apply {
@@ -359,6 +377,19 @@ class DetectionOverlayView @JvmOverloads constructor(
         postInvalidate()
     }
 
+    fun updateHandRoiBox(box: RectF?, isTracking: Boolean) {
+        isHandRoiStable = box != null && prevHandRoiBox != null &&
+                box.left == prevHandRoiBox?.left &&
+                box.top == prevHandRoiBox?.top &&
+                box.right == prevHandRoiBox?.right &&
+                box.bottom == prevHandRoiBox?.bottom
+
+        handRoiBox = box
+        prevHandRoiBox = box
+        isHandRoiTracking = isTracking
+        postInvalidate()
+    }
+
 
     fun setRoiRatio(ratio: Float?) {
         roiRatio = ratio
@@ -380,8 +411,9 @@ class DetectionOverlayView @JvmOverloads constructor(
         postInvalidate()
     }
 
-    fun updateHandData(results: List<List<HandSmokeTester.HandPoint>>) {
+    fun updateHandData(results: List<List<HandSmokeTester.HandPoint>>, selectedIndex: Int?) {
         handResults = results
+        selectedHandIndex = selectedIndex?.takeIf { it in results.indices }
         postInvalidate()
     }
 
@@ -393,9 +425,16 @@ class DetectionOverlayView @JvmOverloads constructor(
     fun setPointingDebugOverlayEnabled(enabled: Boolean) {
         showPointingDebugOverlay = enabled
         if (!enabled) {
+            livePointingSnapshot = null
             pointingDebugSnapshot = null
             pointingDebugVisibleUntilMs = 0L
         }
+        postInvalidate()
+    }
+
+    fun updatePointingLiveSnapshot(snapshot: PointingDebugSnapshot?) {
+        if (!showPointingDebugOverlay) return
+        livePointingSnapshot = snapshot
         postInvalidate()
     }
 
@@ -499,6 +538,23 @@ class DetectionOverlayView @JvmOverloads constructor(
             }
         }
 
+
+        handRoiBox?.let { r ->
+            handRoiPaint.color = if (isHandRoiTracking) Color.CYAN else Color.parseColor("#FF7043")
+            val left = drawLeft + r.left * drawWidth
+            val top = drawTop + r.top * drawHeight
+            val right = drawLeft + r.right * drawWidth
+            val bottom = drawTop + r.bottom * drawHeight
+            canvas.drawRect(left, top, right, bottom, handRoiPaint)
+
+            if (isHandRoiStable) {
+                val radius = 6f
+                canvas.drawCircle(left, top, radius, stableIndicatorPaint)
+                canvas.drawCircle(right, top, radius, stableIndicatorPaint)
+                canvas.drawCircle(left, bottom, radius, stableIndicatorPaint)
+                canvas.drawCircle(right, bottom, radius, stableIndicatorPaint)
+            }
+        }
 
         // 🔥 修改：如果是编辑模式，不绘制房间区域和棋子，交由 LivingRoomEditorView 绘制
         if (!isEditMode) {
@@ -614,7 +670,11 @@ class DetectionOverlayView @JvmOverloads constructor(
         drawWidth: Float,
         drawHeight: Float
     ) {
-        for (hand in handResults) {
+        val handsToDraw = selectedHandIndex
+            ?.takeIf { it in handResults.indices }
+            ?.let { listOf(handResults[it]) }
+            ?: handResults
+        for (hand in handsToDraw) {
             for (point in hand) {
                 val screenX = drawLeft + point.x * drawWidth
                 val screenY = drawTop + point.y * drawHeight
@@ -641,15 +701,19 @@ class DetectionOverlayView @JvmOverloads constructor(
         drawHeight: Float,
         nowMs: Long
     ) {
-        val snapshot = pointingDebugSnapshot ?: return
-        if (!snapshot.isActive && pointingDebugVisibleUntilMs > 0L && nowMs > pointingDebugVisibleUntilMs) {
+        if (pointingDebugSnapshot != null &&
+            pointingDebugVisibleUntilMs > 0L &&
+            nowMs > pointingDebugVisibleUntilMs
+        ) {
             pointingDebugSnapshot = null
             pointingDebugVisibleUntilMs = 0L
-            return
         }
+        val heldSnapshot = pointingDebugSnapshot
+        val liveSnapshot = livePointingSnapshot
+        val debugSnapshot = liveSnapshot ?: heldSnapshot ?: return
         fun mapPoint(point: PointF): PointF {
-            val imageW = snapshot.imageWidth.coerceAtLeast(1).toFloat()
-            val imageH = snapshot.imageHeight.coerceAtLeast(1).toFloat()
+            val imageW = debugSnapshot.imageWidth.coerceAtLeast(1).toFloat()
+            val imageH = debugSnapshot.imageHeight.coerceAtLeast(1).toFloat()
             return PointF(
                 drawLeft + (point.x / imageW) * drawWidth,
                 drawTop + (point.y / imageH) * drawHeight
@@ -661,32 +725,45 @@ class DetectionOverlayView @JvmOverloads constructor(
             return RectF(lt.x, lt.y, rb.x, rb.y)
         }
 
-        snapshot.targets.forEach { target ->
+        heldSnapshot?.targets?.forEach { target ->
             val rect = mapRect(target.rect)
-            val winner = target.id == snapshot.bestTargetId
+            val winner = target.id == heldSnapshot.bestTargetId
             canvas.drawRect(rect, if (winner) pointingWinnerRectPaint else pointingRectPaint)
             canvas.drawText("${target.id} ${String.format("%.2f", target.score)}", rect.left, rect.top - 8f, pointingLabelPaint)
         }
-        snapshot.targets.take(2).forEach { target ->
-            if (target.id == snapshot.bestTargetId || snapshot.top3Targets.any { it.first == target.id }) {
+        heldSnapshot?.targets?.take(2)?.forEach { target ->
+            if (target.id == heldSnapshot.bestTargetId || heldSnapshot.top3Targets.any { it.first == target.id }) {
                 canvas.drawRect(mapRect(target.expandedRect), pointingExpandedPaint)
             }
         }
-        if (snapshot.smoothedOrigin != null && snapshot.smoothedDir != null) {
-            drawPointingLine(canvas, snapshot.originRaw, snapshot.fingerDirRaw, snapshot, drawLeft, drawTop, drawWidth, drawHeight, pointingRawPaint)
-            drawPointingLine(canvas, snapshot.smoothedOrigin, snapshot.smoothedDir, snapshot, drawLeft, drawTop, drawWidth, drawHeight, pointingSmoothPaint)
-            drawNamedPoint(canvas, "tip", snapshot.tipCenter, Color.CYAN, drawLeft, drawTop, drawWidth, drawHeight, snapshot)
-            drawNamedPoint(canvas, "dip", snapshot.dipCenter, Color.YELLOW, drawLeft, drawTop, drawWidth, drawHeight, snapshot)
-            drawNamedPoint(canvas, "pip", snapshot.pipCenter, Color.MAGENTA, drawLeft, drawTop, drawWidth, drawHeight, snapshot)
-            drawNamedPoint(canvas, "mcp", snapshot.mcpCenter, Color.GREEN, drawLeft, drawTop, drawWidth, drawHeight, snapshot)
-            drawNamedPoint(canvas, "org", snapshot.smoothedOrigin, Color.WHITE, drawLeft, drawTop, drawWidth, drawHeight, snapshot)
+        if (heldSnapshot?.smoothedOrigin != null && heldSnapshot.smoothedDir != null) {
+            drawPointingLine(canvas, heldSnapshot.originRaw, heldSnapshot.fingerDirRaw, heldSnapshot, drawLeft, drawTop, drawWidth, drawHeight, pointingRawPaint)
+            drawPointingLine(canvas, heldSnapshot.smoothedOrigin, heldSnapshot.smoothedDir, heldSnapshot, drawLeft, drawTop, drawWidth, drawHeight, pointingSmoothPaint)
+            drawNamedPoint(canvas, "tip", heldSnapshot.tipCenter, Color.CYAN, drawLeft, drawTop, drawWidth, drawHeight, heldSnapshot)
+            drawNamedPoint(canvas, "dip", heldSnapshot.dipCenter, Color.YELLOW, drawLeft, drawTop, drawWidth, drawHeight, heldSnapshot)
+            drawNamedPoint(canvas, "pip", heldSnapshot.pipCenter, Color.MAGENTA, drawLeft, drawTop, drawWidth, drawHeight, heldSnapshot)
+            drawNamedPoint(canvas, "mcp", heldSnapshot.mcpCenter, Color.GREEN, drawLeft, drawTop, drawWidth, drawHeight, heldSnapshot)
+            drawNamedPoint(canvas, "org", heldSnapshot.smoothedOrigin, Color.WHITE, drawLeft, drawTop, drawWidth, drawHeight, heldSnapshot)
+        }
+        if (liveSnapshot?.smoothedOrigin != null && liveSnapshot.smoothedDir != null) {
+            drawPointingLine(
+                canvas,
+                liveSnapshot.smoothedOrigin,
+                liveSnapshot.smoothedDir,
+                liveSnapshot,
+                drawLeft,
+                drawTop,
+                drawWidth,
+                drawHeight,
+                pointingGuidePaint
+            )
         }
 
         val lines = listOf(
-            "pointing=${if (snapshot.isActive) "active" else "inactive"} elapsed=${snapshot.elapsedMs}ms",
-            "path=${snapshot.acceptPath} best=${snapshot.bestTargetId ?: "-"} score=${String.format("%.2f", snapshot.bestScore)}",
-            "second=${String.format("%.2f", snapshot.secondScore)} margin=${String.format("%.2f", snapshot.bestScore - snapshot.secondScore)} quality=${String.format("%.2f", snapshot.frameQuality)}",
-            "valid=${snapshot.validFrames} noHand=${snapshot.noHandFrames} top3=${snapshot.top3Targets.joinToString { "${it.first}:${String.format("%.2f", it.second)}" }}"
+            "pointing=${if (debugSnapshot.isActive) "active" else "inactive"} elapsed=${debugSnapshot.elapsedMs}ms",
+            "path=${debugSnapshot.acceptPath} best=${debugSnapshot.bestTargetId ?: "-"} score=${String.format("%.2f", debugSnapshot.bestScore)}",
+            "second=${String.format("%.2f", debugSnapshot.secondScore)} margin=${String.format("%.2f", debugSnapshot.bestScore - debugSnapshot.secondScore)} quality=${String.format("%.2f", debugSnapshot.frameQuality)}",
+            "valid=${debugSnapshot.validFrames} noHand=${debugSnapshot.noHandFrames} top3=${debugSnapshot.top3Targets.joinToString { "${it.first}:${String.format("%.2f", it.second)}" }}"
         )
         drawDebugTextBlock(canvas, lines)
     }

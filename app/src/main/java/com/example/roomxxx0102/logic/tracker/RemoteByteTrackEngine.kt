@@ -218,23 +218,18 @@ class RemoteByteTrackEngine(
         if (recent.size < 4) return false
         val list = recent.toList()
         for (i in 0 until list.size - 1) {
-            for (j in i + 1 until list.size) {
-                val a = list[i]
-                val b = list[j]
-                if (a.size != b.size || a.isEmpty()) continue
-                var allClose = true
-                for (k in a.indices) {
-                    val dx = kotlin.math.abs(a[k].x - b[k].x)
-                    val dy = kotlin.math.abs(a[k].y - b[k].y)
-                    if (dx > tolerancePx || dy > tolerancePx) {
-                        allClose = false
-                        break
-                    }
+            val a = list[i]
+            val b = list[i + 1]
+            if (a.size != b.size || a.isEmpty()) return false
+            for (k in a.indices) {
+                val dx = kotlin.math.abs(a[k].x - b[k].x)
+                val dy = kotlin.math.abs(a[k].y - b[k].y)
+                if (dx > tolerancePx || dy > tolerancePx) {
+                    return false
                 }
-                if (allClose) return true
             }
         }
-        return false
+        return true
     }
 
     private fun applyTrackingState(
@@ -317,6 +312,7 @@ class RemoteByteTrackEngine(
                             state.wasConfirmed = false
                             state.lowShoulderFrames = 0
                             lastUnlockMessage = "unlock: ShoulderLow id=$trackId frames=10"
+                            Log.i("RoomLockDiag", "tracker=remote ${lastUnlockMessage}")
                         }
                     }
                 }
@@ -324,10 +320,11 @@ class RemoteByteTrackEngine(
                     temporalAdvanced &&
                     !suppressStagnantUnlock &&
                     state.wasConfirmed &&
-                    isPoseStagnant(state.recentKeypoints, 1f)
+                    isPoseStagnant(state.recentKeypoints, 0.001f)
                 ) {
                     state.wasConfirmed = false
-                    lastUnlockMessage = "unlock: PoseStagnant id=$trackId window=4 tol=1px"
+                    lastUnlockMessage = "unlock: PoseStagnant id=$trackId window=4 tol=0.001"
+                    Log.i("RoomLockDiag", "tracker=remote ${lastUnlockMessage}")
                 }
             } else {
                 state.lowShoulderFrames = 0

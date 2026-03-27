@@ -1,5 +1,148 @@
 # Codex History
 
+## [259] 2026-03-27 16:42:38 - 灰色指向线独立显示并在命中后保持1秒
+
+**用户指令**：
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让灰色指向线独立于目标识别存在，并使用 `frameQuality >= 0.45` 作为显示门槛；识别成功后保留门高亮与识别路径 1 秒。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/pointing/TriggeredPointingResolver.kt、app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：TriggeredPointingResolver.submitFrame、DetectionOverlayView.setPointingDebugOverlayEnabled/updatePointingLiveSnapshot/updatePointingDebugSnapshot/drawPointingDebugOverlay、MainActivity.startTriggeredPointingSession/handleTriggeredPointingObservation/handleTriggeredPointingDecision/setupButtons、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `TriggeredPointingResolver` 在没有 target rect 时不再立刻结束，而是继续产出实时手势证据，支持无配置场景下持续画灰色线。
+      *   `MainActivity` 新增灰色线门槛 `frameQuality >= 0.45`，只有满足该质量下限时才把实时方向线送到 overlay。
+      *   `DetectionOverlayView` 将 pointing 可视化拆成两层：实时灰色方向线层，以及识别命中后的保持层。
+      *   命中目标后，门高亮与识别路径固定保持 1 秒；实时灰色线仍可继续刷新，不再互相覆盖。
+      *   抬手时只清实时灰色线，不清 1 秒保持态。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [258] 2026-03-27 16:16:45 - 拆分 pose ROI 与 hand ROI 输入通道
+
+**用户指令**：
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修正 `handRoi` 误影响 pose 推理输入的问题，让 pose 继续吃主 ROI，而 hand 识别单独吃 handRoi。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：VideoFeeder.analyzeRunnable、MainActivity.onCreate/hardRestartPlayback、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `VideoFeeder` 新增 `nextHandFrameRoi`，专门给 `HandSmokeTester` 使用。
+      *   `submitInferenceTask(... roi=...)` 继续只吃 `nextFrameRoi`，不再受 handRoi 影响。
+      *   `handSmokeTester.detect(bitmap, roi)` 改为优先吃 `nextHandFrameRoi`，为空时回退 `nextFrameRoi`。
+      *   `MainActivity` 侧改为分别回写：`nextFrameRoi = cropRoi`，`nextHandFrameRoi = handRoi ?: cropRoi`。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [257] 2026-03-27 16:05:54 - 手部识别优先使用新的 handRoi 输入
+
+**用户指令**：
+> 好,就把这个新的ROI喂给手部识别吧
+> 没有 handRoi就传现在的ROI,开始吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让手部识别优先吃新的 pose 驱动 handRoi，在 handRoi 暂时不可用时再回退到当前主 ROI。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.onCreate、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   保留原有主 ROI/handRoi 的绘制与跟踪逻辑不变。
+      *   将传给 `VideoFeeder.nextFrameRoi` 的输入改为 `handRoi ?: cropRoi`。
+      *   这样手部识别会优先用新的手部 ROI 裁剪输入；当手部 ROI 不存在时，再退回当前主 ROI，避免直接退回全图。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [256] 2026-03-27 15:55:30 - 收紧 PoseStagnant 为连续4帧逐帧全点一致
+
+**用户指令**：
+> 我们改成连续4帧所有点都相同吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：收紧 `PoseStagnant` 解锁条件，避免“最近4帧里任意两帧接近”导致静坐目标被过早解锁。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/tracker/SimpleTrackerEngine.kt、app/src/main/java/com/example/roomxxx0102/logic/tracker/RemoteByteTrackEngine.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：SimpleTrackerEngine.isPoseStagnant/track、RemoteByteTrackEngine.isPoseStagnant/processTracks、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `isPoseStagnant(...)` 不再做窗口内任意两帧两两比较，而是改成连续4帧逐帧相邻比较。
+      *   只有当最近4帧中每一对相邻帧的所有关键点都保持近乎一致时，才判定为 `PoseStagnant=true`。
+      *   将该判定的容差从 `1f` 收紧为 `0.001f`，使其更接近“所有点都相同”的语义。
+      *   unlock 日志文案同步更新为 `tol=0.001`。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [255] 2026-03-27 05:16:42 - 为 unlock 增加固定 tag 的 logcat 日志
+
+**用户指令**：
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：为 lock/unlock 排查补充稳定的 logcat 观测点，避免 unlock 只作为瞬时 banner 或内存消息出现而无法事后检索。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/tracker/SimpleTrackerEngine.kt、app/src/main/java/com/example/roomxxx0102/logic/tracker/RemoteByteTrackEngine.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：SimpleTrackerEngine.processDetections、RemoteByteTrackEngine.processTracks、MainActivity.onCreate、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 simple/remote 两套 tracker 里，当生成 `unlock:` 消息时，立即额外写入 `RoomLockDiag` tag 到 logcat。
+      *   在 `MainActivity` 消费 unlock 消息时，再补一条 `RoomLockDiag` 的 `ui_consume` 日志，便于确认消息是否成功传到了 UI 层。
+      *   不改变任何 lock/unlock 判定逻辑，只增加可观测性。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [254] 2026-03-27 04:56:14 - 手部 ROI 改为纯 pose 手腕驱动
+
+**用户指令**：
+> 你搞错了,应该一直是用pose来确认手的ROI,和hand没关系.
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修正手部 ROI 的目标来源，确保这层 ROI 只由当前 lock 人物的 pose 左右手腕决定，不再受 hand 检测结果波动影响。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.buildLockedHandRoiTarget、MainActivity.onCreate、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   手部 ROI 计算不再依赖 `HandSmokeTester` 回传的手索引或手腕点。
+      *   现在直接读取当前 `isConfirmed=true` 人物的 pose 左右手腕关键点，在有效手腕中选择垂直更高的那个作为 ROI 中心。
+      *   ROI 边长仍保持“人物框短边、最小 224px”，并继续复用现有 ROI tracker 的平滑、丢失与边界逻辑。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [253] 2026-03-27 04:48:24 - 新增锁定人物更高手腕的手部 ROI
+
+**用户指令**：
+> 我们在现在的基础上再画一个ROI,只画这只手.然后:ROI 形状：正方形
+> ROI 中心：手腕
+> ROI 边长：身体框短边
+> 最小值：224   .这个框的出现消失逻辑移动等等逻辑全部复用我们之前ROI的逻辑(除非我们那边有些常量设置得不适合这么小的框) .我们只在垂直更高的那个手上画这个ROI,而且人必须处于lock状态.
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在现有主 ROI 之外新增一层“手部 ROI”，仅在人物处于 lock 状态时，围绕更高那只手的手腕绘制正方形 ROI，并复用现有 ROI 的跟踪/消失逻辑。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiTracker.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/HandSmokeTester.kt、app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：RoiTracker.calculate、HandSmokeTester.onLiveStreamResult、DetectionOverlayView.updateHandRoiBox/updateHandData/onDraw/drawHands、MainActivity.onCreate/buildLockedHandRoiTarget/hardRestartPlayback、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `RoiTracker` 新增可选目标边长参数，支持在保留原主 ROI 行为的同时，给手部 ROI 复用同一套移动、死区、EMA、丢失保持与边界裁剪逻辑。
+      *   `HandSmokeTester` 在回调手部 landmarks 时，同时回传“垂直更高”的手索引，避免界面层再重复判定。
+      *   `MainActivity` 新增手部 ROI 跟踪器，仅当存在 `isConfirmed=true` 的锁定人物且当前有选中的更高手时才驱动；ROI 中心取手腕，边长取人体框短边并设置最小值 `224px`。
+      *   `DetectionOverlayView` 新增手部 ROI 图层，并在手部显示模式下只绘制选中的那只手，避免同时画两只手造成干扰。
+      *   重置播放运行态时，会同步清空手部 ROI 与已缓存手部结果，避免旧状态残留。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
 ## [252] 2026-03-27 03:18:43 - 暂不配置状态改为冷启动持久生效
 
 **用户指令**：

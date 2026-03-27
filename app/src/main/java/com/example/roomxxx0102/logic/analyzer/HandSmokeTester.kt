@@ -101,7 +101,7 @@ class HandSmokeTester(context: Context) {
     private var confidenceProbeSession: ConfidenceProbeSession? = null
     private val pendingFrameContexts = LinkedHashMap<Long, FrameContext>()
     private val finishProbeRunnable = Runnable { finishConfidenceProbeSession() }
-    var onHandsResult: ((List<List<HandPoint>>) -> Unit)? = null
+    var onHandsResult: ((List<List<HandPoint>>, Int?) -> Unit)? = null
     var onPointingObservation: ((HandObservation) -> Unit)? = null
 
     init {
@@ -214,7 +214,7 @@ class HandSmokeTester(context: Context) {
             )
             sampleConfidenceProbe(result, hands)
             Log.i(TAG, "HSMOKE|RESULT|hands=${hands.size}")
-            onHandsResult?.invoke(mappedHands)
+            onHandsResult?.invoke(mappedHands, selectedHandIndex.takeIf { mappedHands.isNotEmpty() })
             val firstHand = hands.firstOrNull()
             if (firstHand == null) {
                 Log.i(TAG, "HSMOKE|RESULT|firstHandLandmarks=0")

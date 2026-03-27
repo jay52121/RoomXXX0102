@@ -116,14 +116,19 @@ class MainActivity : ComponentActivity() {
 
     // 🔥 ROI Tracker
     private val roiTracker = RoiTracker()
+    private val handRoiTracker = RoiTracker(baseRoiSizePx = 224f, adaptiveResizeEnabled = false)
     private var roiMissingFrameCount = 0
+    private var handRoiMissingFrameCount = 0
 
     private var yoloAnalyzer: YoloAnalyzer? = null
     private var poseAnalyzer: YoloPoseAnalyzer? = null
     private var handSmokeTester: HandSmokeTester? = null
     private var videoFeeder: VideoFeeder? = null
     private var isHandOverlayPressed = false
+    @Volatile private var latestHandResults: List<List<HandSmokeTester.HandPoint>> = emptyList()
+    @Volatile private var latestSelectedHandIndex: Int? = null
     private val pointingResolver = TriggeredPointingResolver()
+    private val pointingGuideMinQuality = 0.45f
     private var pointingTargetLabelById: Map<String, String> = emptyMap()
 
     private var isVideoMode = true
@@ -315,11 +320,24 @@ class MainActivity : ComponentActivity() {
             val srcW = if (bitmap != null) bitmap.width else 1920
             val srcH = if (bitmap != null) bitmap.height else 1080
             val targetBox = if (logicResults.isNotEmpty()) logicResults[0].box else null
+            val lockedPose = logicResults.firstOrNull { it.isConfirmed }
+            val handRoiTarget = buildLockedHandRoiTarget(
+                pose = lockedPose,
+                imageWidth = srcW,
+                imageHeight = srcH
+            )
+            val handTargetBox = handRoiTarget?.first
+            val handTargetSizePx = handRoiTarget?.second
 
             if (targetBox != null) {
                 roiMissingFrameCount = 0
             } else {
                 roiMissingFrameCount++
+            }
+            if (handTargetBox != null) {
+                handRoiMissingFrameCount = 0
+            } else {
+                handRoiMissingFrameCount++
             }
 
             val isSearching = roiMissingFrameCount >= 10
@@ -329,11 +347,20 @@ class MainActivity : ComponentActivity() {
             } else {
                 roiTracker.calculate(srcW, srcH, targetBox)
             }
+            val isHandSearching = handRoiMissingFrameCount >= 10
+            val handRoi = if (isHandSearching) {
+                handRoiTracker.resetSmoothing()
+                null
+            } else {
+                handRoiTracker.calculate(srcW, srcH, handTargetBox, handTargetSizePx)
+            }
             
             val cropRoi = if (AppSettings.isRoiRealCropEnabled && roi != null) roi else null
             videoFeeder?.nextFrameRoi = cropRoi
+            videoFeeder?.nextHandFrameRoi = handRoi ?: cropRoi
 
             val isTracking = roiMissingFrameCount < 10 && targetBox != null
+            val isHandTracking = handRoiMissingFrameCount < 10 && handTargetBox != null
             val isSparse = !AppSettings.isRoiRealCropEnabled
             
             val roiRatio = if (roi != null && targetBox != null) {
@@ -482,8 +509,10 @@ class MainActivity : ComponentActivity() {
                 }
 
                 overlayView.updateRoiBox(roi, isTracking, isSparse)
+                overlayView.updateHandRoiBox(handRoi, isHandTracking)
                 overlayView.setRoiRatio(roiRatio)
                 poseAnalyzer?.consumeUnlockMessage()?.let { msg ->
+                    Log.i("RoomLockDiag", "ui_consume $msg")
                     overlayView.showUnlockBanner(msg)
                     tryCaptureUnlockDebugToClipboard(msg)
                 }
@@ -496,9 +525,11 @@ class MainActivity : ComponentActivity() {
             this.poseAnalyzer = this@MainActivity.poseAnalyzer
             this.handSmokeTester = HandSmokeTester(this@MainActivity).also {
                 this@MainActivity.handSmokeTester = it
-                it.onHandsResult = { hands ->
+                it.onHandsResult = { hands, selectedIndex ->
+                    latestHandResults = hands
+                    latestSelectedHandIndex = selectedIndex?.takeIf { index -> index in hands.indices }
                     runOnUiThread {
-                        overlayView.updateHandData(hands)
+                        overlayView.updateHandData(hands, latestSelectedHandIndex)
                     }
                 }
                 it.onPointingObservation = { observation ->
@@ -514,6 +545,41 @@ class MainActivity : ComponentActivity() {
         refreshEventMarkerUi()
         checkPermissionsAndStart()
         refreshOverlayDisplay()
+    }
+
+    private fun buildLockedHandRoiTarget(
+        pose: com.example.roomxxx0102.data.model.PoseResult?,
+        imageWidth: Int,
+        imageHeight: Int
+    ): Pair<RectF, Float>? {
+        if (pose == null || !pose.isConfirmed) return null
+        if (pose.keypoints.size <= 10) return null
+
+        val leftWrist = pose.keypoints[9]
+        val rightWrist = pose.keypoints[10]
+        val wrist = when {
+            leftWrist.conf > 0f && rightWrist.conf > 0f -> {
+                if (leftWrist.y <= rightWrist.y) leftWrist else rightWrist
+            }
+            leftWrist.conf > 0f -> leftWrist
+            rightWrist.conf > 0f -> rightWrist
+            else -> return null
+        }
+
+        val minImageSide = kotlin.math.min(imageWidth, imageHeight).toFloat().coerceAtLeast(224f)
+        val bodyShortSidePx = kotlin.math.min(
+            pose.box.width() * imageWidth,
+            pose.box.height() * imageHeight
+        )
+        val roiSidePx = kotlin.math.max(224f, bodyShortSidePx).coerceAtMost(minImageSide)
+        val halfWidthNorm = roiSidePx / imageWidth / 2f
+        val halfHeightNorm = roiSidePx / imageHeight / 2f
+        return RectF(
+            wrist.x - halfWidthNorm,
+            wrist.y - halfHeightNorm,
+            wrist.x + halfWidthNorm,
+            wrist.y + halfHeightNorm
+        ) to roiSidePx
     }
 
     private fun findRoomForPoint(point: PointF, rooms: List<RoomConfig>): RoomConfig? {
@@ -690,10 +756,6 @@ class MainActivity : ComponentActivity() {
         pointingTargetLabelById = labels
         val startTimestampMs = SystemClock.uptimeMillis()
         pointingResolver.startSession(targets, startTimestampMs)
-        if (targets.isEmpty()) {
-            handleTriggeredPointingDecision(pointingResolver.submitFrame(null))
-            return
-        }
         Log.i(
             "TriggeredPointingResolver",
             "POINTING|START|targets=${targets.joinToString { "${it.id}:${it.rect.centerX().toInt()},${it.rect.centerY().toInt()}" }}"
@@ -703,12 +765,20 @@ class MainActivity : ComponentActivity() {
     private fun handleTriggeredPointingObservation(observation: HandObservation) {
         if (!pointingResolver.isActive()) return
         val decision = pointingResolver.submitFrame(observation)
+        val liveSnapshot = pointingResolver.latestDebugSnapshot()?.takeIf { snapshot ->
+            snapshot.smoothedOrigin != null &&
+                snapshot.smoothedDir != null &&
+                snapshot.frameQuality >= pointingGuideMinQuality
+        }
         runOnUiThread {
-            overlayView.updatePointingDebugSnapshot(pointingResolver.latestDebugSnapshot())
+            overlayView.updatePointingLiveSnapshot(liveSnapshot)
         }
         if (decision !is PointingDecision.Pending) {
             runOnUiThread {
                 handleTriggeredPointingDecision(decision)
+                if (isHandOverlayPressed) {
+                    startTriggeredPointingSession()
+                }
             }
         }
     }
@@ -726,7 +796,7 @@ class MainActivity : ComponentActivity() {
                 )
                 overlayView.updatePointingDebugSnapshot(
                     pointingResolver.latestDebugSnapshot(),
-                    holdMs = if (isHandOverlayPressed) 0L else 1000L
+                    holdMs = 1000L
                 )
             }
             is PointingDecision.Unrecognized -> {
@@ -735,10 +805,6 @@ class MainActivity : ComponentActivity() {
                 Log.i(
                     "TriggeredPointingResolver",
                     "POINTING|UNRECOGNIZED|reason=${decision.reason}|score=${String.format(Locale.US, "%.3f", decision.score)}|elapsed=${decision.elapsedMs}|path=${decision.diagnostics.acceptPath}|top3=${decision.diagnostics.top3Targets}"
-                )
-                overlayView.updatePointingDebugSnapshot(
-                    pointingResolver.latestDebugSnapshot(),
-                    holdMs = if (isHandOverlayPressed) 0L else 1000L
                 )
             }
         }
@@ -1078,7 +1144,7 @@ class MainActivity : ComponentActivity() {
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     isHandOverlayPressed = false
-                    overlayView.updatePointingDebugSnapshot(null)
+                    overlayView.updatePointingLiveSnapshot(null)
                     updateHandOverlayMode()
                     true
                 }
@@ -2583,12 +2649,19 @@ class MainActivity : ComponentActivity() {
         roomPresenceAlgorithm.reset()
         roomPresenceChangeLogger.reset()
         roiTracker.resetSmoothing()
+        handRoiTracker.resetSmoothing()
         roiMissingFrameCount = 0
+        handRoiMissingFrameCount = 0
+        latestHandResults = emptyList()
+        latestSelectedHandIndex = null
         videoFeeder?.nextFrameRoi = null
+        videoFeeder?.nextHandFrameRoi = null
         resetEventValidationTracking(clearRuntimeEvents = true)
         lastPresenceCountsForPause = null
         lastPresenceAnomalyDumpKey = null
         overlayView.updateRoiBox(null, isTracking = false, isSparse = false)
+        overlayView.updateHandRoiBox(null, isTracking = false)
+        overlayView.updateHandData(emptyList(), null)
         overlayView.setRoiRatio(null)
 
         val allRooms = RoomRepository.getAllRooms()
