@@ -46,6 +46,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.example.roomxxx0102.R
+import com.example.roomxxx0102.data.model.DeviceConfig
 import com.example.roomxxx0102.data.model.RoomConfig
 import com.example.roomxxx0102.data.repository.AppSettings
 import com.example.roomxxx0102.data.repository.RoomRepository
@@ -171,11 +172,14 @@ class MainActivity : ComponentActivity() {
     private var btnAddSubRoom: Button? = null
     private var isDoorSelectMode = false
     private var isRoomAreaEditMode = false
+    private var isAddDeviceMode = false
     private var btnSelectDoor: Button? = null
     private var btnEditRoomArea: Button? = null
+    private var btnAddDeviceEditor: Button? = null
     
     // 🔥 模式切换 Spinner
     private var spnEditMode: Spinner? = null
+    private var editModeAdapter: ArrayAdapter<String>? = null
     
     // 编辑状态机
     private var editorMenuState = EditorMenuState.LIVING_ROOM
@@ -187,7 +191,9 @@ class MainActivity : ComponentActivity() {
         SUBROOM_SELECTED,
         SUBROOM_DOOR_SELECT,
         SUBROOM_AREA_EDIT,
-        DEVICE_SETTINGS // 🔥 新增设备设置状态
+        DEVICE_IDLE,
+        DEVICE_ADD,
+        DEVICE_SELECTED
     }
 
     private val requestPermissionsLauncher = registerForActivityResult(
@@ -715,33 +721,30 @@ class MainActivity : ComponentActivity() {
         imageHeight: Int
     ): Pair<List<TargetRect>, Map<String, String>> {
         if (imageWidth <= 0 || imageHeight <= 0) return emptyList<TargetRect>() to emptyMap()
-        val rooms = RoomRepository.getAllRooms()
-        val doorSnapshots = buildPresenceDoorSnapshots(rooms)
-        val roomNameById = rooms.associate { it.id to it.name }
+        val devices = RoomRepository.getDevices()
         val imageDiagonal = hypot(imageWidth.toFloat(), imageHeight.toFloat())
         val paddingPx = max(imageDiagonal * 0.02f, 24f)
-        val targets = doorSnapshots.mapNotNull { door ->
-            val ax = (door.a.x * imageWidth.toDouble()).toFloat()
-            val ay = (door.a.y * imageHeight.toDouble()).toFloat()
-            val bx = (door.b.x * imageWidth.toDouble()).toFloat()
-            val by = (door.b.y * imageHeight.toDouble()).toFloat()
+        val targets = devices.mapNotNull { device ->
+            if (device.polygon.isEmpty()) return@mapNotNull null
+            val xs = device.polygon.map { it.x * imageWidth }
+            val ys = device.polygon.map { it.y * imageHeight }
             val rect = RectF(
-                min(ax, bx) - paddingPx,
-                min(ay, by) - paddingPx,
-                max(ax, bx) + paddingPx,
-                max(ay, by) + paddingPx
+                (xs.minOrNull() ?: return@mapNotNull null) - paddingPx,
+                (ys.minOrNull() ?: return@mapNotNull null) - paddingPx,
+                (xs.maxOrNull() ?: return@mapNotNull null) + paddingPx,
+                (ys.maxOrNull() ?: return@mapNotNull null) + paddingPx
             )
             if (rect.width() <= 0f || rect.height() <= 0f) {
                 null
             } else {
                 TargetRect(
-                    id = door.doorId,
+                    id = device.id,
                     rect = rect
                 )
             }
         }
-        val labels = doorSnapshots.associate { door ->
-            door.doorId to (roomNameById[door.roomBId] ?: door.doorId)
+        val labels = devices.associate { device ->
+            device.id to device.name
         }
         return targets to labels
     }
@@ -1186,12 +1189,15 @@ class MainActivity : ComponentActivity() {
         
         // 🔥 初始化 Spinner
         spnEditMode = findViewById(R.id.spnEditMode)
-        val modes = arrayOf("主房间设置", "次房间设置", "设备设置")
         // 🔥 使用自定义布局 spinner_item_dark
-        val adapter = ArrayAdapter(this, R.layout.spinner_item_dark, modes)
+        editModeAdapter = ArrayAdapter(
+            this,
+            R.layout.spinner_item_dark,
+            buildEditModeLabels().toMutableList()
+        )
         // 设置下拉列表的 item 样式 (可以使用 android.R.layout.simple_spinner_dropdown_item, 因为背景是 dark theme)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        spnEditMode?.adapter = adapter
+        editModeAdapter?.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spnEditMode?.adapter = editModeAdapter
         
         spnEditMode?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
@@ -1239,7 +1245,12 @@ class MainActivity : ComponentActivity() {
                     transitionTo(EditorMenuState.SUBROOM_SELECTED)
                 }
                 EditorMenuState.SUBROOM_ADD -> setAddSubRoomMode(false)
-                EditorMenuState.DEVICE_SETTINGS -> {}
+                EditorMenuState.DEVICE_ADD,
+                EditorMenuState.DEVICE_SELECTED,
+                EditorMenuState.DEVICE_IDLE -> {
+                    applyModeSelection(LivingRoomEditorView.EditorMode.DEVICE)
+                    Toast.makeText(this, "已还原未保存的设备修改", Toast.LENGTH_SHORT).show()
+                }
                 else -> {
                     refreshOverlayDisplay()
                     applyModeSelection(editorView.currentMode)
@@ -1271,8 +1282,11 @@ class MainActivity : ComponentActivity() {
                 persistRoomConfigAfterEditorSave()
                 editorView.endSubRoomRegionEdit()
                 transitionTo(EditorMenuState.SUBROOM_SELECTED)
-            } else if (editorMenuState == EditorMenuState.DEVICE_SETTINGS) {
-                Toast.makeText(this, "设备设置已保存", Toast.LENGTH_SHORT).show()
+            } else if (
+                editorMenuState == EditorMenuState.DEVICE_ADD ||
+                editorMenuState == EditorMenuState.DEVICE_SELECTED
+            ) {
+                handleDeviceSave()
             } else {
                 // 保存不退出
                 performSave()
@@ -1286,17 +1300,20 @@ class MainActivity : ComponentActivity() {
             room?.let { showRenameDialog(it) }
         }
         findViewById<Button>(R.id.btnDeleteRoom).setOnClickListener {
-            val roomId = editorView.selectedRoomId
-            if (roomId != null) {
-                RoomRepository.deleteRoom(roomId)
-                editorView.setSubRooms(RoomRepository.getSubRooms())
-                editorView.clearSelection()
+            if (editorView.currentMode == LivingRoomEditorView.EditorMode.DEVICE) {
+                if (editorView.deleteSelectedDevice()) {
+                    RoomRepository.replaceDevices(editorView.getDevices())
+                    persistRoomConfigAfterEditorSave()
+                    transitionTo(EditorMenuState.DEVICE_IDLE)
+                }
+            } else {
+                val roomId = editorView.selectedRoomId
+                if (roomId != null) {
+                    RoomRepository.deleteRoom(roomId)
+                    editorView.setSubRooms(RoomRepository.getSubRooms())
+                    editorView.clearSelection()
+                }
             }
-        }
-        
-        // 设备管理按钮 (占位)
-        btnAddDevice.setOnClickListener {
-            Toast.makeText(this, "添加设备功能开发中...", Toast.LENGTH_SHORT).show()
         }
 
         val editorControls = findViewById<LinearLayout>(R.id.llEditorLeft)
@@ -1326,6 +1343,15 @@ class MainActivity : ComponentActivity() {
             setOnClickListener { enterRoomAreaEditMode() }
         }
         btnEditRoomArea?.let { editorControls?.addView(it) }
+
+        btnAddDeviceEditor = Button(this).apply {
+            text = "添加设备"
+            backgroundTintList = ColorStateList.valueOf(Color.parseColor("#FF9800"))
+            setTextColor(Color.WHITE)
+            visibility = View.GONE
+            setOnClickListener { enterAddDeviceMode() }
+        }
+        btnAddDeviceEditor?.let { editorControls?.addView(it) }
     }
     
     // 🔥 抽取保存逻辑，供 btnFinish 调用且不退出
@@ -1366,6 +1392,7 @@ class MainActivity : ComponentActivity() {
         captureCurrentFrame()
         editorView.backgroundBitmap = BitmapTransfer.capturedFrame
         editorView.drawBackground = false
+        refreshEditModeLabels()
         // 默认进入主房间模式
         spnEditMode?.setSelection(0)
         applyModeSelection(LivingRoomEditorView.EditorMode.LIVING_ROOM_HULL)
@@ -1373,10 +1400,7 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun enterDeviceSettingsMode() {
-        transitionTo(EditorMenuState.DEVICE_SETTINGS)
-        // 隐藏 EditorView, 显示设备 UI
-        editorView.visibility = View.GONE
-        llDeviceSettings.visibility = View.VISIBLE
+        applyModeSelection(LivingRoomEditorView.EditorMode.DEVICE)
     }
 
     private fun toggleRoomMode(btn: Button) {
@@ -1402,6 +1426,11 @@ class MainActivity : ComponentActivity() {
         }
         setSubRoomActionMode(doorSelect = false, roomAreaEdit = true)
         Toast.makeText(this, getString(R.string.toast_edit_area), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun enterAddDeviceMode() {
+        transitionTo(EditorMenuState.DEVICE_ADD)
+        Toast.makeText(this, "请先点击最可能指向的地方", Toast.LENGTH_SHORT).show()
     }
 
     private fun setSubRoomActionMode(doorSelect: Boolean, roomAreaEdit: Boolean) {
@@ -1440,19 +1469,22 @@ class MainActivity : ComponentActivity() {
         val nextAdd = state == EditorMenuState.SUBROOM_ADD
         val nextDoor = state == EditorMenuState.SUBROOM_DOOR_SELECT
         val nextArea = state == EditorMenuState.SUBROOM_AREA_EDIT
+        val nextDeviceAdd = state == EditorMenuState.DEVICE_ADD
         isAddSubRoomMode = nextAdd
         isDoorSelectMode = nextDoor
         isRoomAreaEditMode = nextArea
+        isAddDeviceMode = nextDeviceAdd
         editorView.setAddSubRoomArmed(nextAdd)
         editorView.setDoorSelectArmed(nextDoor)
         editorView.setRoomAreaEditArmed(nextArea)
+        editorView.setAddDeviceArmed(nextDeviceAdd)
         if (prev == EditorMenuState.SUBROOM_DOOR_SELECT && state != EditorMenuState.SUBROOM_DOOR_SELECT) {
             editorView.discardPendingDoorSelection()
-        editorView.endSubRoomRegionEdit()
         }
         if (prev == EditorMenuState.SUBROOM_AREA_EDIT && state != EditorMenuState.SUBROOM_AREA_EDIT) {
             editorView.endSubRoomRegionEdit()
         }
+        refreshEditModeLabels()
         renderEditorMenu(state)
     }
 
@@ -1477,6 +1509,7 @@ class MainActivity : ComponentActivity() {
                 btnAddSubRoom?.visibility = View.GONE
                 btnSelectDoor?.visibility = View.GONE
                 btnEditRoomArea?.visibility = View.GONE
+                btnAddDeviceEditor?.visibility = View.GONE
                 btnRename.visibility = View.GONE
                 btnDelete.visibility = View.GONE
                 btnCancel.visibility = View.VISIBLE
@@ -1488,6 +1521,7 @@ class MainActivity : ComponentActivity() {
                 btnAddSubRoom?.visibility = View.VISIBLE
                 btnSelectDoor?.visibility = View.GONE
                 btnEditRoomArea?.visibility = View.GONE
+                btnAddDeviceEditor?.visibility = View.GONE
                 btnRename.visibility = View.GONE
                 btnDelete.visibility = View.GONE
                 btnCancel.visibility = View.GONE
@@ -1499,6 +1533,7 @@ class MainActivity : ComponentActivity() {
                 btnAddSubRoom?.visibility = View.GONE
                 btnSelectDoor?.visibility = View.GONE
                 btnEditRoomArea?.visibility = View.GONE
+                btnAddDeviceEditor?.visibility = View.GONE
                 btnRename.visibility = View.GONE
                 btnDelete.visibility = View.GONE
                 btnCancel.visibility = View.GONE
@@ -1510,6 +1545,7 @@ class MainActivity : ComponentActivity() {
                 btnAddSubRoom?.visibility = View.GONE
                 btnSelectDoor?.visibility = View.VISIBLE
                 btnEditRoomArea?.visibility = View.VISIBLE
+                btnAddDeviceEditor?.visibility = View.GONE
                 btnRename.visibility = View.VISIBLE
                 btnDelete.visibility = View.VISIBLE
                 btnCancel.visibility = View.GONE
@@ -1523,6 +1559,7 @@ class MainActivity : ComponentActivity() {
                 btnAddSubRoom?.visibility = View.GONE
                 btnSelectDoor?.visibility = View.GONE
                 btnEditRoomArea?.visibility = View.GONE
+                btnAddDeviceEditor?.visibility = View.GONE
                 btnRename.visibility = View.GONE
                 btnDelete.visibility = View.GONE
                 btnCancel.visibility = View.VISIBLE
@@ -1534,21 +1571,47 @@ class MainActivity : ComponentActivity() {
                 btnAddSubRoom?.visibility = View.GONE
                 btnSelectDoor?.visibility = View.GONE
                 btnEditRoomArea?.visibility = View.GONE
+                btnAddDeviceEditor?.visibility = View.GONE
                 btnRename.visibility = View.GONE
                 btnDelete.visibility = View.GONE
                 btnCancel.visibility = View.VISIBLE
                 btnFinish.visibility = View.VISIBLE
             }
-            EditorMenuState.DEVICE_SETTINGS -> {
+            EditorMenuState.DEVICE_IDLE -> {
                 btnUndo.visibility = View.GONE
                 btnClear.visibility = View.GONE
                 btnAddSubRoom?.visibility = View.GONE
                 btnSelectDoor?.visibility = View.GONE
                 btnEditRoomArea?.visibility = View.GONE
+                btnAddDeviceEditor?.visibility = View.VISIBLE
                 btnRename.visibility = View.GONE
                 btnDelete.visibility = View.GONE
                 btnCancel.visibility = View.GONE
                 btnFinish.visibility = View.GONE
+            }
+            EditorMenuState.DEVICE_ADD -> {
+                btnUndo.visibility = View.GONE
+                btnClear.visibility = View.GONE
+                btnAddSubRoom?.visibility = View.GONE
+                btnSelectDoor?.visibility = View.GONE
+                btnEditRoomArea?.visibility = View.GONE
+                btnAddDeviceEditor?.visibility = View.GONE
+                btnRename.visibility = View.GONE
+                btnDelete.visibility = View.GONE
+                btnCancel.visibility = View.VISIBLE
+                btnFinish.visibility = View.VISIBLE
+            }
+            EditorMenuState.DEVICE_SELECTED -> {
+                btnUndo.visibility = View.GONE
+                btnClear.visibility = View.GONE
+                btnAddSubRoom?.visibility = View.GONE
+                btnSelectDoor?.visibility = View.GONE
+                btnEditRoomArea?.visibility = View.GONE
+                btnAddDeviceEditor?.visibility = View.VISIBLE
+                btnRename.visibility = View.GONE
+                btnDelete.visibility = View.VISIBLE
+                btnCancel.visibility = View.VISIBLE
+                btnFinish.visibility = View.VISIBLE
             }
         }
     }
@@ -1557,20 +1620,22 @@ class MainActivity : ComponentActivity() {
         // 恢复 EditorView 显示 (如果之前在设备模式)
         editorView.visibility = View.VISIBLE
         llDeviceSettings.visibility = View.GONE
+        refreshEditModeLabels()
         
         editorView.currentMode = mode
         transitionTo(
-            if (mode == LivingRoomEditorView.EditorMode.LIVING_ROOM_HULL)
-                EditorMenuState.LIVING_ROOM
-            else
-                EditorMenuState.SUBROOM_IDLE
+            when (mode) {
+                LivingRoomEditorView.EditorMode.LIVING_ROOM_HULL -> EditorMenuState.LIVING_ROOM
+                LivingRoomEditorView.EditorMode.SUB_ROOM_ANCHOR -> EditorMenuState.SUBROOM_IDLE
+                LivingRoomEditorView.EditorMode.DEVICE -> EditorMenuState.DEVICE_IDLE
+            }
         )
 
         if (mode == LivingRoomEditorView.EditorMode.LIVING_ROOM_HULL) {
             val livingRoom = RoomRepository.getAllRooms().find { it.isSovereignTerritory }
             editorView.setHistoryVertices(livingRoom?.boundaryVertices ?: emptyList())
             editorView.setSubRooms(RoomRepository.getSubRooms())
-        } else {
+        } else if (mode == LivingRoomEditorView.EditorMode.SUB_ROOM_ANCHOR) {
             editorView.setSubRooms(RoomRepository.getSubRooms())
             editorView.setOnSubRoomListener(
                 onAdd = { point ->
@@ -1593,6 +1658,41 @@ class MainActivity : ComponentActivity() {
                     RoomRepository.updateRoom(room)
                 }
             )
+        } else {
+            editorView.setDevices(RoomRepository.getDevices())
+            editorView.setOnDeviceSelectionListener { device ->
+                val nextState = when {
+                    editorView.hasPendingDeviceDraft() -> EditorMenuState.DEVICE_ADD
+                    device != null -> EditorMenuState.DEVICE_SELECTED
+                    else -> EditorMenuState.DEVICE_IDLE
+                }
+                if (editorMenuState != nextState) {
+                    transitionTo(nextState)
+                }
+            }
+        }
+    }
+
+    private fun buildEditModeLabels(): Array<String> {
+        val subRoomCount = RoomRepository.getSubRooms().size
+        val deviceCount = RoomRepository.getDevices().size
+        return arrayOf(
+            "主房间设置",
+            "次房间设置($subRoomCount)",
+            "设备设置($deviceCount)"
+        )
+    }
+
+    private fun refreshEditModeLabels() {
+        val adapter = editModeAdapter ?: return
+        val spinner = spnEditMode ?: return
+        val selected = spinner.selectedItemPosition.coerceAtLeast(0)
+        val labels = buildEditModeLabels()
+        adapter.clear()
+        adapter.addAll(*labels)
+        adapter.notifyDataSetChanged()
+        if (selected in labels.indices && spinner.selectedItemPosition != selected) {
+            spinner.setSelection(selected, false)
         }
     }
     private fun showAddSubRoomDialog(point: PointF) {
@@ -1690,6 +1790,57 @@ class MainActivity : ComponentActivity() {
             }.show()
     }
 
+    private fun suggestNextDeviceIndex(): Int {
+        val existingIds = editorView.getDevices().map { it.id }.toSet()
+        var index = 1
+        while (existingIds.contains("device_$index")) {
+            index += 1
+        }
+        return index
+    }
+
+    private fun handleDeviceSave() {
+        if (editorView.currentMode != LivingRoomEditorView.EditorMode.DEVICE) return
+        if (editorView.hasPendingDeviceDraft()) {
+            showSaveDeviceDialog()
+            return
+        }
+        RoomRepository.replaceDevices(editorView.getDevices())
+        persistRoomConfigAfterEditorSave()
+        transitionTo(if (editorView.selectedDeviceId != null) EditorMenuState.DEVICE_SELECTED else EditorMenuState.DEVICE_IDLE)
+    }
+
+    private fun showSaveDeviceDialog() {
+        val index = suggestNextDeviceIndex()
+        val defaultName = "设备$index"
+        val defaultId = "device_$index"
+        val input = EditText(this).apply {
+            setText(defaultName)
+            hint = "设备名称"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("保存设备")
+            .setMessage("请输入设备名称")
+            .setView(input)
+            .setPositiveButton("保存") { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isBlank()) {
+                    Toast.makeText(this, "设备名称不能为空", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val saved = editorView.commitPendingDevice(name, defaultId) ?: run {
+                    Toast.makeText(this, "当前设备框未包含核心点，未保存", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                RoomRepository.replaceDevices(editorView.getDevices())
+                persistRoomConfigAfterEditorSave()
+                transitionTo(EditorMenuState.DEVICE_SELECTED)
+                Toast.makeText(this, "已保存设备: ${saved.name}", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
     private fun exitEditMode(save: Boolean) {
         if (save) {
             if (editorView.currentMode == LivingRoomEditorView.EditorMode.LIVING_ROOM_HULL) {
@@ -1726,6 +1877,7 @@ class MainActivity : ComponentActivity() {
             overlayView.setLivingRoomVertices(livingRoom.boundaryVertices)
         }
         overlayView.setSubRooms(allRooms.filter { !it.isSovereignTerritory })
+        overlayView.setDevices(RoomRepository.getDevices())
         updateHandOverlayMode()
     }
 

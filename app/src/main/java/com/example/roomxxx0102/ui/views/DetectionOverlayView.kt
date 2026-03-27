@@ -15,6 +15,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import com.example.roomxxx0102.data.model.BoundaryVertex
+import com.example.roomxxx0102.data.model.DeviceConfig
 import com.example.roomxxx0102.data.model.PoseResult
 import com.example.roomxxx0102.data.model.RoomConfig
 import com.example.roomxxx0102.logic.analyzer.HandSmokeTester
@@ -42,6 +43,7 @@ class DetectionOverlayView @JvmOverloads constructor(
     private var livingRoomVertices: List<BoundaryVertex> = emptyList()
     // 🔥 次房间数据 (棋子)
     private var subRooms: List<RoomConfig> = emptyList()
+    private var devices: List<DeviceConfig> = emptyList()
     
     private var debugInfo = "Waiting..."
     private var currentFrame: Bitmap? = null
@@ -272,6 +274,28 @@ class DetectionOverlayView @JvmOverloads constructor(
         style = Paint.Style.FILL
         isAntiAlias = true
     }
+    private val deviceStrokePaint = Paint().apply {
+        color = Color.parseColor("#00E5FF")
+        style = Paint.Style.STROKE
+        strokeWidth = 5f
+        isAntiAlias = true
+    }
+    private val deviceFillPaint = Paint().apply {
+        color = Color.argb(55, 0, 229, 255)
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val deviceHotspotPaint = Paint().apply {
+        color = Color.parseColor("#FF5252")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val deviceHotspotStrokePaint = Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        isAntiAlias = true
+    }
     private val edgeThemePaint = Paint().apply {
         style = Paint.Style.STROKE
         strokeWidth = 12f
@@ -350,6 +374,11 @@ class DetectionOverlayView @JvmOverloads constructor(
     // 🔥 更新棋子列表
     fun setSubRooms(rooms: List<RoomConfig>) {
         subRooms = rooms
+        postInvalidate()
+    }
+
+    fun setDevices(items: List<DeviceConfig>) {
+        devices = items
         postInvalidate()
     }
 
@@ -511,7 +540,8 @@ class DetectionOverlayView @JvmOverloads constructor(
         }
 
         // 🔥 画 ROI 框 (最上层)
-        roiBox?.let { r ->
+        if (!showHandOnly) {
+            roiBox?.let { r ->
             // 根据状态切换颜色
             roiPaint.color = if (isRoiTracking) Color.YELLOW else Color.RED
             
@@ -536,6 +566,7 @@ class DetectionOverlayView @JvmOverloads constructor(
                 val cy = top + 28f
                 canvas.drawText(text, cx, cy, roiTextPaint)
             }
+            }
         }
 
 
@@ -557,7 +588,7 @@ class DetectionOverlayView @JvmOverloads constructor(
         }
 
         // 🔥 修改：如果是编辑模式，不绘制房间区域和棋子，交由 LivingRoomEditorView 绘制
-        if (!isEditMode) {
+        if (!isEditMode && !showHandOnly) {
             // 1. 画客厅区域
             if (livingRoomBoundary.isNotEmpty()) {
                 val path = Path()
@@ -620,6 +651,31 @@ class DetectionOverlayView @JvmOverloads constructor(
                     // 🔥 恢复：传递 persistentPersonCount
                     drawPawn(canvas, px, py, room.name, fillColor, room.personCount, room.persistentPersonCount)
                 }
+            }
+        }
+
+        if (!isEditMode && showHandOnly) {
+            for (device in devices) {
+                val points = device.polygon
+                if (points.size < 3) continue
+                val path = Path()
+                val startX = drawLeft + points[0].x * drawWidth
+                val startY = drawTop + points[0].y * drawHeight
+                path.moveTo(startX, startY)
+                for (i in 1 until points.size) {
+                    val px = drawLeft + points[i].x * drawWidth
+                    val py = drawTop + points[i].y * drawHeight
+                    path.lineTo(px, py)
+                }
+                path.close()
+                canvas.drawPath(path, deviceFillPaint)
+                canvas.drawPath(path, deviceStrokePaint)
+                val hotspotX = drawLeft + device.hotspot.x * drawWidth
+                val hotspotY = drawTop + device.hotspot.y * drawHeight
+                canvas.drawCircle(hotspotX, hotspotY, 10f, deviceHotspotPaint)
+                canvas.drawCircle(hotspotX, hotspotY, 10f, deviceHotspotStrokePaint)
+                canvas.drawLine(hotspotX - 12f, hotspotY, hotspotX + 12f, hotspotY, deviceHotspotStrokePaint)
+                canvas.drawLine(hotspotX, hotspotY - 12f, hotspotX, hotspotY + 12f, deviceHotspotStrokePaint)
             }
         }
 

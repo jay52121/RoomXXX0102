@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PointF
@@ -17,7 +18,9 @@ import android.view.View
 import android.widget.Toast
 import com.example.roomxxx0102.R
 import com.example.roomxxx0102.data.model.BoundaryVertex
+import com.example.roomxxx0102.data.model.DeviceConfig
 import com.example.roomxxx0102.data.model.RoomConfig
+import com.example.roomxxx0102.utils.DeviceGeometryUtils
 import com.example.roomxxx0102.utils.GeometryUtils
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -31,24 +34,55 @@ class LivingRoomEditorView @JvmOverloads constructor(
 
     enum class EditorMode {
         LIVING_ROOM_HULL,
-        SUB_ROOM_ANCHOR
+        SUB_ROOM_ANCHOR,
+        DEVICE
     }
 
     private companion object {
         private const val TAG = "LivingRoomEditorView"
+        private const val MIN_DEVICE_SIZE_NORM = 0.03f
     }
+
+    private enum class DeviceCorner {
+        TOP_LEFT,
+        TOP_RIGHT,
+        BOTTOM_RIGHT,
+        BOTTOM_LEFT
+    }
+
+    private sealed class DeviceTarget {
+        data class Existing(val id: String) : DeviceTarget()
+        data object Draft : DeviceTarget()
+    }
+
+    private data class DeviceHit(
+        val target: DeviceTarget,
+        val corner: DeviceCorner? = null,
+        val inside: Boolean = false
+    )
 
     var currentMode: EditorMode = EditorMode.LIVING_ROOM_HULL
         set(value) {
             field = value
             selectedRoomId = null
+            selectedDeviceId = null
+            deviceResizeTarget = null
+            deviceResizeCorner = null
+            deviceMoveTarget = null
+            deviceLongPressCandidate = null
+            lastDeviceMoveNorm = null
             invalidate()
         }
 
     private val boundaryVertices = mutableListOf<BoundaryVertex>()
     private var subRooms: MutableList<RoomConfig> = mutableListOf()
+    private var devices: MutableList<DeviceConfig> = mutableListOf()
+    private var pendingDeviceDraft: DeviceConfig? = null
 
     var selectedRoomId: String? = null
+        private set
+
+    var selectedDeviceId: String? = null
         private set
 
     private var activeRoomId: String? = null
@@ -61,6 +95,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
     private var onAddSubRoom: ((PointF) -> Unit)? = null
     private var onRoomSelected: ((RoomConfig?) -> Unit)? = null
     private var onRoomUpdated: ((RoomConfig) -> Unit)? = null
+    private var onDeviceSelected: ((DeviceConfig?) -> Unit)? = null
 
     // 🔥 新增：是否绘制背景图
     var drawBackground: Boolean = true
@@ -155,6 +190,52 @@ class LivingRoomEditorView @JvmOverloads constructor(
         strokeWidth = 6f
         isAntiAlias = true
     }
+    private val deviceFillPaint = Paint().apply {
+        color = Color.argb(70, 33, 150, 243)
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val deviceStrokePaint = Paint().apply {
+        color = Color.parseColor("#2196F3")
+        style = Paint.Style.STROKE
+        strokeWidth = 5f
+        isAntiAlias = true
+    }
+    private val deviceSelectedStrokePaint = Paint().apply {
+        color = Color.parseColor("#FFEB3B")
+        style = Paint.Style.STROKE
+        strokeWidth = 7f
+        isAntiAlias = true
+    }
+    private val deviceDraftStrokePaint = Paint().apply {
+        color = Color.parseColor("#FFEB3B")
+        style = Paint.Style.STROKE
+        strokeWidth = 5f
+        isAntiAlias = true
+        pathEffect = DashPathEffect(floatArrayOf(18f, 12f), 0f)
+    }
+    private val deviceHandlePaint = Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val deviceHandleStrokePaint = Paint().apply {
+        color = Color.BLACK
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        isAntiAlias = true
+    }
+    private val deviceHotspotPaint = Paint().apply {
+        color = Color.parseColor("#FF5252")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val deviceHotspotStrokePaint = Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        isAntiAlias = true
+    }
 
     private var draggingIndex = -1
     private var regionDraggingIndex = -1
@@ -176,6 +257,12 @@ class LivingRoomEditorView @JvmOverloads constructor(
     private val regionEditHistory = ArrayDeque<List<PointF>>()
     private var regionEditDebugLogged = false
     private var regionEditDrawLogged = false
+    private var isAddDeviceArmed = false
+    private var deviceResizeTarget: DeviceTarget? = null
+    private var deviceResizeCorner: DeviceCorner? = null
+    private var deviceMoveTarget: DeviceTarget? = null
+    private var deviceLongPressCandidate: DeviceTarget? = null
+    private var lastDeviceMoveNorm: PointF? = null
 
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDoubleTap(e: MotionEvent): Boolean {
@@ -198,6 +285,16 @@ class LivingRoomEditorView @JvmOverloads constructor(
             }
             return false
         }
+
+        override fun onLongPress(e: MotionEvent) {
+            if (currentMode != EditorMode.DEVICE || isAddDeviceArmed) return
+            val hit = findDeviceHit(e.x, e.y) ?: return
+            if (!hit.inside) return
+            selectDeviceTarget(hit.target, notify = true)
+            deviceMoveTarget = hit.target
+            lastDeviceMoveNorm = toNorm(e.x, e.y)
+            invalidate()
+        }
     })
 
     fun setSubRooms(rooms: List<RoomConfig>) {
@@ -214,6 +311,63 @@ class LivingRoomEditorView @JvmOverloads constructor(
         this.onAddSubRoom = onAdd
         this.onRoomSelected = onSelected
         this.onRoomUpdated = onUpdated
+    }
+
+    fun setDevices(items: List<DeviceConfig>) {
+        devices.clear()
+        devices.addAll(items.map(::copyDevice))
+        pendingDeviceDraft = null
+        selectedDeviceId = null
+        onDeviceSelected?.invoke(null)
+        invalidate()
+    }
+
+    fun getDevices(): List<DeviceConfig> {
+        return devices.map(::copyDevice)
+    }
+
+    fun setOnDeviceSelectionListener(onSelected: (DeviceConfig?) -> Unit) {
+        onDeviceSelected = onSelected
+    }
+
+    fun setAddDeviceArmed(armed: Boolean) {
+        isAddDeviceArmed = armed
+        if (armed) {
+            selectedDeviceId = null
+        }
+        invalidate()
+    }
+
+    fun hasPendingDeviceDraft(): Boolean = pendingDeviceDraft != null
+
+    fun getEditingDeviceCount(): Int = devices.size + if (pendingDeviceDraft != null) 1 else 0
+
+    fun commitPendingDevice(name: String, deviceId: String): DeviceConfig? {
+        val draft = pendingDeviceDraft ?: return null
+        if (!isDeviceGeometryValid(draft)) return null
+        val saved = copyDevice(draft).copy(id = deviceId, name = name)
+        devices.add(saved)
+        pendingDeviceDraft = null
+        selectedDeviceId = saved.id
+        onDeviceSelected?.invoke(copyDevice(saved))
+        invalidate()
+        return copyDevice(saved)
+    }
+
+    fun deleteSelectedDevice(): Boolean {
+        if (pendingDeviceDraft != null && selectedDeviceId == null) {
+            pendingDeviceDraft = null
+            onDeviceSelected?.invoke(null)
+            invalidate()
+            return true
+        }
+        val targetId = selectedDeviceId ?: return false
+        val removed = devices.removeAll { it.id == targetId }
+        if (!removed) return false
+        selectedDeviceId = null
+        onDeviceSelected?.invoke(null)
+        invalidate()
+        return true
     }
 
     fun setAddSubRoomArmed(armed: Boolean) {
@@ -369,7 +523,9 @@ class LivingRoomEditorView @JvmOverloads constructor(
 
     fun clearSelection() {
         selectedRoomId = null
+        selectedDeviceId = null
         onRoomSelected?.invoke(null)
+        onDeviceSelected?.invoke(null)
         invalidate()
     }
 
@@ -526,6 +682,165 @@ class LivingRoomEditorView @JvmOverloads constructor(
         return hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)))
     }
 
+    private fun createDraftDeviceFromHotspot(rawX: Float, rawY: Float): DeviceConfig {
+        val creationFrame = if (dstRect.width() > 0f && dstRect.height() > 0f) {
+            RectF(dstRect)
+        } else {
+            RectF(0f, 0f, width.toFloat(), height.toFloat())
+        }
+        val clampedHotspotPx = DeviceGeometryUtils.clampCreationHotspot(
+            rawPx = PointF(rawX, rawY),
+            frameRect = creationFrame
+        )
+        val hotspot = toNorm(clampedHotspotPx.x, clampedHotspotPx.y)
+        val polygon = DeviceGeometryUtils.createDefaultPolygon(
+            hotspotPx = clampedHotspotPx,
+            frameRect = creationFrame
+        )
+        return DeviceConfig(
+            name = "设备",
+            hotspot = hotspot,
+            polygon = polygon
+        )
+    }
+
+    private fun copyDevice(device: DeviceConfig): DeviceConfig {
+        return DeviceConfig(
+            id = device.id,
+            name = device.name,
+            hotspot = PointF(device.hotspot.x, device.hotspot.y),
+            polygon = DeviceGeometryUtils.copyPoints(device.polygon)
+        )
+    }
+
+    private fun copyDevicePolygon(device: DeviceConfig): MutableList<PointF> {
+        return DeviceGeometryUtils.copyPoints(device.polygon)
+    }
+
+    private fun getDevicePolygon(device: DeviceConfig): List<PointF> {
+        return device.polygon.take(4)
+    }
+
+    private fun getDeviceBounds(device: DeviceConfig): RectF {
+        return DeviceGeometryUtils.getBounds(getDevicePolygon(device))
+    }
+
+    private fun isDeviceGeometryValid(device: DeviceConfig): Boolean {
+        val polygon = getDevicePolygon(device)
+        return DeviceGeometryUtils.isValidQuadrilateral(polygon) &&
+            DeviceGeometryUtils.polygonContainsHotspot(device.hotspot, polygon)
+    }
+
+    private fun getDeviceTarget(target: DeviceTarget): DeviceConfig? {
+        return when (target) {
+            is DeviceTarget.Existing -> devices.find { it.id == target.id }
+            DeviceTarget.Draft -> pendingDeviceDraft
+        }
+    }
+
+    private fun selectDeviceTarget(target: DeviceTarget?, notify: Boolean) {
+        when (target) {
+            is DeviceTarget.Existing -> {
+                selectedDeviceId = target.id
+                if (notify) {
+                    val device = devices.find { it.id == target.id }?.let(::copyDevice)
+                    onDeviceSelected?.invoke(device)
+                }
+            }
+            DeviceTarget.Draft -> {
+                selectedDeviceId = null
+                if (notify) {
+                    onDeviceSelected?.invoke(null)
+                }
+            }
+            null -> {
+                selectedDeviceId = null
+                if (notify) {
+                    onDeviceSelected?.invoke(null)
+                }
+            }
+        }
+        invalidate()
+    }
+
+    private fun getDeviceCorners(device: DeviceConfig): Map<DeviceCorner, PointF> {
+        val points = getDevicePolygon(device)
+        return mapOf(
+            DeviceCorner.TOP_LEFT to toScreen(points[0].x, points[0].y),
+            DeviceCorner.TOP_RIGHT to toScreen(points[1].x, points[1].y),
+            DeviceCorner.BOTTOM_RIGHT to toScreen(points[2].x, points[2].y),
+            DeviceCorner.BOTTOM_LEFT to toScreen(points[3].x, points[3].y)
+        )
+    }
+
+    private fun findDeviceHit(x: Float, y: Float): DeviceHit? {
+        val normPoint = toNorm(x, y)
+        pendingDeviceDraft?.let { draft ->
+            val corners = getDeviceCorners(draft)
+            corners.entries.firstOrNull { (_, point) -> hypot(point.x - x, point.y - y) < touchRadius }?.let {
+                return DeviceHit(DeviceTarget.Draft, corner = it.key)
+            }
+            val draftPoints = getDevicePolygon(draft)
+            if (draftPoints.size == 4 && DeviceGeometryUtils.isPointInQuadrilateral(normPoint, draftPoints)) {
+                return DeviceHit(DeviceTarget.Draft, inside = true)
+            }
+        }
+
+        for (i in devices.lastIndex downTo 0) {
+            val device = devices[i]
+            val target = DeviceTarget.Existing(device.id)
+            val corners = getDeviceCorners(device)
+            corners.entries.firstOrNull { (_, point) -> hypot(point.x - x, point.y - y) < touchRadius }?.let {
+                return DeviceHit(target, corner = it.key)
+            }
+            val points = getDevicePolygon(device)
+            if (points.size == 4 && DeviceGeometryUtils.isPointInQuadrilateral(normPoint, points)) {
+                return DeviceHit(target, inside = true)
+            }
+        }
+        return null
+    }
+
+    private fun updateDeviceCorner(target: DeviceTarget, corner: DeviceCorner, point: PointF) {
+        val device = getDeviceTarget(target) ?: return
+        val points = copyDevicePolygon(device)
+        if (points.size != 4) return
+        val index = when (corner) {
+            DeviceCorner.TOP_LEFT -> 0
+            DeviceCorner.TOP_RIGHT -> 1
+            DeviceCorner.BOTTOM_RIGHT -> 2
+            DeviceCorner.BOTTOM_LEFT -> 3
+        }
+        points[index] = PointF(point.x.coerceIn(0f, 1f), point.y.coerceIn(0f, 1f))
+        val bounds = RectF(
+            points.minOf { it.x },
+            points.minOf { it.y },
+            points.maxOf { it.x },
+            points.maxOf { it.y }
+        )
+        if (bounds.width() < MIN_DEVICE_SIZE_NORM || bounds.height() < MIN_DEVICE_SIZE_NORM) return
+        if (!DeviceGeometryUtils.isValidQuadrilateral(points)) return
+        if (!DeviceGeometryUtils.polygonContainsHotspot(device.hotspot, points)) return
+        device.polygon = points
+        invalidate()
+    }
+
+    private fun moveDevice(target: DeviceTarget, deltaX: Float, deltaY: Float) {
+        val device = getDeviceTarget(target) ?: return
+        val points = copyDevicePolygon(device)
+        if (points.size != 4) return
+        val adjusted = DeviceGeometryUtils.coerceTranslationWithinUnitBounds(points, deltaX, deltaY)
+        val translated = DeviceGeometryUtils.translateHotspotAndPolygon(
+            hotspot = device.hotspot,
+            polygon = points,
+            deltaX = adjusted.x,
+            deltaY = adjusted.y
+        )
+        device.hotspot = translated.first
+        device.polygon = translated.second
+        invalidate()
+    }
+
     private fun insertVertexAfter(index: Int, point: PointF): Int {
         val oldEdgeId = boundaryVertices[index].edgeIdToNext
         removedEdgeIds.add(oldEdgeId)
@@ -554,8 +869,76 @@ class LivingRoomEditorView @JvmOverloads constructor(
         return true
     }
 
+    private fun handleDeviceTouchEvent(event: MotionEvent): Boolean {
+        val x = event.x
+        val y = event.y
+
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                if (isAddDeviceArmed) {
+                    pendingDeviceDraft = createDraftDeviceFromHotspot(x, y)
+                    deviceResizeTarget = null
+                    deviceResizeCorner = null
+                    deviceMoveTarget = null
+                    lastDeviceMoveNorm = null
+                    selectDeviceTarget(null, notify = false)
+                    return true
+                }
+                val hit = findDeviceHit(x, y)
+                if (hit != null) {
+                    selectDeviceTarget(hit.target, notify = true)
+                    if (hit.corner != null) {
+                        deviceResizeTarget = hit.target
+                        deviceResizeCorner = hit.corner
+                    } else if (hit.inside) {
+                        deviceLongPressCandidate = hit.target
+                    }
+                    return true
+                }
+                selectDeviceTarget(null, notify = true)
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (isAddDeviceArmed) return true
+                val resizeTarget = deviceResizeTarget
+                val resizeCorner = deviceResizeCorner
+                if (resizeTarget != null && resizeCorner != null) {
+                    updateDeviceCorner(resizeTarget, resizeCorner, toNorm(x, y))
+                    return true
+                }
+                val moveTarget = deviceMoveTarget
+                if (moveTarget != null) {
+                    val norm = toNorm(x, y)
+                    val prev = lastDeviceMoveNorm ?: norm
+                    moveDevice(moveTarget, norm.x - prev.x, norm.y - prev.y)
+                    lastDeviceMoveNorm = norm
+                    return true
+                }
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (isAddDeviceArmed) {
+                    if (pendingDeviceDraft != null) {
+                        selectDeviceTarget(DeviceTarget.Draft, notify = true)
+                    }
+                    isAddDeviceArmed = false
+                }
+                deviceResizeTarget = null
+                deviceResizeCorner = null
+                deviceMoveTarget = null
+                deviceLongPressCandidate = null
+                lastDeviceMoveNorm = null
+                return true
+            }
+        }
+        return true
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val handledByGesture = gestureDetector.onTouchEvent(event)
+        if (currentMode == EditorMode.DEVICE) {
+            return handleDeviceTouchEvent(event)
+        }
         val x = event.x
         val y = event.y
 
@@ -787,6 +1170,41 @@ class LivingRoomEditorView @JvmOverloads constructor(
         return handledByGesture || super.onTouchEvent(event)
     }
 
+    private fun drawDeviceRect(canvas: Canvas, device: DeviceConfig, isSelected: Boolean, isDraft: Boolean) {
+        val points = getDevicePolygon(device)
+        if (points.size != 4) return
+        val screenPoints = points.map { toScreen(it.x, it.y) }
+        val path = Path().apply {
+            moveTo(screenPoints[0].x, screenPoints[0].y)
+            for (i in 1 until screenPoints.size) {
+                lineTo(screenPoints[i].x, screenPoints[i].y)
+            }
+            close()
+        }
+        canvas.drawPath(path, deviceFillPaint)
+        val strokePaint = when {
+            isDraft -> deviceDraftStrokePaint
+            isSelected -> deviceSelectedStrokePaint
+            else -> deviceStrokePaint
+        }
+        canvas.drawPath(path, strokePaint)
+        val label = if (isDraft) "未命名设备" else device.name
+        val bounds = getDeviceBounds(device)
+        val topCenter = toScreen((bounds.left + bounds.right) / 2f, bounds.top)
+        canvas.drawText(label, topCenter.x, topCenter.y - 14f, textPaint)
+        val hotspot = toScreen(device.hotspot.x, device.hotspot.y)
+        canvas.drawCircle(hotspot.x, hotspot.y, 11f, deviceHotspotPaint)
+        canvas.drawCircle(hotspot.x, hotspot.y, 11f, deviceHotspotStrokePaint)
+        canvas.drawLine(hotspot.x - 12f, hotspot.y, hotspot.x + 12f, hotspot.y, deviceHotspotStrokePaint)
+        canvas.drawLine(hotspot.x, hotspot.y - 12f, hotspot.x, hotspot.y + 12f, deviceHotspotStrokePaint)
+        if (isSelected || isDraft) {
+            for (point in screenPoints) {
+                canvas.drawCircle(point.x, point.y, 12f, deviceHandlePaint)
+                canvas.drawCircle(point.x, point.y, 12f, deviceHandleStrokePaint)
+            }
+        }
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val w = width.toFloat()
@@ -871,7 +1289,7 @@ class LivingRoomEditorView @JvmOverloads constructor(
                     drawPawn(canvas, screenP.x, screenP.y, room.name, false, fillColor)
                 }
             }
-        } else {
+        } else if (currentMode == EditorMode.SUB_ROOM_ANCHOR) {
             val selectedRoom = subRooms.find { it.id == selectedRoomId }
             val highlightEdgeIds = if (selectedRoom == null || pendingClearDoor) {
                 emptySet()
@@ -1005,6 +1423,17 @@ class LivingRoomEditorView @JvmOverloads constructor(
                         if (room.occupiedWallIds.isEmpty()) Color.WHITE else (room.themeColor ?: Color.WHITE)
                     drawPawn(canvas, screenP.x, screenP.y, room.name, isSelected, fillColor)
                 }
+            }
+        } else {
+            for (v in boundaryVertices) {
+                val screenP = toScreen(v.point.x, v.point.y)
+                canvas.drawCircle(screenP.x, screenP.y, 12f, vertexPaint)
+            }
+            for (device in devices) {
+                drawDeviceRect(canvas, device, device.id == selectedDeviceId, isDraft = false)
+            }
+            pendingDeviceDraft?.let { draft ->
+                drawDeviceRect(canvas, draft, isSelected = true, isDraft = true)
             }
         }
     }

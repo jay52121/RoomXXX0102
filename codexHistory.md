@@ -1,5 +1,172 @@
 # Codex History
 
+## [267] 2026-03-28 02:35:05 - 修复设备默认框未围绕点击点与贴边参照错误
+
+**用户指令**：
+> 出现了一些问题，当我点击一个地方时候，整个矩形不是围绕着它而画的。也就是说不是他的中心点。 我说的贴边是屏幕边缘
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复设备新建时默认框未围绕点击点居中，以及“贴边 150px”错误按整个 View 而非实际画面边缘计算的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/utils/DeviceGeometryUtils.kt、app/src/main/java/com/example/roomxxx0102/ui/views/LivingRoomEditorView.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：DeviceGeometryUtils.clampCreationHotspot/createDefaultPolygon、LivingRoomEditorView.createDraftDeviceFromHotspot、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   设备热点贴边限制改为基于 `dstRect`，也就是实际显示画面边缘，而不是整个 View 外框。
+      *   默认 `200x300` 设备框的生成也改为基于 `dstRect` 的像素坐标和归一化坐标系。
+      *   现在只要点击点不靠近画面边缘，默认框会严格以点击点为几何中心；只有接近画面边缘时才会被推开以避免越界。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [266] 2026-03-28 02:28:42 - 设备模型升级为热点加四边形并重构编辑流程
+
+**用户指令**：
+> 先只改“设备数据结构”和“设备创建/编辑逻辑”，不要改射线评分算法、窗口统计、命中判定、最终排序逻辑。
+> 当前项目里的设备原本只有一个四边形 polygon。现在直接改成新的设备定义，不需要兼容旧数据，因为旧数据已经删除了。
+> 新的设备数据结构统一为：
+> - 设备 = 核心点 hotspot + 四边形 polygon
+> - hotspot 是用户真正最可能指向的核心位置
+> - polygon 是设备的大致区域框
+> - 约束：polygon 必须始终包含 hotspot（内部或边界上都可以）
+> ...
+> 这次只完成设备定义与设备编辑逻辑升级。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将设备从“仅四边形”升级为“hotspot + polygon”结构，并重构设备创建/编辑/显示/存储链路，不改任何指向判定算法。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/data/model/DeviceConfig.kt、app/src/main/java/com/example/roomxxx0102/data/repository/RoomRepository.kt、app/src/main/java/com/example/roomxxx0102/ui/views/LivingRoomEditorView.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、app/src/main/java/com/example/roomxxx0102/utils/DeviceGeometryUtils.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：DeviceConfig 数据结构定义、RoomRepository.serializeDevice/deserializeDevice/copyDevice、LivingRoomEditorView.commitPendingDevice/createDraftDeviceFromHotspot/getDevicePolygon/updateDeviceCorner/moveDevice/handleDeviceTouchEvent/drawDeviceRect、MainActivity.buildPointingTargetRects/enterAddDeviceMode/showSaveDeviceDialog、DetectionOverlayView.onDraw、DeviceGeometryUtils 全部新增方法、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   设备模型改为 `hotspot + polygon`，删除旧的 `left/top/right/bottom` 兼容读取，只认新结构。
+      *   新建设备改成“先点 hotspot，再自动生成默认 200x300 四边形”；创建时自动把热点校正到距边缘至少 150px 的合法位置。
+      *   设备整体移动时，`hotspot` 与 `polygon` 一起平移；不再允许只移动其中一部分。
+      *   顶点编辑新增约束：四边形必须合法、凸、且始终包含 `hotspot`；非法拖动会保持在最近一次合法状态。
+      *   编辑视图与 overlay 同步显示 `hotspot`，便于明确看到“核心指向点”和“设备框”。
+      *   新增 `DeviceGeometryUtils`，整理设备相关几何辅助方法，供后续算法继续复用。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [265] 2026-03-28 02:13:02 - 修复编辑模式数量下拉刷新崩溃
+
+**用户指令**：
+> 2026-03-28 02:11:54.538 19783-19783 AndroidRuntime          com.example.roomxxx0102              E  FATAL EXCEPTION: main (Fix with AI)
+> java.lang.UnsupportedOperationException
+> ...
+> at com.example.roomxxx0102.ui.activities.MainActivity.refreshEditModeLabels(MainActivity.kt:1687)
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复进入编辑模式时刷新模式数量文案导致的 `ArrayAdapter.clear()` 崩溃。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.setupButtons、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `setupButtons()` 中的编辑模式 `ArrayAdapter` 改为用 `MutableList<String>` 初始化，而不是直接绑定不可变数组。
+      *   保留现有 `refreshEditModeLabels()` 的 `clear()/addAll()` 刷新方式，不再触发 `UnsupportedOperationException`。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [264] 2026-03-28 02:09:06 - 指向识别目标切换为设备并显示编辑模式数量
+
+**用户指令**：
+> GeminiHistory我再说一次不要读了.  同时加一个新功能,次房间设置和设备设置选项的右边都加上当前的数量.也就是次房间数量和设备数量.开始吧.
+> refreshOverlayDisplay是什么时候?频率高吗?应该只有点出这个菜单才能看到
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将指向识别目标从房门切换为设备，并在编辑模式下拉菜单中显示当前次房间数量与设备数量。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.buildPointingTargetRects/setupButtons/enterEditMode/transitionTo/applyModeSelection/buildEditModeLabels/refreshEditModeLabels、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `buildPointingTargetRects()` 不再从房门快照构造目标，而是改为读取当前配置中的设备列表，并使用设备四边形的外接矩形作为 pointing target。
+      *   指向识别目标的 `label` 改为设备名称，不再使用次房间/房门名称。
+      *   编辑模式 Spinner 改为动态文案：`主房间设置 / 次房间设置(n) / 设备设置(n)`。
+      *   数量文案刷新挂在编辑菜单链路里，在进入编辑模式、模式切换、编辑状态切换时同步刷新，不放进 `refreshOverlayDisplay()`。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [263] 2026-03-27 22:21:46 - 按住看手时隐藏客厅房门主ROI并显示设备框
+
+**用户指令**：
+> 按住看手被激活后,取消客厅,人体ROI框,房门的显示. 显示设备框.
+> 手部的ROI别忘了也要显示.开始吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：调整“按住看手”激活后的显示层，隐藏客厅/房门/主人体 ROI，只保留手部相关显示并新增设备四边形显示。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：DetectionOverlayView.setDevices/onDraw、MainActivity.refreshOverlayDisplay、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `DetectionOverlayView` 新增设备列表输入与设备四边形画笔。
+      *   当 `showHandOnly == true` 时，不再绘制客厅区域、房门/次房间相关显示和主 ROI 框。
+      *   手部 ROI (`handRoiBox`) 继续保留显示，不受“按住看手”模式影响。
+      *   同一模式下新增设备四边形显示，便于配合手部观察设备区域。
+      *   `MainActivity.refreshOverlayDisplay()` 现在会把当前配置里的设备列表同步喂给 overlay。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [262] 2026-03-27 22:00:16 - 设备模型从矩形改为任意四边形
+
+**用户指令**：
+> 有个设计错误,不要矩形,而是任意四边形
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将第 1 版设备模型从 `left/top/right/bottom` 矩形改为真正的四点任意四边形，并保持旧矩形配置可兼容读取。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/data/model/DeviceConfig.kt、app/src/main/java/com/example/roomxxx0102/data/repository/RoomRepository.kt、app/src/main/java/com/example/roomxxx0102/ui/views/LivingRoomEditorView.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：RoomRepository.getDevices/replaceDevices/serializeDevice/deserializeDevice/copyDevice、LivingRoomEditorView.setDevices/getDevices/commitPendingDevice/copyDevice/copyDevicePoints/getDevicePoints/getDeviceBounds/findDeviceHit/updateDeviceCorner/moveDevice/drawDeviceRect、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `DeviceConfig` 不再保存矩形四边，而是改为保存固定顺序的 4 个顶点。
+      *   `RoomRepository` 设备序列化改为 `points` 数组；反序列化时若发现旧字段 `left/top/right/bottom`，会自动转换成四点矩形，兼容旧配置。
+      *   `RoomRepository` 与 `LivingRoomEditorView` 的设备拷贝逻辑全部改成深拷贝 `PointF`，避免拖拽顶点时共享引用串改缓存。
+      *   `LivingRoomEditorView` 的设备命中、角点拖拽、整体移动、绘制显示，全部改为基于四点四边形处理，不再走 `RectF` 假设。
+      *   新建设备仍然先拖出一个初始正方形，但保存后四个角完全独立，可调整成任意四边形。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [261] 2026-03-27 20:09:43 - 实现第1版设备编辑与保存链路
+
+**用户指令**：
+> 我下一步的计划是这样的。我们还是把它放在。设置房间菜单中设置房间的菜单现在目前有设备设置对吧,移动到菜单栏中,就和添加子房间一样.,现在点击添加设备。之后,菜单隐藏，然后弹出设备命名(默认给个设备+ID递增)提示请绘制矩形,然后用户用手绘制出一个正方形,然后可以对正方形的四个角进行调整.长按矩形还可以移动位置.然后绘制完成后点击保存.保存这个设备的名字和ID.单击设备矩形后,可以删除设备. 总来的说操作可以参考子房间.
+> 1.后续允许四角调成一般矩形. 2.先绘制好矩形后再点击保存,弹出名字和确认,
+> 1.设备设置还是没变啊,还是整页./只是选中这个菜单后,不是弹出,而是和子房间一样有个增加设备按钮
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：实现第 1 版设备编辑链路，保留“设备设置”模式，但改为像次房间一样在 `editorView` 上用左侧按钮完成设备矩形的新增、编辑、删除和保存。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/data/model/DeviceConfig.kt、app/src/main/java/com/example/roomxxx0102/data/repository/RoomRepository.kt、app/src/main/java/com/example/roomxxx0102/ui/views/LivingRoomEditorView.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：RoomRepository.getDevices/replaceDevices/serializeDevice/deserializeDevice/loadFromCurrentFile/saveToFile/buildRootJson、LivingRoomEditorView.setDevices/setOnDeviceSelectionListener/commitPendingDevice/deleteSelectedDevice/handleDeviceTouchEvent/drawDeviceRect、MainActivity.enterDeviceSettingsMode/enterAddDeviceMode/transitionTo/renderEditorMenu/applyModeSelection/suggestNextDeviceIndex/handleDeviceSave/showSaveDeviceDialog、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   新增 `DeviceConfig` 模型，并将 `.Room` 配置扩展为同时持久化 `rooms` 与 `devices`。
+      *   `RoomRepository` 新增设备列表缓存与读写接口，备份/恢复、空配置、意义配置判定同步纳入设备。
+      *   `LivingRoomEditorView` 新增 `DEVICE` 编辑模式，支持：
+        *   点击“添加设备”后拖出初始正方形；
+        *   后续拖四角调整为普通矩形；
+        *   长按矩形整体移动；
+        *   单击选中、删除未保存草稿或已保存设备。
+      *   `MainActivity` 将“设备设置”从占位页改成真正的 `editorView + 左侧按钮` 状态机，新增 `DEVICE_IDLE / DEVICE_ADD / DEVICE_SELECTED` 三个状态。
+      *   新设备的保存顺序改为“先画矩形，再点保存弹名称输入框”，默认采用 `设备1 / 设备2 / 设备3` 与 `device_1 / device_2 / device_3` 递增。
+      *   已有设备拖拽/调角后点击保存即可落盘；删除设备则直接同步仓库并保存。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
 ## [260] 2026-03-27 17:03:55 - 编辑页保存即落盘并将设置页改为另存为
 
 **用户指令**：
