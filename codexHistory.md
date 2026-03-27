@@ -1,5 +1,27 @@
 # Codex History
 
+## [260] 2026-03-27 17:03:55 - 编辑页保存即落盘并将设置页改为另存为
+
+**用户指令**：
+> 我新发现了一个bug。我们在创建。一个房间。也就是我设置了一个储房间之后这个时候应该。点了保存之后就应该有配置文件了。但是我没有去点房间配置管理设置页里面的保存，这个时候它的。配置好像没有被保存下来。你先确认一下是不是？如果是的话，我们要做下一个处理。当。保存的时候，这个时候已经被保存下来了。在设置页里面应该叫另存为。另存的时候，弹出一个。名字。然后用户点保存在保存那个配置。默认名字会加上。我们之前约定好的123之类的。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复编辑页“保存”只改内存不落盘的问题，并把设置页原“保存”入口明确收口为“另存为”。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/data/repository/RoomRepository.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/res/layout/fragment_settings_home.xml、codexHistory.md、dialogueHistory.md
+    *   涉及方法：RoomRepository.saveAsConfigFile/saveCurrentConfigOrCreateForCurrentVideo/resolvePrimarySaveTargetFile/saveToFile、MainActivity.onCreate(btnFinish.setOnClickListener)/performSave/persistRoomConfigAfterEditorSave、SettingsHomeFragment.saveCurrentConfigAs/onViewCreated(btnExport.setOnClickListener)、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `RoomRepository` 新增“保存当前配置或为当前视频创建默认配置文件”的入口，首存时自动落到当前视频目录下的默认 `.Room` 文件。
+      *   当前保存目标若不是当前视频目录下的配置文件，则不再继续覆盖旧 `room_config.json`，而是切到当前视频默认配置文件再落盘。
+      *   `MainActivity` 的编辑页 `btnFinish` 现在在主房间保存、次房间门选择保存、次房间区域保存后都会立即触发真实文件保存。
+      *   设置页原“保存现有房间配置”改为“当前房间配置另存为”，弹窗标题、确认按钮和成功提示同步改为“另存为”语义。
+      *   另存为默认命名规则继续沿用 `VideoRoomConfigManager.suggestNextConfigNameForCurrentVideo()` 的递增后缀方案。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
 ## [259] 2026-03-27 16:42:38 - 灰色指向线独立显示并在命中后保持1秒
 
 **用户指令**：

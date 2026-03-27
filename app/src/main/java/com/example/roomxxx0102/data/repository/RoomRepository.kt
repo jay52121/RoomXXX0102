@@ -138,18 +138,30 @@ object RoomRepository {
     }
 
     fun saveAsConfigFile(file: File): Boolean {
-        return try {
-            file.parentFile?.mkdirs()
-            configFile = file
-            saveToFile()
-            loadedBaselineCanonicalJson = currentCanonicalJson()
-            AppSettings.setActiveRoomConfigPath(file.absolutePath)
-            AppSettings.setNoRoomConfigSelected(false)
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save config file: ${file.absolutePath}", e)
-            false
+        file.parentFile?.mkdirs()
+        configFile = file
+        if (!saveToFile()) {
+            Log.e(TAG, "Failed to save config file: ${file.absolutePath}")
+            return false
         }
+        loadedBaselineCanonicalJson = currentCanonicalJson()
+        AppSettings.setActiveRoomConfigPath(file.absolutePath)
+        AppSettings.setNoRoomConfigSelected(false)
+        return true
+    }
+
+    fun saveCurrentConfigOrCreateForCurrentVideo(): File? {
+        val targetFile = resolvePrimarySaveTargetFile() ?: return null
+        targetFile.parentFile?.mkdirs()
+        configFile = targetFile
+        if (!saveToFile()) {
+            Log.e(TAG, "Failed to save current config file: ${targetFile.absolutePath}")
+            return null
+        }
+        loadedBaselineCanonicalJson = currentCanonicalJson()
+        AppSettings.setActiveRoomConfigPath(targetFile.absolutePath)
+        AppSettings.setNoRoomConfigSelected(false)
+        return targetFile
     }
 
     // --- 纯数据处理：备份与恢复 ---
@@ -374,8 +386,16 @@ object RoomRepository {
         }
     }
 
-    private fun saveToFile() {
-        val file = configFile ?: return
+    private fun resolvePrimarySaveTargetFile(): File? {
+        val currentFile = configFile
+        if (VideoRoomConfigManager.isCurrentVideoConfigFile(currentFile)) {
+            return currentFile
+        }
+        return VideoRoomConfigManager.defaultConfigFileForCurrentVideo()
+    }
+
+    private fun saveToFile(): Boolean {
+        val file = configFile ?: return false
         try {
             file.parentFile?.mkdirs()
             val rootObj = JSONObject()
@@ -386,9 +406,11 @@ object RoomRepository {
             rootObj.put("rooms", jsonArray)
             file.writeText(rootObj.toString(2))
             Log.d(TAG, "Config saved: ${file.absolutePath}")
+            return true
 
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save room config", e)
+            return false
         }
     }
 

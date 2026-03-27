@@ -1676,3 +1676,22 @@ ok
 
 ---
 
+## [067] 2026-03-27 17:03:55 - 编辑页保存即落盘并将设置页改为另存为
+
+**用户原文**：
+```text
+我新发现了一个bug。我们在创建。一个房间。也就是我设置了一个储房间之后这个时候应该。点了保存之后就应该有配置文件了。但是我没有去点房间配置管理设置页里面的保存，这个时候它的。配置好像没有被保存下来。你先确认一下是不是？如果是的话，我们要做下一个处理。当。保存的时候，这个时候已经被保存下来了。在设置页里面应该叫另存为。另存的时候，弹出一个。名字。然后用户点保存在保存那个配置。默认名字会加上。我们之前约定好的123之类的。
+ok
+```
+
+**助手原文**：
+```text
+已经修掉了。现在编辑页点“保存”时会直接落盘：如果当前已加载的是当前视频下的配置文件，就直接覆盖它；如果当前还没有配置文件，或者当前只是旧的 legacy/空配置，就会自动在当前视频目录下创建默认 `.Room` 文件并保存。设置页原来的保存入口也已经改成“另存为”，弹出的默认名字继续沿用你之前定的递增规则，例如 `_2`、`_3`。
+
+改动在 [RoomRepository.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/data/repository/RoomRepository.kt#L140)、[MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt#L1250)、[SettingsHomeFragment.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt#L199)、[fragment_settings_home.xml](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/res/layout/fragment_settings_home.xml#L298)。验证只做了编译：[compileDebugKotlin](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/build.gradle.kts) 通过。
+
+你现在可以直接测：新建或编辑房间后只点编辑页“保存”，再去“读取当前视频配置”列表里，应该已经能看到对应配置文件；设置页按钮现在则是“当前房间配置另存为”。
+```
+
+---
+

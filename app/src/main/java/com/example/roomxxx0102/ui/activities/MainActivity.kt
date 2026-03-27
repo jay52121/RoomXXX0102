@@ -1254,6 +1254,7 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(this, "未保存", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
+                persistRoomConfigAfterEditorSave()
                 transitionTo(EditorMenuState.SUBROOM_SELECTED)
             } else if (editorMenuState == EditorMenuState.SUBROOM_AREA_EDIT) {
                 val roomId = editorView.getRegionEditRoomId()
@@ -1267,6 +1268,7 @@ class MainActivity : ComponentActivity() {
                         RoomRepository.updateRoom(room)
                     }
                 }
+                persistRoomConfigAfterEditorSave()
                 editorView.endSubRoomRegionEdit()
                 transitionTo(EditorMenuState.SUBROOM_SELECTED)
             } else if (editorMenuState == EditorMenuState.DEVICE_SETTINGS) {
@@ -1274,7 +1276,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 // 保存不退出
                 performSave()
-                Toast.makeText(this, "设置已保存", Toast.LENGTH_SHORT).show()
+                persistRoomConfigAfterEditorSave()
             }
         }
 
@@ -1348,6 +1350,16 @@ class MainActivity : ComponentActivity() {
         }
         // SubRoom 模式下的修改大多是即时保存的，或者在 finish 子状态时保存
         refreshOverlayDisplay()
+    }
+
+    private fun persistRoomConfigAfterEditorSave(): Boolean {
+        val savedFile = RoomRepository.saveCurrentConfigOrCreateForCurrentVideo()
+        if (savedFile != null) {
+            Toast.makeText(this, "配置已保存: ${savedFile.nameWithoutExtension}", Toast.LENGTH_SHORT).show()
+            return true
+        }
+        Toast.makeText(this, "请先选择测试视频后再保存配置", Toast.LENGTH_SHORT).show()
+        return false
     }
 
     private fun enterEditMode() {

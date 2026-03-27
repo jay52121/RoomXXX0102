@@ -300,7 +300,7 @@
                     android:id="@+id/btn_export"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="保存现有房间配置"
+                    android:text="当前房间配置另存为"
                     android:backgroundTint="#2196F3"
                     android:textColor="#FFFFFF"
                     android:layout_marginBottom="8dp"/>

@@ -199,10 +199,10 @@ class SettingsHomeFragment : Fragment() {
     private fun saveCurrentConfigAs(file: File) {
         val success = RoomRepository.saveAsConfigFile(file)
         if (success) {
-            Toast.makeText(context, "已保存配置: ${file.nameWithoutExtension}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "已另存为配置: ${file.nameWithoutExtension}", Toast.LENGTH_SHORT).show()
             refreshConfigListContent()
         } else {
-            Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "另存为失败", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -671,10 +671,10 @@ class SettingsHomeFragment : Fragment() {
             }
 
             AlertDialog.Builder(context)
-                .setTitle("保存新配置")
+                .setTitle("另存为")
                 .setMessage("请输入新配置文件名 (无需后缀)")
                 .setView(input)
-                .setPositiveButton("保存") { _, _ ->
+                .setPositiveButton("另存为") { _, _ ->
                     val name = input.text.toString().trim()
                     if (name.isBlank()) {
                         Toast.makeText(context, "文件名不能为空", Toast.LENGTH_SHORT).show()

@@ -1,3 +1,5 @@
-这次已经把“灰色指向线”和“目标识别结果”拆开了。现在灰色线不再依赖房间配置是否存在，也不再要求已经命中目标；只要当前手势满足 `validHandFrame` 且 `frameQuality >= 0.45`，就会持续画出实时灰色方向线。与此同时，识别成功后的门高亮和识别路径会单独作为保持层继续显示 1 秒，不会被实时灰色线覆盖；抬手时只清实时灰色线，不清这 1 秒保持态。
-实现上我也顺手修了无配置时会话立刻结束的问题：现在即使没有 target rect，resolver 也会继续产出实时手势证据，所以灰色线能稳定画出来。
-编译验证已通过：:app:compileDebugKotlin。
+已经修掉了。现在编辑页点“保存”时会直接落盘：如果当前已加载的是当前视频下的配置文件，就直接覆盖它；如果当前还没有配置文件，或者当前只是旧的 legacy/空配置，就会自动在当前视频目录下创建默认 `.Room` 文件并保存。设置页原来的保存入口也已经改成“另存为”，弹出的默认名字继续沿用你之前定的递增规则，例如 `_2`、`_3`。
+
+改动在 [RoomRepository.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/data/repository/RoomRepository.kt#L140)、[MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt#L1250)、[SettingsHomeFragment.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt#L199)、[fragment_settings_home.xml](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/res/layout/fragment_settings_home.xml#L298)。验证只做了编译：[compileDebugKotlin](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/build.gradle.kts) 通过。
+
+你现在可以直接测：新建或编辑房间后只点编辑页“保存”，再去“读取当前视频配置”列表里，应该已经能看到对应配置文件；设置页按钮现在则是“当前房间配置另存为”。
