@@ -11,6 +11,7 @@ import android.graphics.PointF
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.AttributeSet
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -22,6 +23,7 @@ import com.example.roomxxx0102.logic.analyzer.HandSmokeTester
 import com.example.roomxxx0102.logic.analyzer.TrackedDetection
 import com.example.roomxxx0102.logic.analyzer.RoiLogAggregator
 import com.example.roomxxx0102.logic.pointing.PointingDebugSnapshot
+import com.example.roomxxx0102.logic.validation.DeviceHitMarkedEvent
 import com.example.roomxxx0102.logic.validation.EventType
 import com.example.roomxxx0102.logic.validation.MarkedEvent
 import com.example.roomxxx0102.ui.drawers.DebugBoxDrawer
@@ -68,6 +70,15 @@ class DetectionOverlayView @JvmOverloads constructor(
     private var markerDurationMs = 0L
     private var markerEvents: List<MarkedEvent> = emptyList()
     private var markerMatchedEventKeys: Set<String> = emptySet()
+    private var deviceHitMarkerEvents: List<DeviceHitMarkedEvent> = emptyList()
+    private var showDeviceHitMarkers = false
+    private var debugPanelOverrideTitle: String? = null
+    private var debugPanelOverrideLines: List<String>? = null
+    private var onDeviceTapListener: ((DeviceConfig) -> Boolean)? = null
+    private var onDeviceSelectionCancelListener: (() -> Boolean)? = null
+    private var deviceSelectionModeActive = false
+    private var deviceSelectionPrompt: String? = null
+    private var deviceEditCleanMode = false
 
     // 🔥 ROI 绘制相关
     private var roiBox: RectF? = null
@@ -197,6 +208,22 @@ class DetectionOverlayView @JvmOverloads constructor(
         isAntiAlias = true
         strokeCap = Paint.Cap.ROUND
     }
+    private val markerDeviceHitPaint = Paint().apply {
+        color = Color.parseColor("#29B6F6")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val deviceSelectionPromptBgPaint = Paint().apply {
+        color = Color.parseColor("#AA000000")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val deviceSelectionPromptPaint = Paint().apply {
+        color = Color.WHITE
+        textSize = 24f
+        isAntiAlias = true
+        textAlign = Paint.Align.CENTER
+    }
     private val pointingRawPaint = Paint().apply {
         color = Color.parseColor("#88FFFFFF")
         style = Paint.Style.STROKE
@@ -323,12 +350,6 @@ class DetectionOverlayView @JvmOverloads constructor(
     }
     private val handPointPaint = Paint().apply {
         style = Paint.Style.FILL
-        isAntiAlias = true
-    }
-    private val handStrokePaint = Paint().apply {
-        color = Color.WHITE
-        style = Paint.Style.STROKE
-        strokeWidth = 2f
         isAntiAlias = true
     }
 
@@ -488,6 +509,36 @@ class DetectionOverlayView @JvmOverloads constructor(
         onUnlockBannerLongPressListener = listener
     }
 
+    fun setOnDeviceTapListener(listener: ((DeviceConfig) -> Boolean)?) {
+        onDeviceTapListener = listener
+    }
+
+    fun setOnDeviceSelectionCancelListener(listener: (() -> Boolean)?) {
+        onDeviceSelectionCancelListener = listener
+    }
+
+    fun setDebugPanelOverride(title: String?, lines: List<String>?) {
+        debugPanelOverrideTitle = title
+        debugPanelOverrideLines = lines?.toList()
+        postInvalidate()
+    }
+
+    fun setDeviceSelectionMode(active: Boolean, prompt: String?) {
+        deviceSelectionModeActive = active
+        deviceSelectionPrompt = prompt
+        isClickable = active
+        isFocusable = active
+        Log.i(
+            "DeviceHitSelect",
+            "overlay selectionMode active=$active clickable=$isClickable focusable=$isFocusable prompt=${prompt ?: "-"}"
+        )
+        postInvalidate()
+    }
+
+    fun resolveSelectionDeviceAt(x: Float, y: Float): DeviceConfig? {
+        return findTappedDevice(x, y)
+    }
+
     fun setDebugPanelEnabled(enabled: Boolean) {
         debugPanelEnabled = enabled
         postInvalidate()
@@ -503,12 +554,39 @@ class DetectionOverlayView @JvmOverloads constructor(
         markerDurationMs = durationMs.coerceAtLeast(0L)
         markerEvents = events
         markerMatchedEventKeys = matchedEventKeys
+        showDeviceHitMarkers = false
+        deviceHitMarkerEvents = emptyList()
+        postInvalidate()
+    }
+
+    fun setDeviceHitMarkerState(
+        currentMs: Long,
+        durationMs: Long,
+        events: List<DeviceHitMarkedEvent>
+    ) {
+        markerCurrentMs = currentMs.coerceAtLeast(0L)
+        markerDurationMs = durationMs.coerceAtLeast(0L)
+        deviceHitMarkerEvents = events
+        showDeviceHitMarkers = true
+        markerEvents = emptyList()
+        markerMatchedEventKeys = emptySet()
+        postInvalidate()
+    }
+
+    fun clearDeviceHitMarkerState() {
+        deviceHitMarkerEvents = emptyList()
+        showDeviceHitMarkers = false
         postInvalidate()
     }
 
     // 🔥 新增：设置编辑模式状态
     fun setEditMode(isEditing: Boolean) {
         isEditMode = isEditing
+        postInvalidate()
+    }
+
+    fun setDeviceEditCleanMode(active: Boolean) {
+        deviceEditCleanMode = active
         postInvalidate()
     }
 
@@ -537,6 +615,16 @@ class DetectionOverlayView @JvmOverloads constructor(
             canvas.drawBitmap(bmp, srcRect, dstRect, bitmapPaint)
         } else {
             dstRect.set(0f, 0f, w, h)
+        }
+
+        if (deviceSelectionModeActive) {
+            drawDevices(canvas, drawLeft, drawTop, drawWidth, drawHeight)
+            drawDeviceSelectionPrompt(canvas)
+            return
+        }
+
+        if (deviceEditCleanMode) {
+            return
         }
 
         // 🔥 画 ROI 框 (最上层)
@@ -655,28 +743,7 @@ class DetectionOverlayView @JvmOverloads constructor(
         }
 
         if (!isEditMode && showHandOnly) {
-            for (device in devices) {
-                val points = device.polygon
-                if (points.size < 3) continue
-                val path = Path()
-                val startX = drawLeft + points[0].x * drawWidth
-                val startY = drawTop + points[0].y * drawHeight
-                path.moveTo(startX, startY)
-                for (i in 1 until points.size) {
-                    val px = drawLeft + points[i].x * drawWidth
-                    val py = drawTop + points[i].y * drawHeight
-                    path.lineTo(px, py)
-                }
-                path.close()
-                canvas.drawPath(path, deviceFillPaint)
-                canvas.drawPath(path, deviceStrokePaint)
-                val hotspotX = drawLeft + device.hotspot.x * drawWidth
-                val hotspotY = drawTop + device.hotspot.y * drawHeight
-                canvas.drawCircle(hotspotX, hotspotY, 10f, deviceHotspotPaint)
-                canvas.drawCircle(hotspotX, hotspotY, 10f, deviceHotspotStrokePaint)
-                canvas.drawLine(hotspotX - 12f, hotspotY, hotspotX + 12f, hotspotY, deviceHotspotStrokePaint)
-                canvas.drawLine(hotspotX, hotspotY - 12f, hotspotX, hotspotY + 12f, deviceHotspotStrokePaint)
-            }
+            drawDevices(canvas, drawLeft, drawTop, drawWidth, drawHeight)
         }
 
         val now = System.currentTimeMillis()
@@ -735,8 +802,7 @@ class DetectionOverlayView @JvmOverloads constructor(
                 val screenX = drawLeft + point.x * drawWidth
                 val screenY = drawTop + point.y * drawHeight
                 handPointPaint.color = colorForHandConfidence(point.confidence)
-                canvas.drawCircle(screenX, screenY, 10f, handPointPaint)
-                canvas.drawCircle(screenX, screenY, 10f, handStrokePaint)
+                canvas.drawCircle(screenX, screenY, 2f, handPointPaint)
             }
         }
     }
@@ -921,20 +987,28 @@ class DetectionOverlayView @JvmOverloads constructor(
         val progressRight = barLeft + barWidth * progress
         canvas.drawRect(barLeft, barTop, progressRight, barBottom, markerProgressPaint)
 
-        for (event in markerEvents) {
-            val ratio = (event.timestampMs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-            val x = barLeft + ratio * barWidth
-            val matched = markerEventKey(event) in markerMatchedEventKeys
-            val left = x - 2f
-            val top = barTop - 8f
-            val right = x + 2f
-            val bottom = barBottom + 8f
-            val tickPaint = if (event.type == EventType.ENTER) markerEnterPaint else markerExitPaint
-            if (matched) {
-                markerMatchedSlashPaint.color = tickPaint.color
-                canvas.drawLine(x - 6f, bottom, x + 6f, top, markerMatchedSlashPaint)
-            } else {
-                canvas.drawRect(left, top, right, bottom, tickPaint)
+        if (showDeviceHitMarkers) {
+            for (event in deviceHitMarkerEvents) {
+                val ratio = (event.timestampMs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                val x = barLeft + ratio * barWidth
+                canvas.drawRect(x - 2f, barTop - 8f, x + 2f, barBottom + 8f, markerDeviceHitPaint)
+            }
+        } else {
+            for (event in markerEvents) {
+                val ratio = (event.timestampMs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                val x = barLeft + ratio * barWidth
+                val matched = markerEventKey(event) in markerMatchedEventKeys
+                val left = x - 2f
+                val top = barTop - 8f
+                val right = x + 2f
+                val bottom = barBottom + 8f
+                val tickPaint = if (event.type == EventType.ENTER) markerEnterPaint else markerExitPaint
+                if (matched) {
+                    markerMatchedSlashPaint.color = tickPaint.color
+                    canvas.drawLine(x - 6f, bottom, x + 6f, top, markerMatchedSlashPaint)
+                } else {
+                    canvas.drawRect(left, top, right, bottom, tickPaint)
+                }
             }
         }
         return RectF(barLeft, barTop, barRight, barBottom)
@@ -973,34 +1047,73 @@ class DetectionOverlayView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val bannerRect = unlockBannerRect
-        if (!isUnlockBannerVisible() || bannerRect == null) {
-            cancelBannerLongPressTracking()
-            return super.onTouchEvent(event)
-        }
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                if (bannerRect.contains(event.x, event.y)) {
-                    bannerLongPressArmed = true
-                    bannerLongPressTriggered = false
-                    removeCallbacks(bannerLongPressRunnable)
-                    postDelayed(bannerLongPressRunnable, bannerLongPressTimeoutMs)
+        if (deviceSelectionModeActive) {
+            Log.i(
+                "DeviceHitSelect",
+                "overlay touch action=${event.actionMasked} x=${event.x} y=${event.y} dst=$dstRect showHandOnly=$showHandOnly devices=${devices.size}"
+            )
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    val tappedDevice = findTappedDevice(event.x, event.y)
+                    if (tappedDevice != null) {
+                        Log.i("DeviceHitSelect", "overlay tapped device id=${tappedDevice.id} name=${tappedDevice.name}")
+                        onDeviceTapListener?.invoke(tappedDevice)
+                    } else {
+                        Log.i("DeviceHitSelect", "overlay tapped blank, trigger cancel")
+                        onDeviceSelectionCancelListener?.invoke()
+                    }
+                    performClick()
+                    return true
+                }
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL,
+                MotionEvent.ACTION_MOVE -> {
                     return true
                 }
             }
-            MotionEvent.ACTION_MOVE -> {
-                if (bannerLongPressArmed && !bannerRect.contains(event.x, event.y)) {
-                    cancelBannerLongPressTracking()
+        }
+        val bannerRect = unlockBannerRect
+        if (!isUnlockBannerVisible() || bannerRect == null) {
+            cancelBannerLongPressTracking()
+        } else {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    if (bannerRect.contains(event.x, event.y)) {
+                        bannerLongPressArmed = true
+                        bannerLongPressTriggered = false
+                        removeCallbacks(bannerLongPressRunnable)
+                        postDelayed(bannerLongPressRunnable, bannerLongPressTimeoutMs)
+                        return true
+                    }
                 }
-                return bannerLongPressArmed
+                MotionEvent.ACTION_MOVE -> {
+                    if (bannerLongPressArmed && !bannerRect.contains(event.x, event.y)) {
+                        cancelBannerLongPressTracking()
+                    }
+                    return bannerLongPressArmed
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val handled = bannerLongPressArmed
+                    cancelBannerLongPressTracking()
+                    if (handled) return true
+                }
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                val handled = bannerLongPressArmed
-                cancelBannerLongPressTracking()
-                return handled
+        }
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            val tappedDevice = findTappedDevice(event.x, event.y)
+            if (tappedDevice != null && onDeviceTapListener?.invoke(tappedDevice) == true) {
+                return true
+            }
+            if (deviceSelectionModeActive && onDeviceSelectionCancelListener?.invoke() == true) {
+                return true
             }
         }
         return super.onTouchEvent(event)
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
     }
 
     private fun cancelBannerLongPressTracking() {
@@ -1027,15 +1140,16 @@ class DetectionOverlayView @JvmOverloads constructor(
         val maxLines = ((panelBottom - panelTop - 56f) / lineHeight).toInt().coerceAtLeast(1)
 
         var y = panelTop + paddingTop + 24f
-        canvas.drawText("调试信息面板", panelLeft + paddingLeft, y, debugPanelTitlePaint)
+        canvas.drawText(debugPanelOverrideTitle ?: "调试信息面板", panelLeft + paddingLeft, y, debugPanelTitlePaint)
         y += 34f
 
-        val lines = mutableListOf<String>()
-        lines.add(debugInfo)
-        roiRatio?.let { ratio ->
-            lines.add("roiRatio=${String.format("%.2f", ratio)}")
+        val lines = debugPanelOverrideLines?.toMutableList() ?: mutableListOf<String>().apply {
+            add(debugInfo)
+            roiRatio?.let { ratio ->
+                add("roiRatio=${String.format("%.2f", ratio)}")
+            }
+            addAll(RoiLogAggregator.snapshotForPanel())
         }
-        lines.addAll(RoiLogAggregator.snapshotForPanel())
 
         var drawn = 0
         for (line in lines) {
@@ -1049,6 +1163,81 @@ class DetectionOverlayView @JvmOverloads constructor(
     private fun trimLine(text: String, maxChars: Int): String {
         if (text.length <= maxChars) return text
         return text.substring(0, maxChars - 3) + "..."
+    }
+
+    private fun drawDevices(
+        canvas: Canvas,
+        drawLeft: Float,
+        drawTop: Float,
+        drawWidth: Float,
+        drawHeight: Float
+    ) {
+        for (device in devices) {
+            val points = device.polygon
+            if (points.size < 3) continue
+            val path = Path()
+            val startX = drawLeft + points[0].x * drawWidth
+            val startY = drawTop + points[0].y * drawHeight
+            path.moveTo(startX, startY)
+            for (i in 1 until points.size) {
+                val px = drawLeft + points[i].x * drawWidth
+                val py = drawTop + points[i].y * drawHeight
+                path.lineTo(px, py)
+            }
+            path.close()
+            canvas.drawPath(path, deviceFillPaint)
+            canvas.drawPath(path, deviceStrokePaint)
+            val hotspotX = drawLeft + device.hotspot.x * drawWidth
+            val hotspotY = drawTop + device.hotspot.y * drawHeight
+            canvas.drawCircle(hotspotX, hotspotY, 10f, deviceHotspotPaint)
+            canvas.drawCircle(hotspotX, hotspotY, 10f, deviceHotspotStrokePaint)
+            canvas.drawLine(hotspotX - 12f, hotspotY, hotspotX + 12f, hotspotY, deviceHotspotStrokePaint)
+            canvas.drawLine(hotspotX, hotspotY - 12f, hotspotX, hotspotY + 12f, deviceHotspotStrokePaint)
+        }
+    }
+
+    private fun drawDeviceSelectionPrompt(canvas: Canvas) {
+        val message = deviceSelectionPrompt ?: return
+        val centerX = width / 2f
+        val top = 20f
+        val textPadding = 22f
+        val bannerHeight = 40f
+        val desiredWidth = deviceSelectionPromptPaint.measureText(message) + textPadding * 2f
+        val bannerWidth = desiredWidth.coerceIn(220f, width * 0.7f)
+        val left = centerX - bannerWidth / 2f
+        val right = centerX + bannerWidth / 2f
+        val bottom = top + bannerHeight
+        canvas.drawRoundRect(left, top, right, bottom, 10f, 10f, deviceSelectionPromptBgPaint)
+        val fm = deviceSelectionPromptPaint.fontMetrics
+        val baseline = top + (bannerHeight - (fm.bottom - fm.top)) / 2f - fm.top
+        canvas.drawText(message, centerX, baseline, deviceSelectionPromptPaint)
+    }
+
+    private fun findTappedDevice(x: Float, y: Float): DeviceConfig? {
+        if (!showHandOnly || devices.isEmpty()) return null
+        if (dstRect.width() <= 0f || dstRect.height() <= 0f) return null
+        if (!dstRect.contains(x, y)) return null
+        val normPoint = PointF(
+            ((x - dstRect.left) / dstRect.width()).coerceIn(0f, 1f),
+            ((y - dstRect.top) / dstRect.height()).coerceIn(0f, 1f)
+        )
+        for (i in devices.lastIndex downTo 0) {
+            val device = devices[i]
+            if (device.polygon.size == 4 &&
+                com.example.roomxxx0102.utils.DeviceGeometryUtils.isPointInQuadrilateral(normPoint, device.polygon)
+            ) {
+                Log.i(
+                    "DeviceHitSelect",
+                    "overlay hit polygon id=${device.id} name=${device.name} normX=${normPoint.x} normY=${normPoint.y}"
+                )
+                return device
+            }
+        }
+        Log.i(
+            "DeviceHitSelect",
+            "overlay noHit normX=${normPoint.x} normY=${normPoint.y} dst=$dstRect"
+        )
+        return null
     }
     
     // 🔥 修改签名：增加 persistentCount

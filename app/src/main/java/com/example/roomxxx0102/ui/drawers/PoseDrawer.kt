@@ -34,6 +34,13 @@ class PoseDrawer {
         isAntiAlias = true
     }
 
+    private val wristOutlinePaint = Paint().apply {
+        color = Color.RED
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        isAntiAlias = true
+    }
+
     private val landingPointPaint = Paint().apply {
         color = Color.CYAN
         style = Paint.Style.FILL
@@ -185,6 +192,14 @@ class PoseDrawer {
                     kptPaint.color = getKeypointColor(p.conf)
                     canvas.drawCircle(cx, cy, 5f, kptPaint)
                 }
+            }
+
+            for (wristIndex in listOf(9, 10)) {
+                val wrist = kpts.getOrNull(wristIndex) ?: continue
+                if (wrist.conf <= minVisibleThreshold) continue
+                val cx = drawLeft + wrist.x * drawWidth
+                val cy = drawTop + wrist.y * drawHeight
+                canvas.drawCircle(cx, cy, 8f, wristOutlinePaint)
             }
 
             // 落地脚 (直接使用 Data Model 里的属性)

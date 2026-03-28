@@ -85,7 +85,14 @@ enum class AcceptPath {
     FAST,
     NORMAL,
     TIMEOUT,
+    DEVICE_WINDOW,
     REJECT
+}
+
+enum class PointingConfidenceStatus {
+    HIGH_CONFIDENCE,
+    LOW_CONFIDENCE,
+    UNDETERMINED
 }
 
 data class PointingTargetDebugInfo(
@@ -130,7 +137,10 @@ data class PointingDiagnostics(
     val acceptPath: AcceptPath,
     val top3Targets: List<Pair<String, Float>>,
     val lastHandednessLabel: String?,
-    val lastHandednessScore: Float?
+    val lastHandednessScore: Float?,
+    val confidenceStatus: PointingConfidenceStatus = PointingConfidenceStatus.UNDETERMINED,
+    val dynamicFinalThreshold: Float = 0f,
+    val finalLeadRatio: Float = 0f
 )
 
 sealed class PointingDecision {

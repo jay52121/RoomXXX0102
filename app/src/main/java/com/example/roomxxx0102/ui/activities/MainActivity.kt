@@ -55,10 +55,11 @@ import com.example.roomxxx0102.logic.analyzer.RoiTracker
 import com.example.roomxxx0102.logic.analyzer.HandSmokeTester
 import com.example.roomxxx0102.logic.analyzer.YoloAnalyzer
 import com.example.roomxxx0102.logic.analyzer.YoloPoseAnalyzer
+import com.example.roomxxx0102.logic.pointing.DevicePointingTarget
+import com.example.roomxxx0102.logic.pointing.DeviceTriggeredPointingResolver
 import com.example.roomxxx0102.logic.pointing.HandObservation
 import com.example.roomxxx0102.logic.pointing.PointingDecision
-import com.example.roomxxx0102.logic.pointing.TargetRect
-import com.example.roomxxx0102.logic.pointing.TriggeredPointingResolver
+import com.example.roomxxx0102.logic.pointing.PointingConfidenceStatus
 import com.example.roomxxx0102.logic.presence.PresenceOutsideMode
 import com.example.roomxxx0102.logic.presence.PresenceKeypoint
 import com.example.roomxxx0102.logic.presence.PresencePoint
@@ -73,6 +74,8 @@ import com.example.roomxxx0102.logic.presence.PresenceAlgorithmRegistry
 import com.example.roomxxx0102.logic.presence.PresenceEstimatorParams
 import com.example.roomxxx0102.logic.presence.RoomPresenceChangeLogger
 import com.example.roomxxx0102.logic.presence.PresenceSwitchEvent
+import com.example.roomxxx0102.logic.validation.DeviceHitMarkedEvent
+import com.example.roomxxx0102.logic.validation.DeviceHitMarkerManager
 import com.example.roomxxx0102.logic.validation.EventMarkerManager
 import com.example.roomxxx0102.logic.validation.EventType
 import com.example.roomxxx0102.logic.validation.MarkedEvent
@@ -128,13 +131,14 @@ class MainActivity : ComponentActivity() {
     private var isHandOverlayPressed = false
     @Volatile private var latestHandResults: List<List<HandSmokeTester.HandPoint>> = emptyList()
     @Volatile private var latestSelectedHandIndex: Int? = null
-    private val pointingResolver = TriggeredPointingResolver()
+    private val pointingResolver = DeviceTriggeredPointingResolver()
     private val pointingGuideMinQuality = 0.45f
     private var pointingTargetLabelById: Map<String, String> = emptyMap()
 
     private var isVideoMode = true
     private var currentLivingRoomBoundary: List<PointF> = emptyList()
     private var lastVideoSourceKey: String? = null
+    private var btnHandOverlay: Button? = null
 
     // 播放状态机
     private enum class PlayState { PLAYING, STILL, PAUSED }
@@ -162,11 +166,24 @@ class MainActivity : ComponentActivity() {
     private lateinit var roomPresenceAlgorithm: PresenceAlgorithmEngine
     private val roomPresenceChangeLogger = RoomPresenceChangeLogger("ROOM_PRESENCE_CHANGE")
     private val eventMarkerManager = EventMarkerManager()
+    private val deviceHitMarkerManager = DeviceHitMarkerManager()
     private val runtimeValidationEvents: ArrayDeque<RuntimeRoomEvent> = ArrayDeque()
     private val matchedMarkedEventKeys: MutableSet<String> = mutableSetOf()
     private val alertedMarkedEventKeys: MutableSet<String> = mutableSetOf()
     private val matchedRuntimeByMarkedKey: MutableMap<String, ValidationRuntimeEvent> = mutableMapOf()
     private var boundEventVideoKey: String? = null
+    private var boundDeviceHitVideoKey: String? = null
+    private var isAwaitingDeviceHitSelection = false
+    private var pendingDeviceHitTimestampMs: Long? = null
+    private var pendingDeviceHitFrameIndex: Int? = null
+    private var selectionSavedEditorVisibility: Int? = null
+    private var selectionSavedRadarVisibility: Int? = null
+
+    private enum class UiLayerMode {
+        NORMAL,
+        EDITING,
+        DEVICE_SELECTION
+    }
 
     private var isAddSubRoomMode = false
     private var btnAddSubRoom: Button? = null
@@ -209,6 +226,7 @@ class MainActivity : ComponentActivity() {
         AppSettings.init(applicationContext)
         RoomRepository.init(applicationContext)
         eventMarkerManager.init(applicationContext)
+        deviceHitMarkerManager.init(applicationContext)
         ensurePresenceAlgorithmVersion()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         hideSystemUI()
@@ -716,32 +734,15 @@ class MainActivity : ComponentActivity() {
         return doors
     }
 
-    private fun buildPointingTargetRects(
-        imageWidth: Int,
-        imageHeight: Int
-    ): Pair<List<TargetRect>, Map<String, String>> {
-        if (imageWidth <= 0 || imageHeight <= 0) return emptyList<TargetRect>() to emptyMap()
+    private fun buildPointingDeviceTargets(): Pair<List<DevicePointingTarget>, Map<String, String>> {
         val devices = RoomRepository.getDevices()
-        val imageDiagonal = hypot(imageWidth.toFloat(), imageHeight.toFloat())
-        val paddingPx = max(imageDiagonal * 0.02f, 24f)
         val targets = devices.mapNotNull { device ->
-            if (device.polygon.isEmpty()) return@mapNotNull null
-            val xs = device.polygon.map { it.x * imageWidth }
-            val ys = device.polygon.map { it.y * imageHeight }
-            val rect = RectF(
-                (xs.minOrNull() ?: return@mapNotNull null) - paddingPx,
-                (ys.minOrNull() ?: return@mapNotNull null) - paddingPx,
-                (xs.maxOrNull() ?: return@mapNotNull null) + paddingPx,
-                (ys.maxOrNull() ?: return@mapNotNull null) + paddingPx
+            if (device.polygon.size != 4) return@mapNotNull null
+            DevicePointingTarget(
+                id = device.id,
+                hotspot = PointF(device.hotspot.x, device.hotspot.y),
+                polygon = device.polygon.map { PointF(it.x, it.y) }
             )
-            if (rect.width() <= 0f || rect.height() <= 0f) {
-                null
-            } else {
-                TargetRect(
-                    id = device.id,
-                    rect = rect
-                )
-            }
         }
         val labels = devices.associate { device ->
             device.id to device.name
@@ -755,13 +756,13 @@ class MainActivity : ComponentActivity() {
             overlayView.showUnlockBanner("指向识别启动失败")
             return
         }
-        val (targets, labels) = buildPointingTargetRects(bitmap.width, bitmap.height)
+        val (targets, labels) = buildPointingDeviceTargets()
         pointingTargetLabelById = labels
         val startTimestampMs = SystemClock.uptimeMillis()
-        pointingResolver.startSession(targets, startTimestampMs)
+        pointingResolver.startSession(targets, bitmap.width, bitmap.height, startTimestampMs)
         Log.i(
-            "TriggeredPointingResolver",
-            "POINTING|START|targets=${targets.joinToString { "${it.id}:${it.rect.centerX().toInt()},${it.rect.centerY().toInt()}" }}"
+            "DevicePointingJudge",
+            "DEVICE_POINTING|START|targets=${targets.joinToString { "${it.id}:hot=${String.format(Locale.US, "%.3f", it.hotspot.x)},${String.format(Locale.US, "%.3f", it.hotspot.y)}" }}"
         )
     }
 
@@ -791,11 +792,16 @@ class MainActivity : ComponentActivity() {
             is PointingDecision.Pending -> Unit
             is PointingDecision.Recognized -> {
                 val label = pointingTargetLabelById[decision.targetId] ?: decision.targetId
-                val message = "命中：$label (${String.format(Locale.US, "%.2f", decision.score)})"
+                val confidenceText = when (decision.diagnostics.confidenceStatus) {
+                    PointingConfidenceStatus.HIGH_CONFIDENCE -> "高置信度"
+                    PointingConfidenceStatus.LOW_CONFIDENCE -> "低置信度"
+                    PointingConfidenceStatus.UNDETERMINED -> "未定"
+                }
+                val message = "命中：$label [$confidenceText] (${String.format(Locale.US, "%.2f", decision.score)})"
                 overlayView.showUnlockBanner(message)
                 Log.i(
-                    "TriggeredPointingResolver",
-                    "POINTING|RECOGNIZED|target=${decision.targetId}|label=$label|score=${String.format(Locale.US, "%.3f", decision.score)}|elapsed=${decision.elapsedMs}|path=${decision.diagnostics.acceptPath}|top3=${decision.diagnostics.top3Targets}"
+                    "DevicePointingJudge",
+                    "DEVICE_POINTING|RECOGNIZED|target=${decision.targetId}|label=$label|score=${String.format(Locale.US, "%.3f", decision.score)}|elapsed=${decision.elapsedMs}|path=${decision.diagnostics.acceptPath}|confidence=${decision.diagnostics.confidenceStatus}|lead=${String.format(Locale.US, "%.3f", decision.diagnostics.finalLeadRatio)}|threshold=${String.format(Locale.US, "%.3f", decision.diagnostics.dynamicFinalThreshold)}|top3=${decision.diagnostics.top3Targets}"
                 )
                 overlayView.updatePointingDebugSnapshot(
                     pointingResolver.latestDebugSnapshot(),
@@ -806,8 +812,8 @@ class MainActivity : ComponentActivity() {
                 val message = "未识别(${decision.reason})"
                 overlayView.showUnlockBanner(message)
                 Log.i(
-                    "TriggeredPointingResolver",
-                    "POINTING|UNRECOGNIZED|reason=${decision.reason}|score=${String.format(Locale.US, "%.3f", decision.score)}|elapsed=${decision.elapsedMs}|path=${decision.diagnostics.acceptPath}|top3=${decision.diagnostics.top3Targets}"
+                    "DevicePointingJudge",
+                    "DEVICE_POINTING|UNRECOGNIZED|reason=${decision.reason}|score=${String.format(Locale.US, "%.3f", decision.score)}|elapsed=${decision.elapsedMs}|path=${decision.diagnostics.acceptPath}|confidence=${decision.diagnostics.confidenceStatus}|lead=${String.format(Locale.US, "%.3f", decision.diagnostics.finalLeadRatio)}|threshold=${String.format(Locale.US, "%.3f", decision.diagnostics.dynamicFinalThreshold)}|top3=${decision.diagnostics.top3Targets}"
                 )
             }
         }
@@ -1108,7 +1114,7 @@ class MainActivity : ComponentActivity() {
         val btnMarkExitEvent = findViewById<Button>(R.id.btnMarkExitEvent)
         val btnJumpNextEvent = findViewById<Button>(R.id.btnJumpNextEvent)
         val btnDeleteCurrentEvent = findViewById<Button>(R.id.btnDeleteCurrentEvent)
-        val btnHandOverlay = findViewById<Button>(R.id.btnHandOverlay)
+        btnHandOverlay = findViewById(R.id.btnHandOverlay)
         btnPause.setOnClickListener { togglePause(it as Button) }
         btnPause.setOnLongClickListener {
             hardRestartPlayback()
@@ -1121,6 +1127,12 @@ class MainActivity : ComponentActivity() {
         val btnDebugPanel = findViewById<Button>(R.id.btnDebugPanel)
         btnDebugPanel.setOnClickListener {
             isDebugPanelEnabled = !isDebugPanelEnabled
+            if (!isDebugPanelEnabled) {
+                isAwaitingDeviceHitSelection = false
+                pendingDeviceHitTimestampMs = null
+                pendingDeviceHitFrameIndex = null
+                syncDeviceHitSelectionUi()
+            }
             overlayView.setDebugPanelEnabled(isDebugPanelEnabled)
             refreshDebugPanelButton()
             refreshEventMarkerUi()
@@ -1133,34 +1145,55 @@ class MainActivity : ComponentActivity() {
             }
             true
         }
-        btnHandOverlay.setOnTouchListener { _, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    isHandOverlayPressed = true
-                    handSmokeTester?.startConfidenceProbeSession()
-                    startTriggeredPointingSession()
-                    if (pointingResolver.isActive()) {
-                        overlayView.showUnlockBanner("手点采样+指向识别中")
-                    }
-                    updateHandOverlayMode()
-                    true
+        btnHandOverlay?.setOnClickListener {
+            isHandOverlayPressed = !isHandOverlayPressed
+            if (isHandOverlayPressed) {
+                handSmokeTester?.startConfidenceProbeSession()
+                startTriggeredPointingSession()
+                if (pointingResolver.isActive()) {
+                    overlayView.showUnlockBanner("手点采样+指向识别中")
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    isHandOverlayPressed = false
-                    overlayView.updatePointingLiveSnapshot(null)
-                    updateHandOverlayMode()
-                    true
-                }
-                else -> false
+            } else {
+                pointingResolver.cancelSession()
+                overlayView.updatePointingLiveSnapshot(null)
             }
+            updateHandOverlayMode()
         }
         overlayView.setOnUnlockBannerLongPressListener {
             onValidationBannerLongPressed()
         }
-        btnMarkEnterEvent.setOnClickListener { addMarkedEvent(EventType.ENTER) }
-        btnMarkExitEvent.setOnClickListener { addMarkedEvent(EventType.EXIT) }
-        btnJumpNextEvent.setOnClickListener { jumpToNextMarkedEvent() }
-        btnDeleteCurrentEvent.setOnClickListener { confirmDeleteCurrentMarkedEvents() }
+        overlayView.setOnDeviceTapListener { device ->
+            onDeviceTappedForMarker(device)
+        }
+        overlayView.setOnDeviceSelectionCancelListener {
+            cancelDeviceHitSelection()
+        }
+        btnMarkEnterEvent.setOnClickListener {
+            if (isHandDebugMarkerMode()) {
+                armDeviceHitSelection()
+            } else {
+                addMarkedEvent(EventType.ENTER)
+            }
+        }
+        btnMarkExitEvent.setOnClickListener {
+            if (!isHandDebugMarkerMode()) {
+                addMarkedEvent(EventType.EXIT)
+            }
+        }
+        btnJumpNextEvent.setOnClickListener {
+            if (isHandDebugMarkerMode()) {
+                jumpToNextDeviceHitEvent()
+            } else {
+                jumpToNextMarkedEvent()
+            }
+        }
+        btnDeleteCurrentEvent.setOnClickListener {
+            if (isHandDebugMarkerMode()) {
+                confirmDeleteCurrentDeviceHitEvents()
+            } else {
+                confirmDeleteCurrentMarkedEvents()
+            }
+        }
         findViewById<Button>(R.id.btnSettings).setOnClickListener {
             captureCurrentFrame()
             startActivity(Intent(this, SettingsActivity::class.java))
@@ -1671,6 +1704,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        overlayView.setDeviceEditCleanMode(
+            llEditorControls.visibility == View.VISIBLE && mode == LivingRoomEditorView.EditorMode.DEVICE
+        )
     }
 
     private fun buildEditModeLabels(): Array<String> {
@@ -1897,6 +1933,14 @@ class MainActivity : ComponentActivity() {
     private fun updateHandOverlayMode() {
         overlayView.setHandOnlyState(isHandOverlayPressed)
         overlayView.setPoseState(AppSettings.isPoseModeEnabled && !isHandOverlayPressed)
+        btnHandOverlay?.text = if (isHandOverlayPressed) "当前看手" else "当前看人"
+        if (!isHandOverlayPressed) {
+            isAwaitingDeviceHitSelection = false
+            pendingDeviceHitTimestampMs = null
+            pendingDeviceHitFrameIndex = null
+        }
+        syncDeviceHitSelectionUi()
+        refreshEventMarkerUi()
     }
 
     private fun toggleEditModeUI(isEditing: Boolean) {
@@ -1908,6 +1952,10 @@ class MainActivity : ComponentActivity() {
         
         overlayView.visibility = View.VISIBLE
         overlayView.setEditMode(isEditing)
+        overlayView.setDeviceEditCleanMode(isEditing && editorView.currentMode == LivingRoomEditorView.EditorMode.DEVICE)
+        if (!isAwaitingDeviceHitSelection) {
+            applyUiLayerMode(if (isEditing) UiLayerMode.EDITING else UiLayerMode.NORMAL)
+        }
     }
 
     private fun captureCurrentFrame() {
@@ -1939,6 +1987,31 @@ class MainActivity : ComponentActivity() {
         if (isVideoMode) videoFeeder?.pause()
     }
 
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (isAwaitingDeviceHitSelection) {
+            Log.i(
+                "DeviceHitSelect",
+                "activity dispatch action=${ev.actionMasked} x=${ev.x} y=${ev.y}"
+            )
+            if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+                val tappedDevice = overlayView.resolveSelectionDeviceAt(ev.x, ev.y)
+                if (tappedDevice != null) {
+                    Log.i(
+                        "DeviceHitSelect",
+                        "activity dispatch hit device id=${tappedDevice.id} name=${tappedDevice.name}"
+                    )
+                    onDeviceTappedForMarker(tappedDevice)
+                } else {
+                    Log.i("DeviceHitSelect", "activity dispatch blank -> cancel")
+                    cancelDeviceHitSelection()
+                }
+                return true
+            }
+            return true
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
     /**
      * 同步设置中的 Presence 算法版本。
      * 仅当版本变化时重建引擎，避免运行中状态被频繁打断。
@@ -1963,8 +2036,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshEventMarkerUi() {
-        refreshEventMarkerOverlay()
-        refreshEventMarkerControls()
+        if (isHandOverlayPressed) {
+            refreshDeviceHitMarkerOverlay()
+        } else {
+            refreshEventMarkerOverlay()
+        }
+
+        if (isHandDebugMarkerMode()) {
+            refreshDeviceHitMarkerControls()
+        } else {
+            refreshEventMarkerControls()
+        }
+        refreshDebugPanelMode()
     }
 
     private fun scheduleEventMarkerUiRefresh(delayMs: Long = 120L) {
@@ -1981,6 +2064,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshEventMarkerOverlay() {
+        overlayView.clearDeviceHitMarkerState()
         if (!isVideoMode) {
             overlayView.setEventMarkerState(0L, 0L, emptyList(), emptySet())
             return
@@ -1995,14 +2079,41 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun refreshDeviceHitMarkerOverlay() {
+        overlayView.setEventMarkerState(0L, 0L, emptyList(), emptySet())
+        if (!isVideoMode) {
+            overlayView.clearDeviceHitMarkerState()
+            return
+        }
+        val currentMs = currentVideoTimestampMs()
+        val durationMs = (videoFeeder?.getDurationMs() ?: 0).toLong()
+        overlayView.setDeviceHitMarkerState(
+            currentMs = currentMs,
+            durationMs = durationMs,
+            events = deviceHitMarkerManager.getEvents()
+        )
+    }
+
     private fun refreshEventMarkerControls() {
         val shouldShow = isVideoMode &&
             isDebugPanelEnabled &&
             currentPlayState != PlayState.PLAYING
         llEventMarkerControls.visibility = if (shouldShow) View.VISIBLE else View.GONE
+        val btnMarkEnter = findViewById<Button>(R.id.btnMarkEnterEvent)
+        val btnMarkExit = findViewById<Button>(R.id.btnMarkExitEvent)
+        val btnJumpNext = findViewById<Button>(R.id.btnJumpNextEvent)
+        val btnDelete = findViewById<Button>(R.id.btnDeleteCurrentEvent)
+        btnMarkEnter.visibility = View.VISIBLE
+        btnMarkExit.visibility = View.VISIBLE
+        btnJumpNext.visibility = View.VISIBLE
+        btnDelete.visibility = View.VISIBLE
+        btnMarkEnter.text = "记录进子房间事件"
+        btnMarkEnter.isEnabled = true
+        btnMarkEnter.alpha = 1f
+        btnMarkExit.text = "记录出子房间事件"
+        btnJumpNext.text = "跳转到下一个事件"
         if (!shouldShow) return
 
-        val btnDelete = findViewById<Button>(R.id.btnDeleteCurrentEvent)
         val frame = currentEstimatedFrameIndex()
         val matched = eventMarkerManager.findEventsNearFrame(frameIndex = frame, toleranceFrames = 1)
         if (matched.isEmpty()) {
@@ -2019,6 +2130,44 @@ class MainActivity : ComponentActivity() {
                 EventType.ENTER -> "删除 进子房间事件"
                 EventType.EXIT -> "删除 出子房间事件"
             }
+        } else {
+            "删除 ${matched.size} 个事件"
+        }
+    }
+
+    private fun refreshDeviceHitMarkerControls() {
+        val shouldShow = isVideoMode &&
+            isDebugPanelEnabled &&
+            isHandOverlayPressed &&
+            !isAwaitingDeviceHitSelection
+        llEventMarkerControls.visibility = if (shouldShow) View.VISIBLE else View.GONE
+
+        val btnMarkEnter = findViewById<Button>(R.id.btnMarkEnterEvent)
+        val btnMarkExit = findViewById<Button>(R.id.btnMarkExitEvent)
+        val btnJumpNext = findViewById<Button>(R.id.btnJumpNextEvent)
+        val btnDelete = findViewById<Button>(R.id.btnDeleteCurrentEvent)
+        if (!shouldShow) return
+
+        btnMarkEnter.visibility = View.VISIBLE
+        btnMarkExit.visibility = View.GONE
+        btnJumpNext.visibility = View.VISIBLE
+        btnMarkEnter.text = if (isAwaitingDeviceHitSelection) "等待点击设备..." else "记录正确命中事件"
+        btnMarkEnter.isEnabled = !isAwaitingDeviceHitSelection
+        btnMarkEnter.alpha = if (isAwaitingDeviceHitSelection) 0.6f else 1f
+        btnJumpNext.text = "跳转到下一个事件"
+
+        val frame = currentEstimatedFrameIndex()
+        val matched = deviceHitMarkerManager.findEventsNearFrame(frameIndex = frame, toleranceFrames = 1)
+        if (matched.isEmpty()) {
+            btnDelete.visibility = View.GONE
+            return
+        }
+
+        btnDelete.visibility = View.VISIBLE
+        btnDelete.isEnabled = true
+        btnDelete.alpha = 1f
+        btnDelete.text = if (matched.size == 1) {
+            "删除 ${matched.first().deviceName} 事件"
         } else {
             "删除 ${matched.size} 个事件"
         }
@@ -2045,6 +2194,17 @@ class MainActivity : ComponentActivity() {
     private fun jumpToNextMarkedEvent() {
         val currentMs = currentVideoTimestampMs()
         val next = eventMarkerManager.findNextEventAfter(currentMs)
+        if (next == null) {
+            Toast.makeText(this, "无事件", Toast.LENGTH_SHORT).show()
+            return
+        }
+        videoFeeder?.seekToMs(next.timestampMs.toInt(), MediaPlayer.SEEK_CLOSEST)
+        scheduleEventMarkerUiRefresh()
+    }
+
+    private fun jumpToNextDeviceHitEvent() {
+        val currentMs = currentVideoTimestampMs()
+        val next = deviceHitMarkerManager.findNextEventAfter(currentMs)
         if (next == null) {
             Toast.makeText(this, "无事件", Toast.LENGTH_SHORT).show()
             return
@@ -2082,11 +2242,227 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
+    private fun confirmDeleteCurrentDeviceHitEvents() {
+        val frame = currentEstimatedFrameIndex()
+        val matched = deviceHitMarkerManager.findEventsNearFrame(frameIndex = frame, toleranceFrames = 1)
+        if (matched.isEmpty()) {
+            Toast.makeText(this, "当前帧无事件", Toast.LENGTH_SHORT).show()
+            refreshEventMarkerUi()
+            return
+        }
+        val summary = if (matched.size == 1) {
+            "${matched.first().deviceName} 事件"
+        } else {
+            "${matched.size}个事件"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("删除事件")
+            .setMessage("确认删除当前帧附近的$summary？")
+            .setPositiveButton("删除") { _, _ ->
+                val removed = deviceHitMarkerManager.removeEventsNearFrame(
+                    frameIndex = frame,
+                    toleranceFrames = 1
+                )
+                Toast.makeText(this, "已删除 ${removed.size} 个事件", Toast.LENGTH_SHORT).show()
+                refreshEventMarkerUi()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
     private fun bindEventMarkersToVideo(videoKey: String?) {
-        if (boundEventVideoKey == videoKey) return
+        if (boundEventVideoKey == videoKey && boundDeviceHitVideoKey == videoKey) return
         boundEventVideoKey = videoKey
         eventMarkerManager.bindVideo(videoKey)
+        bindDeviceHitMarkersToVideo(videoKey)
         resetEventValidationTracking(clearRuntimeEvents = true)
+    }
+
+    private fun bindDeviceHitMarkersToVideo(videoKey: String?) {
+        if (boundDeviceHitVideoKey == videoKey) return
+        boundDeviceHitVideoKey = videoKey
+        deviceHitMarkerManager.bindVideo(videoKey)
+    }
+
+    private fun syncDeviceHitSelectionUi() {
+        val selecting = isAwaitingDeviceHitSelection
+        Log.i(
+            "DeviceHitSelect",
+            "syncUi selecting=$selecting handMode=$isHandOverlayPressed debug=$isDebugPanelEnabled " +
+                "normalControls=${llNormalControls.visibility} eventControls=${llEventMarkerControls.visibility} " +
+                "editor=${editorView.visibility} radar=${flRadarContainer.visibility} overlay=${overlayView.visibility}"
+        )
+        overlayView.setDeviceSelectionMode(
+            active = selecting,
+            prompt = if (selecting) "请点击设备，点击空白处取消" else null
+        )
+        if (selecting) {
+            if (selectionSavedEditorVisibility == null) {
+                selectionSavedEditorVisibility = editorView.visibility
+            }
+            if (selectionSavedRadarVisibility == null) {
+                selectionSavedRadarVisibility = flRadarContainer.visibility
+            }
+            editorView.visibility = View.GONE
+            flRadarContainer.visibility = View.GONE
+            llNormalControls.visibility = View.GONE
+            llEventMarkerControls.visibility = View.GONE
+            cardCounter.visibility = View.GONE
+            overlayView.visibility = View.VISIBLE
+            applyUiLayerMode(UiLayerMode.DEVICE_SELECTION)
+            overlayView.invalidate()
+            Log.i(
+                "DeviceHitSelect",
+                "syncUi applied selecting=true editor=${editorView.visibility} radar=${flRadarContainer.visibility} overlay=${overlayView.visibility}"
+            )
+            return
+        }
+        selectionSavedEditorVisibility?.let { editorView.visibility = it }
+        selectionSavedRadarVisibility?.let { flRadarContainer.visibility = it }
+        selectionSavedEditorVisibility = null
+        selectionSavedRadarVisibility = null
+        if (llEditorControls.visibility != View.VISIBLE && flRadarContainer.visibility != View.VISIBLE) {
+            llNormalControls.visibility = View.VISIBLE
+        }
+        applyUiLayerMode(if (llEditorControls.visibility == View.VISIBLE) UiLayerMode.EDITING else UiLayerMode.NORMAL)
+        Log.i(
+            "DeviceHitSelect",
+            "syncUi applied selecting=false editor=${editorView.visibility} radar=${flRadarContainer.visibility} overlay=${overlayView.visibility}"
+        )
+    }
+
+    private fun applyUiLayerMode(mode: UiLayerMode) {
+        when (mode) {
+            UiLayerMode.NORMAL -> {
+                overlayView.bringToFront()
+                if (cardCounter.visibility == View.VISIBLE) {
+                    cardCounter.bringToFront()
+                }
+                if (editorView.visibility == View.VISIBLE) {
+                    editorView.bringToFront()
+                }
+                if (llNormalControls.visibility == View.VISIBLE) {
+                    llNormalControls.bringToFront()
+                }
+                if (llEventMarkerControls.visibility == View.VISIBLE) {
+                    llEventMarkerControls.bringToFront()
+                }
+                if (flRadarContainer.visibility == View.VISIBLE) {
+                    flRadarContainer.bringToFront()
+                }
+                if (llEditorControls.visibility == View.VISIBLE) {
+                    llEditorControls.bringToFront()
+                }
+            }
+            UiLayerMode.EDITING -> {
+                overlayView.bringToFront()
+                if (editorView.visibility == View.VISIBLE) {
+                    editorView.bringToFront()
+                }
+                if (flRadarContainer.visibility == View.VISIBLE) {
+                    flRadarContainer.bringToFront()
+                }
+                if (llEditorControls.visibility == View.VISIBLE) {
+                    llEditorControls.bringToFront()
+                }
+            }
+            UiLayerMode.DEVICE_SELECTION -> {
+                overlayView.bringToFront()
+            }
+        }
+    }
+
+    private fun isHandDebugMarkerMode(): Boolean {
+        return isHandOverlayPressed && isDebugPanelEnabled
+    }
+
+    private fun armDeviceHitSelection() {
+        if (!isVideoMode) {
+            Toast.makeText(this, "当前不是视频模式", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (RoomRepository.getDevices().isEmpty()) {
+            Toast.makeText(this, "当前没有设备可选", Toast.LENGTH_SHORT).show()
+            return
+        }
+        pendingDeviceHitTimestampMs = currentVideoTimestampMs()
+        pendingDeviceHitFrameIndex = currentEstimatedFrameIndex(pendingDeviceHitTimestampMs ?: 0L)
+        isAwaitingDeviceHitSelection = true
+        Log.i(
+            "DeviceHitSelect",
+            "armSelection ts=$pendingDeviceHitTimestampMs frame=$pendingDeviceHitFrameIndex devices=${RoomRepository.getDevices().size}"
+        )
+        syncDeviceHitSelectionUi()
+        refreshEventMarkerUi()
+    }
+
+    private fun onDeviceTappedForMarker(device: DeviceConfig): Boolean {
+        if (!isHandDebugMarkerMode() || !isAwaitingDeviceHitSelection) return false
+        if (!isVideoMode) return false
+        val timestampMs = pendingDeviceHitTimestampMs ?: currentVideoTimestampMs()
+        val frameIndex = pendingDeviceHitFrameIndex ?: currentEstimatedFrameIndex(timestampMs)
+        Log.i(
+            "DeviceHitSelect",
+            "confirmDeviceTap id=${device.id} name=${device.name} frame=$frameIndex ts=$timestampMs"
+        )
+        when (
+            deviceHitMarkerManager.addEvent(
+                deviceId = device.id,
+                deviceName = device.name,
+                frameIndex = frameIndex,
+                timestampMs = timestampMs
+            )
+        ) {
+            DeviceHitMarkerManager.AddResult.ADDED -> {
+                Toast.makeText(this, "已记录 ${device.name} @f=$frameIndex", Toast.LENGTH_SHORT).show()
+            }
+            DeviceHitMarkerManager.AddResult.DUPLICATE_FRAME -> {
+                Toast.makeText(this, "当前帧已有设备命中事件，已忽略", Toast.LENGTH_SHORT).show()
+            }
+        }
+        isAwaitingDeviceHitSelection = false
+        pendingDeviceHitTimestampMs = null
+        pendingDeviceHitFrameIndex = null
+        syncDeviceHitSelectionUi()
+        refreshEventMarkerUi()
+        return true
+    }
+
+    private fun cancelDeviceHitSelection(): Boolean {
+        if (!isAwaitingDeviceHitSelection) return false
+        Log.i(
+            "DeviceHitSelect",
+            "cancelSelection pendingFrame=$pendingDeviceHitFrameIndex pendingTs=$pendingDeviceHitTimestampMs"
+        )
+        isAwaitingDeviceHitSelection = false
+        pendingDeviceHitTimestampMs = null
+        pendingDeviceHitFrameIndex = null
+        syncDeviceHitSelectionUi()
+        refreshEventMarkerUi()
+        Toast.makeText(this, "已取消选择设备", Toast.LENGTH_SHORT).show()
+        return true
+    }
+
+    private fun refreshDebugPanelMode() {
+        if (!isDebugPanelEnabled || !isHandOverlayPressed) {
+            overlayView.setDebugPanelOverride(null, null)
+            return
+        }
+        val currentFrame = currentEstimatedFrameIndex()
+        val currentEvent = deviceHitMarkerManager
+            .findEventsNearFrame(frameIndex = currentFrame, toleranceFrames = 1)
+            .firstOrNull()
+        val lines = mutableListOf<String>()
+        lines += "模式=设备命中事件标注"
+        lines += "状态=${if (isAwaitingDeviceHitSelection) "等待点击设备" else "可记录"}"
+        lines += "当前视频标注数=${deviceHitMarkerManager.getEvents().size}"
+        lines += if (currentEvent != null) {
+            "当前帧事件=${currentEvent.deviceName}"
+        } else {
+            "当前帧事件=无"
+        }
+        lines += "操作=记录后点击设备，跳转/删除沿用时间线"
+        overlayView.setDebugPanelOverride("看手调试面板", lines)
     }
 
     private fun resetEventValidationTracking(clearRuntimeEvents: Boolean) {

@@ -1938,3 +1938,422 @@ ok
 
 ---
 
+## [076] 2026-03-28 02:58:55 - 接入设备窗口级指向判定器
+
+**用户原文**：
+```text
+现在开始下一步：在现有“设备 = hotspot + polygon”结构已经改好的前提下，接入完整的窗口级指向设备判定算法。
+
+重要约束：
+1. 不要再改设备创建/编辑交互，这部分已经完成。
+2. 不要再改设备数据结构定义，默认已经有：
+   - hotspot
+   - polygon
+3. 保留现有“射线生成逻辑”，不要去改手势识别、手指方向计算、射线拟合本身。
+4. 这一步只改“评分、窗口累计、最终设备选择”。
+5. 代码要尽量模块化，便于后面单测和调参。
+6. 如果项目里已经有旧的设备命中逻辑，请不要直接删光，优先替换接入点或封装成新策略，避免影响其他功能。
+...
+这个结构可以，按这条线开始改。
+
+但开工前请再明确这几个约束：
+
+1. 新设备链路的输入不要再退化成旧的 RectF target，直接使用现在的设备结构（deviceId + hotspot + polygon）。
+2. 现有 frameQuality 在新算法里就作为“当前帧射线置信度”使用，不要再额外发明第二套置信度变量。
+3. 当前帧可用置信因子是帧级变量，每帧只算一次；命中比例和领先比例都共用它，不要在设备循环里重复算。
+4. 本帧第一名/第二名的排序按“单帧总分”做，但“本帧领先倍率”必须显式按“纯几何得分”计算，不要混掉。
+5. 旧的 RectF 逻辑可以保留，但设备模式下不要再调用 computeGeomScore / evaluateFastAccept / evaluateNormalAccept / finalizeTimeoutDecision 这条旧链；设备模式统一走新的 DevicePointingWindowJudge。
+6. 调试输出必须包含：
+   - 每帧每设备：热点得分、四边形得分、纯几何得分、单帧总分
+   - 每窗口结束：加权平均帧分累计、时序峰值帧分、加权命中比例累计、加权领先比例累计、最终总分、第一名、第二名、最终领先倍率、动态最终阈值、置信状态
+
+按这个约束开始改。
+```
+
+**助手原文**：
+```text
+已经接好了，而且这次只动了“设备评分/窗口累计/最终判定”这条链，没有再去碰设备创建 UI、设备编辑 UI、射线生成逻辑。
+
+这次的实现结构是：
+- [DevicePointingGeometry.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/logic/pointing/DevicePointingGeometry.kt)：几何层，负责点到射线距离、射线到四边形距离、相交、穿透长度等基础计算。
+- [DevicePointingScorer.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/logic/pointing/DevicePointingScorer.kt)：单帧评分层，输出每帧每设备的热点得分、四边形得分、纯几何得分、单帧总分。
+- [DevicePointingWindowJudge.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/logic/pointing/DevicePointingWindowJudge.kt)：窗口累计层，按你给的公式算平均项、峰值项、命中比例、领先比例、最终总分和高/低/未定。
+- [DeviceTriggeredPointingResolver.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/logic/pointing/DeviceTriggeredPointingResolver.kt)：设备模式接入层，复用现有射线生成和 `frameQuality`，统一走新的窗口判定器。
+
+接入点也已经切到新链：
+- [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt) 现在不再把设备退化成旧 `RectF` target，而是直接把 `deviceId + hotspot + polygon` 喂给新 resolver。
+- 旧 `TriggeredPointingResolver.kt` 还保留，没有删；只是设备模式不再走它里面那条旧 `RectF` 评分链。
+
+调试输出已加：
+- 每帧每设备：热点得分、四边形得分、纯几何得分、单帧总分
+- 每窗口结束：加权平均帧分累计、时序峰值帧分、加权命中比例累计、加权领先比例累计、最终总分、第一名、第二名、最终领先倍率、动态最终阈值、置信状态
+
+`.:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [077] 2026-03-28 03:07:13 - 缩小手部关键点并切换看手按钮交互
+
+**用户原文**：
+```text
+我们在手上绘制的点的直径是多少？
+好像还有些描边什么的?直接改成2f半径,不要描边
+同时把按住看手变 成当前看手/当前看人,开始吧
+```
+
+**助手原文**：
+```text
+已经改了。
+
+现在手部关键点在 [DetectionOverlayView.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt) 里改成了只有一层实心点，半径 `2f`，白色描边已经去掉。
+
+同时 [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt) 里原来 `ACTION_DOWN / ACTION_UP` 的“按住看手”逻辑已经改成点击切换：
+- 当前关闭时，按钮显示 `当前看人`
+- 点击后进入手部视图，按钮显示 `当前看手`
+- 再点一次切回人视图，并取消当前手部指向 session
+
+布局默认文案也已经在 [activity_main.xml](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/res/layout/activity_main.xml) 里改成 `当前看人`。
+
+验证：`.:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [078] 2026-03-28 03:24:55 - 看手模式调试面板切换为设备命中标注
+
+**用户原文**：
+```text
+接下来我们要做的修改是重构调试面板，当当前看手的时候调试面板。要和之前的完全不同。我们之前是调试的是关于人的一些东西，对吧？我们全部都不要了。我们现在的调试面板开启之后。要两个按钮，一是记录。正确命中事件。第二个是跳转到下一个事件。当点击记录。的时候。提示用户点击。选择设备。然后我们把这个时间点记录下来。在这里最重要的是时间和当前命中的设备应该是谁。同样，我们也有和。进出子房间。一样的删除逻辑。如果你对那个逻辑已经不太熟悉了，可以去看一下。
+
+好的,注意实现方式,尽量解耦和规范.
+```
+
+**助手原文**：
+```text
+已经改好了。
+
+现在“当前看手 + 调试面板开启”时，会切到一条独立的设备命中标注链：
+- 右侧调试面板不再显示原 ROI/人体信息，只显示看手标注状态
+- 底部工具栏主按钮变成“记录正确命中事件”和“跳转到下一个事件”
+- 点击“记录正确命中事件”会先冻结当前时间点，再提示你点击设备；你在 overlay 上点中设备四边形后，会记录“这个时间点应该命中的设备”
+- 当前帧附近已有设备命中标注时，会出现删除按钮，删除确认逻辑和原进出子房间事件一致
+- 时间线上也会显示设备命中标注刻度
+
+这次新增/修改了：
+- DeviceHitMarkerManager.kt
+- DetectionOverlayView.kt
+- MainActivity.kt
+
+验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [079] 2026-03-28 03:29:33 - 修复看手模式下设备标注菜单被播放态隐藏
+
+**用户原文**：
+```text
+我没有看到记录正确命中事件""这几个字,甚至这个菜单都没出现
+
+ok
+```
+
+**助手原文**：
+```text
+已经修了。
+
+问题就是我把看手模式下这排按钮的显示条件仍然沿用了旧逻辑，要求：
+- 视频模式
+- 调试面板开启
+- 当前不是播放中
+
+所以只要视频还在播放，整排设备标注菜单就不会出现，你自然也看不到“记录正确命中事件”。
+
+现在已经改成：
+- 只要是 `当前看手 + 调试面板开启 + 视频模式`
+- 这排设备标注菜单就直接显示
+- 不再要求必须先暂停
+
+看人模式下原来的进出子房间事件菜单逻辑保持不变。验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [080] 2026-03-28 03:36:55 - 等待选择设备时切换为纯选择态并支持空白取消
+
+**用户原文**：
+```text
+等待，点击设备的时候应该。其他菜单，包括整个界面的所有显示的东西全部都隐藏而且不影响我的点击设备的。
+
+是的，你就弹出一个。很小的提示说请点击设备 点击空白处时取消。
+```
+
+**助手原文**：
+```text
+已经改了。
+
+现在点“记录正确命中事件”后，会进入一个真正的纯选择态：
+- 普通控制栏会隐藏
+- 底部事件按钮栏会隐藏
+- overlay 不再显示手点、ROI、时间线、调试面板等其它内容
+- 只保留设备框和核心点，保证不影响你点设备
+
+顶部会出现一条很小的提示：
+`请点击设备，点击空白处取消`
+
+行为也已经接好了：
+- 点中设备：正常记录并恢复原界面
+- 点空白处：直接取消本次选择并恢复原界面
+
+验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [081] 2026-03-28 03:42:52 - 修复设备纯选择态点击未被 overlay 接管
+
+**用户原文**：
+```text
+我点击了显示后的设备之后并没有任何的响应。
+
+关键是现在点击空白处也没有取消。
+
+命中范围先不改，先改我们现在真正的问题。开始吧。
+```
+
+**助手原文**：
+```text
+已经修了这条真正的问题。
+
+这次我没有去改设备命中范围，只修了“设备选择态下触摸根本没被 overlay 稳定接管”这件事：
+- 设备选择态激活时，`DetectionOverlayView` 会显式切成可点击并自己消费触摸
+- 点击处理被提到 `onTouchEvent` 的最前面
+- 点中设备就走设备选择回调
+- 点空白就直接走取消回调
+- 不再落到默认 `super.onTouchEvent()` 链里
+
+验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [082] 2026-03-28 03:46:52 - 补设备纯选择态点击链调试日志
+
+**用户原文**：
+```text
+在设定任意点击任何地方都没有任何响应。没办法的话就加个日志
+
+开始,然后告诉我搜什么看日志
+```
+
+**助手原文**：
+```text
+已经加好了调试日志，而且这次只加观测，不继续盲改交互。
+
+统一搜这个 tag：
+`DeviceHitSelect`
+
+你复现一遍后，重点看这几类日志：
+- `armSelection ...`
+  说明你点“记录正确命中事件”后，是否真的进入等待选择态。
+- `syncUi selecting=true ...`
+  说明主界面是否真的切到了设备选择态。
+- `overlay selectionMode active=true ...`
+  说明 overlay 是否真的进入了纯选择态。
+- `overlay touch action=0 ...`
+  说明 overlay 是否真的收到了点击。
+- `overlay hit polygon ...`
+  说明点击被识别成命中设备。
+- `overlay noHit ...`
+  说明点击被识别成空白。
+- `confirmDeviceTap ...`
+  说明设备选择回调真的触发了。
+- `cancelSelection ...`
+  说明空白取消回调真的触发了。
+
+如果你一条 `overlay touch` 都看不到，那就说明触摸根本没到 `DetectionOverlayView`，下一步我就直接改到更上层去接管。
+```
+
+---
+
+## [083] 2026-03-28 03:53:37 - 进入设备纯选择态时强制 overlay 置顶并压下遮挡层
+
+**用户原文**：
+```text
+建议你确认好之后再下手。
+
+ok
+```
+
+**助手原文**：
+```text
+这次我先确认了根因再下手。
+
+根据你给的日志，状态机已经进入了设备纯选择态，但一条 `overlay touch` 都没有，说明问题不在设备命中，而在于触摸根本没进 `DetectionOverlayView`。所以我这次只修这一层：
+- 进入设备纯选择态时，保存并压下可能挡触摸的全屏层，重点是 `editorView` 和雷达层
+- 同时强制 `overlayView` 保持可见并 `bringToFront()`
+- 退出纯选择态时恢复之前保存的可见性
+- 顺手补了层级日志，继续确认到底是谁挡了点击
+
+验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [084] 2026-03-28 03:57:29 - 将设备纯选择态点击接管上移到 Activity
+
+**用户原文**：
+```text
+ok
+```
+
+**助手原文**：
+```text
+已经按确认后的方向改了。
+
+这次不再依赖 `DetectionOverlayView` 自己收到触摸，而是把设备纯选择态的点击接管上移到了 `MainActivity.dispatchTouchEvent()`：
+- 只要当前处于等待选择设备状态，Activity 会先拦截点击
+- 命中设备就直接确认
+- 没命中就直接取消
+- 彻底绕过当前 View 分发链
+
+这次新增的关键日志还是看 `DeviceHitSelect`，但优先关注：
+- `activity dispatch action=0 ...`
+- `activity dispatch hit device ...`
+- `activity dispatch blank -> cancel`
+
+验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [085] 2026-03-28 04:01:01 - 修复设备选择完成后菜单被 overlay 压层
+
+**用户原文**：
+```text
+这一次点击没有问题了，不过点击之后。整个菜单项是被盖在下面了。
+
+ok
+```
+
+**助手原文**：
+```text
+已经修了这条层级恢复问题。
+
+这次我只改了 `MainActivity` 的层级恢复：
+- 等待选择设备时，保持 overlay 在最上层
+- 选择完成或取消后，把普通控制栏、事件栏、编辑栏、计数器、雷达层按当前可见状态重新 `bringToFront()`
+- 避免菜单虽然恢复可见，但仍被 overlay 压在下面
+
+验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [086] 2026-03-28 04:05:47 - 统一顶部进度条按看手看人切换事件源
+
+**用户原文**：
+```text
+还有一个问题就是当切换看手和看人的。见面的时候。最顶上进度条里面的事件记录处理的不一致。准确说就是看手的时候。如果关闭调试面板，那么事件记录还是用的。进出房间的
+
+ok
+```
+
+**助手原文**：
+```text
+已经修了这条显示语义。
+
+现在顶部进度条事件源只按“当前看手 / 当前看人”切换：
+- `当前看手`：顶部始终显示设备事件
+- `当前看人`：顶部始终显示进出房间事件
+
+调试面板开关现在只影响右侧面板和底部按钮栏，不再影响顶部进度条的事件源。验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [087] 2026-03-28 04:08:00 - 新增设备指向链路录制与标记验证待办
+
+**用户原文**：
+```text
+记录一个to do。这一部分的开发基本完成了。接下来的主要是调试工作。下面要去重新录制一段摆放好各种设备的视频，然后再进行标记和测试，看能不能通过。
+
+ok
+```
+
+**助手原文**：
+```text
+已经记到 `todo.md` 里了，作为新的正式待办：
+- 编号：`TODO-004`
+- 标题：`设备指向链路录制与标记验证`
+
+内容已经整理成“录制新视频 -> 标记事件 -> 回放测试 -> 回修问题”这条主线，状态先记为“待实现”。
+```
+
+---
+
+## [088] 2026-03-28 11:39:44 - 拆分设备选择态与编辑态层级恢复
+
+**用户原文**：
+```text
+只有在设备选择时才需要把视频提到最上面吧,好好构思一下,怎么改合理
+ok
+```
+
+**助手原文**：
+```text
+已经按这个原则收口了。现在只有等待点击设备时才进入 DEVICE_SELECTION 层级并把 overlay 临时置顶；平时进入设置房间会走独立的 EDITING 层级，把 editorView 和 llEditorControls 明确提到 overlay 之上，不再依赖设备选择态退出时的通用恢复。改动只在 MainActivity.kt，编译验证 `:app:compileDebugKotlin` 已通过。你现在再试“点击设置房间”，菜单应该不会再被盖住；如果还异常，我再继续顺着这三套层级模式查。
+```
+
+---
+
+## [089] 2026-03-28 11:46:05 - 修复新视频无配置时重启恢复旧配置
+
+**用户原文**：
+```text
+一个新视频,没有配置过任何,重启后还是给我加载成之前一个视频的配置文件了
+ok
+```
+
+**助手原文**：
+```text
+已经修了。现在当前视频默认配置不存在时，[SettingsHomeFragment.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt#L183) 这条分支不再只是临时切到空配置，而是会同时清掉 `AppSettings.activeRoomConfigPath`，并把 `AppSettings.isNoRoomConfigSelected` 设为 `true`。这样冷启动时 [RoomRepository.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/data/repository/RoomRepository.kt#L26) 就会继续保持空配置，不会再恢复到上一个视频的真实配置文件。
+
+验证已过：`.:app:compileDebugKotlin`。你现在可以再复现一次：切到一个从未配过配置的新视频，看到“无房间配置文件”后彻底重启，应该不会再回到旧视频配置。
+```
+
+---
+
+## [090] 2026-03-28 11:56:20 - 设备设置切换为纯净编辑显示
+
+**用户原文**：
+```text
+进入设备设置,和添加设备的时候,房间图和其他东西都不应该显示.看看怎么处理,不要出错
+ok
+```
+
+**助手原文**：
+```text
+已经按“设备编辑纯净显示”收口了。现在进入设备设置或添加设备时，`DetectionOverlayView` 会只保留视频底图，直接跳过 ROI、事件条、人物/手部可视化和其它调试元素；同时 `LivingRoomEditorView` 的 `DEVICE` 模式不再绘制客厅轮廓和顶点，只画设备本身与草稿设备。`MainActivity` 负责在切到设备模式和退出设备模式时同步切换这套显示。验证已过：`.:app:compileDebugKotlin`。
+```
+
+---
+
+## [091] 2026-03-28 12:43:30 - 给 pose 左右手腕增加红色描边
+
+**用户原文**：
+```text
+把手腕(就是我们现在判定ROI这个pose点吧?)都绘制成红色描边.两个手都是.
+ok
+```
+
+**助手原文**：
+```text
+已经加上了。现在 [PoseDrawer.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/drawers/PoseDrawer.kt#L177) 在原有 pose 关键点绘制之后，会额外对 `9/10` 两个手腕索引各画一层红色描边圆；两个手都会画，只要该手腕关键点置信度高于基础可见阈值。其它关键点颜色和手部 ROI 判定逻辑都没改。
+
+验证已过：`.:app:compileDebugKotlin`。
+```
+
+---
+

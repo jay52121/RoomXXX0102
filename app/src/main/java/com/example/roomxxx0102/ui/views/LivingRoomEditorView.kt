@@ -1228,8 +1228,8 @@ class LivingRoomEditorView @JvmOverloads constructor(
             dstRect.set(0f, 0f, w, h)
         }
 
-        if (boundaryVertices.isEmpty() && w > 0 && h > 0) initDefaultPolygon()
-        if (boundaryVertices.isNotEmpty()) {
+        if (currentMode != EditorMode.DEVICE && boundaryVertices.isEmpty() && w > 0 && h > 0) initDefaultPolygon()
+        if (currentMode != EditorMode.DEVICE && boundaryVertices.isNotEmpty()) {
             val path = Path()
             val start = toScreen(boundaryVertices[0].point.x, boundaryVertices[0].point.y)
             path.moveTo(start.x, start.y)
@@ -1425,10 +1425,6 @@ class LivingRoomEditorView @JvmOverloads constructor(
                 }
             }
         } else {
-            for (v in boundaryVertices) {
-                val screenP = toScreen(v.point.x, v.point.y)
-                canvas.drawCircle(screenP.x, screenP.y, 12f, vertexPaint)
-            }
             for (device in devices) {
                 drawDeviceRect(canvas, device, device.id == selectedDeviceId, isDraft = false)
             }
