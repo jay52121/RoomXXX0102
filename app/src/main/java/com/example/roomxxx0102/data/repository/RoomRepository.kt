@@ -4,7 +4,9 @@ import android.content.Context
 import android.graphics.PointF
 import android.util.Log
 import com.example.roomxxx0102.data.model.BoundaryVertex
+import com.example.roomxxx0102.data.model.DeviceConfig
 import com.example.roomxxx0102.data.model.RoomConfig
+import com.example.roomxxx0102.utils.DeviceGeometryUtils
 import com.example.roomxxx0102.utils.RoomColorPalette
 import org.json.JSONArray
 import org.json.JSONObject
@@ -17,6 +19,7 @@ object RoomRepository {
     private const val LEGACY_FILE_NAME = "room_config.json"
 
     private val cachedRooms = CopyOnWriteArrayList<RoomConfig>()
+    private val cachedDevices = CopyOnWriteArrayList<DeviceConfig>()
     private var configFile: File? = null
     private var loadedBaselineCanonicalJson: String = ""
 
@@ -41,6 +44,15 @@ object RoomRepository {
 
     fun getSubRooms(): List<RoomConfig> {
         return cachedRooms.filter { !it.isSovereignTerritory }
+    }
+
+    fun getDevices(): List<DeviceConfig> {
+        return cachedDevices.map(::copyDevice)
+    }
+
+    fun replaceDevices(devices: List<DeviceConfig>) {
+        cachedDevices.clear()
+        cachedDevices.addAll(devices.map(::copyDevice))
     }
 
     fun addNewRoom(
@@ -118,6 +130,7 @@ object RoomRepository {
     fun currentConfigDisplayName(): String? = configFile?.nameWithoutExtension
 
     fun hasMeaningfulConfig(): Boolean {
+        if (cachedDevices.isNotEmpty()) return true
         val hasSubRooms = cachedRooms.any { !it.isSovereignTerritory }
         val livingRoomRecorded = cachedRooms.any { it.isSovereignTerritory && it.boundaryVertices.size >= 3 }
         return hasSubRooms || livingRoomRecorded
@@ -168,14 +181,7 @@ object RoomRepository {
 
     fun getBackupJson(): String {
         return try {
-            val rootObj = JSONObject()
-            val jsonArray = JSONArray()
-            for (room in cachedRooms) {
-                val roomObj = serializeRoom(room)
-                jsonArray.put(roomObj)
-            }
-            rootObj.put("rooms", jsonArray)
-            rootObj.toString(2)
+            buildRootJson().toString(2)
         } catch (e: Exception) {
             Log.e(TAG, "Backup failed", e)
             "{}"
@@ -186,7 +192,8 @@ object RoomRepository {
         return try {
             val rootObj = JSONObject(jsonString)
             val jsonArray = rootObj.optJSONArray("rooms") ?: return false
-            if (jsonArray.length() == 0) return false
+            val deviceArray = rootObj.optJSONArray("devices") ?: JSONArray()
+            if (jsonArray.length() == 0 && deviceArray.length() == 0) return false
 
             val restoredRooms = ArrayList<RoomConfig>()
             for (i in 0 until jsonArray.length()) {
@@ -195,17 +202,21 @@ object RoomRepository {
                 restoredRooms.add(room)
             }
 
-            if (restoredRooms.isNotEmpty()) {
-                cachedRooms.clear()
-                cachedRooms.addAll(restoredRooms)
-                ensureMissingThemeColors()
-                saveToFile()
-                loadedBaselineCanonicalJson = currentCanonicalJson()
-                Log.i(TAG, "Restored ${restoredRooms.size} rooms from backup")
-                true
-            } else {
-                false
+            val restoredDevices = ArrayList<DeviceConfig>()
+            for (i in 0 until deviceArray.length()) {
+                val deviceObj = deviceArray.getJSONObject(i)
+                restoredDevices.add(deserializeDevice(deviceObj))
             }
+
+            cachedRooms.clear()
+            cachedRooms.addAll(restoredRooms)
+            cachedDevices.clear()
+            cachedDevices.addAll(restoredDevices)
+            ensureMissingThemeColors()
+            saveToFile()
+            loadedBaselineCanonicalJson = currentCanonicalJson()
+            Log.i(TAG, "Restored ${restoredRooms.size} rooms and ${restoredDevices.size} devices from backup")
+            true
         } catch (e: Exception) {
             Log.e(TAG, "Restore failed", e)
             false
@@ -322,6 +333,63 @@ object RoomRepository {
         )
     }
 
+    private fun serializeDevice(device: DeviceConfig): JSONObject {
+        val deviceObj = JSONObject()
+        deviceObj.put("id", device.id)
+        deviceObj.put("name", device.name)
+        val hotspotObj = JSONObject()
+        hotspotObj.put("x", device.hotspot.x.toDouble())
+        hotspotObj.put("y", device.hotspot.y.toDouble())
+        deviceObj.put("hotspot", hotspotObj)
+        val polygonArray = JSONArray()
+        for (point in device.polygon) {
+            val pointObj = JSONObject()
+            pointObj.put("x", point.x.toDouble())
+            pointObj.put("y", point.y.toDouble())
+            polygonArray.put(pointObj)
+        }
+        deviceObj.put("polygon", polygonArray)
+        return deviceObj
+    }
+
+    private fun deserializeDevice(deviceObj: JSONObject): DeviceConfig {
+        val hotspotObj = deviceObj.optJSONObject("hotspot")
+        val hotspot = PointF(
+            hotspotObj?.optDouble("x", 0.5)?.toFloat() ?: 0.5f,
+            hotspotObj?.optDouble("y", 0.5)?.toFloat() ?: 0.5f
+        )
+        val polygonArray = deviceObj.optJSONArray("polygon")
+        val polygon = ArrayList<PointF>()
+        if (polygonArray != null) {
+            for (i in 0 until polygonArray.length()) {
+                val pointObj = polygonArray.optJSONObject(i) ?: continue
+                polygon.add(
+                    PointF(
+                        pointObj.optDouble("x", hotspot.x.toDouble()).toFloat(),
+                        pointObj.optDouble("y", hotspot.y.toDouble()).toFloat()
+                    )
+                )
+            }
+        }
+        require(DeviceGeometryUtils.isValidQuadrilateral(polygon)) { "Invalid device polygon" }
+        require(DeviceGeometryUtils.polygonContainsHotspot(hotspot, polygon)) { "Device polygon must contain hotspot" }
+        return DeviceConfig(
+            id = deviceObj.optString("id").ifBlank { java.util.UUID.randomUUID().toString() },
+            name = deviceObj.optString("name", "设备"),
+            hotspot = hotspot,
+            polygon = polygon
+        )
+    }
+
+    private fun copyDevice(device: DeviceConfig): DeviceConfig {
+        return DeviceConfig(
+            id = device.id,
+            name = device.name,
+            hotspot = PointF(device.hotspot.x, device.hotspot.y),
+            polygon = device.polygon.map { PointF(it.x, it.y) }.toMutableList()
+        )
+    }
+
     private fun copyBoundaryVertices(vertices: List<BoundaryVertex>): MutableList<BoundaryVertex> {
         return vertices.map {
             BoundaryVertex(it.id, PointF(it.point.x, it.point.y), it.edgeIdToNext)
@@ -340,6 +408,7 @@ object RoomRepository {
 
     private fun loadFromCurrentFile(createIfMissing: Boolean) {
         cachedRooms.clear()
+        cachedDevices.clear()
         val file = configFile ?: return
 
         if (!file.exists()) {
@@ -353,12 +422,17 @@ object RoomRepository {
             val jsonString = file.readText()
             val rootObj = JSONObject(jsonString)
             val jsonArray = rootObj.optJSONArray("rooms") ?: JSONArray()
+            val deviceArray = rootObj.optJSONArray("devices") ?: JSONArray()
 
             for (i in 0 until jsonArray.length()) {
                 val roomObj = jsonArray.getJSONObject(i)
                 cachedRooms.add(deserializeRoom(roomObj))
             }
-            Log.i(TAG, "Loaded ${cachedRooms.size} rooms")
+            for (i in 0 until deviceArray.length()) {
+                val deviceObj = deviceArray.getJSONObject(i)
+                cachedDevices.add(deserializeDevice(deviceObj))
+            }
+            Log.i(TAG, "Loaded ${cachedRooms.size} rooms and ${cachedDevices.size} devices")
             if (ensureMissingThemeColors()) {
                 saveToFile()
             }
@@ -373,6 +447,7 @@ object RoomRepository {
 
     private fun createDefaultRoom(persist: Boolean) {
         cachedRooms.clear()
+        cachedDevices.clear()
         cachedRooms.add(
             RoomConfig(
                 id = "living_room",
@@ -404,6 +479,11 @@ object RoomRepository {
                 jsonArray.put(serializeRoom(room))
             }
             rootObj.put("rooms", jsonArray)
+            val deviceArray = JSONArray()
+            for (device in cachedDevices) {
+                deviceArray.put(serializeDevice(device))
+            }
+            rootObj.put("devices", deviceArray)
             file.writeText(rootObj.toString(2))
             Log.d(TAG, "Config saved: ${file.absolutePath}")
             return true
@@ -425,6 +505,11 @@ object RoomRepository {
             jsonArray.put(serializeRoom(room))
         }
         rootObj.put("rooms", jsonArray)
+        val deviceArray = JSONArray()
+        for (device in cachedDevices) {
+            deviceArray.put(serializeDevice(device))
+        }
+        rootObj.put("devices", deviceArray)
         return rootObj
     }
 

@@ -1695,3 +1695,665 @@ ok
 
 ---
 
+## [068] 2026-03-27 19:24:38 - 排查当前设备设置占位实现
+
+**用户原文**：
+```text
+我们现在要做全新功能,设备添加,看看目前项目里面有些设备的什么东西吗
+```
+
+**助手原文**：
+```text
+有，但现在基本只有“入口壳子”，还没有真正的设备功能。
+
+目前我确认到的现状是：
+- [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt#L1189) 已经把编辑模式做成三项：`主房间设置 / 次房间设置 / 设备设置`。
+- [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt#L1375) 有 `enterDeviceSettingsMode()`，作用只是隐藏 `editorView`、显示 `llDeviceSettings`。
+- [activity_main.xml](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/res/layout/activity_main.xml#L307) 已经有一层设备设置面板，标题就是“设备管理（开发中）”，里面只有一个 [btnAddDevice](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/res/layout/activity_main.xml#L328)。
+- [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt#L1298) 这个按钮当前只会弹 `添加设备功能开发中...`。
+- [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt#L1274) 设备模式下所谓“保存”也只是弹一句 `设备设置已保存`，没有实际保存逻辑。
+- 我没有找到任何设备实体类、设备仓库、设备配置文件、设备绘制层、设备与房间绑定数据结构。也就是说现在还没有 `Device` model 或真正的设备管理链路。
+- 文档里也能对上： [GeminiHistory.md](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/GeminiHistory.md#L6) 明确写了“设备设置作为第三种模式，目前仅做占位”。
+
+所以结论很直接：当前项目里“设备添加”能复用的只有一个入口和一个占位面板，真正的设备功能基本还没开工。
+```
+
+---
+
+## [069] 2026-03-27 20:09:43 - 实现第1版设备编辑与保存链路
+
+**用户原文**：
+```text
+我下一步的计划是这样的。我们还是把它放在。设置房间菜单中设置房间的菜单现在目前有设备设置对吧,移动到菜单栏中,就和添加子房间一样.,现在点击添加设备。之后,菜单隐藏，然后弹出设备命名(默认给个设备+ID递增)提示请绘制矩形,然后用户用手绘制出一个正方形,然后可以对正方形的四个角进行调整.长按矩形还可以移动位置.然后绘制完成后点击保存.保存这个设备的名字和ID.单击设备矩形后,可以删除设备. 总来的说操作可以参考子房间.
+1.后续允许四角调成一般矩形. 2.先绘制好矩形后再点击保存,弹出名字和确认,
+1.设备设置还是没变啊,还是整页./只是选中这个菜单后,不是弹出,而是和子房间一样有个增加设备按钮
+ok
+```
+
+**助手原文**：
+```text
+第 1 版已经接上了。现在切到 `设备设置` 后，不再走原来的占位页，而是直接在编辑画布上工作，左侧会出现 `添加设备` 按钮；新增设备时先拖出一个初始正方形，之后可以拖四角改成普通矩形，也可以长按整体移动。点击保存时才会弹名字输入框，默认名按 `设备1 / 设备2 / 设备3` 递增；单击已保存设备后可以删除，删除会直接同步并落盘。
+
+数据层也一起补了：新增了 [DeviceConfig.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/data/model/DeviceConfig.kt#L5)，并且 [RoomRepository.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/data/repository/RoomRepository.kt#L48) 现在会把 `devices` 和 `rooms` 一起存进 `.Room` 文件。核心交互落在 [LivingRoomEditorView.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/views/LivingRoomEditorView.kt#L306) 和 [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt#L1429)。
+
+验证只做了编译：`:app:compileDebugKotlin` 通过。你现在可以直接进 `设备设置` 试这条完整链路。
+```
+
+---
+
+## [070] 2026-03-27 22:00:16 - 设备模型改为任意四边形
+
+**用户原文**：
+```text
+有个设计错误,不要矩形,而是任意四边形
+ok
+```
+
+**助手原文**：
+```text
+已经改成任意四边形了。现在设备不再保存 `left/top/right/bottom` 这种矩形边界，而是保存固定顺序的 4 个顶点；新建设备时仍然先拖出一个初始正方形，但保存后四个角完全独立，可继续调整成任意四边形。对应地，设备的绘制、角点命中、拖角和整体移动，也都已经改成基于四点多边形处理。
+
+这次还顺手做了兼容：旧配置里如果还是矩形字段，读取时会自动转成四点设备，不会直接失效。核心改动在 [DeviceConfig.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/data/model/DeviceConfig.kt#L6)、[RoomRepository.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/data/repository/RoomRepository.kt#L335) 和 [LivingRoomEditorView.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/views/LivingRoomEditorView.kt#L757)。验证已通过：`:app:compileDebugKotlin`。
+```
+
+---
+
+## [071] 2026-03-27 22:21:46 - 按住看手时切换显示层并显示设备框
+
+**用户原文**：
+```text
+按住看手被激活后,取消客厅,人体ROI框,房门的显示. 显示设备框.
+手部的ROI别忘了也要显示.开始吧
+```
+
+**助手原文**：
+```text
+已经接好了。现在 `按住看手` 激活后，overlay 会隐藏客厅区域、房门/次房间相关显示和主人体 ROI，只保留手部相关显示；与此同时会把当前配置里的设备四边形画出来，手部 ROI 也会继续保留显示，不会被一起关掉。
+
+改动在 [DetectionOverlayView.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt#L369) 和 [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt#L1844)。验证已通过：`:app:compileDebugKotlin`。
+```
+
+---
+
+## [072] 2026-03-28 02:09:06 - 设备识别目标切换与编辑模式数量显示
+
+**用户原文**：
+```text
+GeminiHistory我再说一次不要读了.  同时加一个新功能,次房间设置和设备设置选项的右边都加上当前的数量.也就是次房间数量和设备数量.开始吧.
+refreshOverlayDisplay是什么时候?频率高吗?应该只有点出这个菜单才能看到
+ok
+ok
+我服了，我说说了这么多次OK了，你在干啥呀？ 
+```
+
+**助手原文**：
+```text
+已经改好了。
+
+这次只动了 [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt)：
+- 指向识别目标已经从房门切到设备，当前会用设备四边形的外接矩形作为 pointing target，命中标签也改成设备名。
+- 编辑模式下拉菜单现在会显示数量：`次房间设置(n)`、`设备设置(n)`。
+- 这些数量刷新放在编辑菜单链路里了，只会在进入编辑模式、模式切换、编辑状态切换时更新，没有塞进 `refreshOverlayDisplay()`。
+
+验证结果：`.:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [073] 2026-03-28 02:13:02 - 修复编辑模式数量下拉刷新崩溃
+
+**用户原文**：
+```text
+2026-03-28 02:11:54.538 19783-19783 AndroidRuntime          com.example.roomxxx0102              E  FATAL EXCEPTION: main (Fix with AI)
+                                                                                                    Process: com.example.roomxxx0102, PID: 19783
+                                                                                                    java.lang.UnsupportedOperationException
+                                                                                                    	at java.util.AbstractList.remove(AbstractList.java:169)
+                                                                                                    	at java.util.AbstractList$Itr.remove(AbstractList.java:389)
+                                                                                                    	at java.util.AbstractList.removeRange(AbstractList.java:600)
+                                                                                                    	at java.util.AbstractList.clear(AbstractList.java:245)
+                                                                                                    	at android.widget.ArrayAdapter.clear(ArrayAdapter.java:329)
+                                                                                                    	at com.example.roomxxx0102.ui.activities.MainActivity.refreshEditModeLabels(MainActivity.kt:1687)
+                                                                                                    	at com.example.roomxxx0102.ui.activities.MainActivity.enterEditMode(MainActivity.kt:1391)
+                                                                                                    	at com.example.roomxxx0102.ui.activities.MainActivity.setupButtons$lambda$13(MainActivity.kt:1171)
+                                                                                                    	at com.example.roomxxx0102.ui.activities.MainActivity$$ExternalSyntheticLambda35.onClick(D8$$SyntheticClass:0)
+                                                                                                    	at android.view.View.performClick(View.java:8177)
+                                                                                                    	at android.view.View.performClickInternal(View.java:8143)
+                                                                                                    	at android.view.View.-$$Nest$mperformClickInternal(Unknown Source:0)
+                                                                                                    	at android.view.View$PerformClick.run(View.java:32319)
+                                                                                                    	at android.os.Handler.handleCallback(Handler.java:1027)
+                                                                                                    	at android.os.Handler.dispatchMessage(Handler.java:108)
+                                                                                                    	at android.os.Looper.loopOnce(Looper.java:298)
+                                                                                                    	at android.os.Looper.loop(Looper.java:408)
+                                                                                                    	at android.app.ActivityThread.main(ActivityThread.java:9964)
+                                                                                                    	at java.lang.reflect.Method.invoke(Native Method)
+                                                                                                    	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:613)
+                                                                                                    	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1074)
+```
+
+**助手原文**：
+```text
+已经修了，根因就是我把 `ArrayAdapter` 绑定到了不可变数组上，后面 `refreshEditModeLabels()` 调 `clear()` 直接触发了 `UnsupportedOperationException`。
+
+现在 [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt) 里已经改成用 `MutableList<String>` 初始化这个适配器，现有的数量刷新逻辑不用改就能正常工作。`.:app:compileDebugKotlin` 也已经通过。
+```
+
+---
+
+## [074] 2026-03-28 02:28:42 - 设备模型升级为热点加四边形并重构编辑流程
+
+**用户原文**：
+```text
+先只改“设备数据结构”和“设备创建/编辑逻辑”，不要改射线评分算法、窗口统计、命中判定、最终排序逻辑。
+
+当前项目里的设备原本只有一个四边形 polygon。现在直接改成新的设备定义，不需要兼容旧数据，因为旧数据已经删除了。
+
+新的设备数据结构统一为：
+
+- 设备 = 核心点 hotspot + 四边形 polygon
+- hotspot 是用户真正最可能指向的核心位置
+- polygon 是设备的大致区域框
+- 约束：polygon 必须始终包含 hotspot（内部或边界上都可以）
+
+请完成以下改动：
+
+1. 找到当前设备模型、设备配置数据、设备编辑界面、序列化/反序列化相关代码。
+2. 把设备模型从“只有 polygon”改成“hotspot + polygon”。
+3. 删除旧兼容逻辑，不需要为旧数据自动迁移，也不需要保留旧结构兜底。
+4. 修改“创建设备”的交互流程，改成下面这个顺序：
+   - 第一步：提示用户先点击“最可能指向的地方”，作为 hotspot(这个点至少应该离边缘150px,如果太贴近,就手动把它远离到150PX的地方)(后期用户拖的时候不受这个约束,但是矩形不能越过边界)
+   - 第二步：系统以该 hotspot 为基准，自动生成一个默认四边形
+   - 默认四边形尺寸固定为 200 × 300
+   - 默认四边形必须包含 hotspot
+   - 第一版先让 hotspot 位于默认框的几何中心
+5. 修改设备编辑逻辑：
+   - 用户移动设备时，hotspot 和 polygon 必须整体一起移动
+   - 不允许出现“只移动框，不移动核心点”或“只移动核心点，不移动框”的默认行为
+6. 如果项目里还支持编辑框形状或顶点，请增加约束：
+   - polygon 在任何编辑后都必须仍然包含 hotspot
+   - 如果用户编辑导致 polygon 不再包含 hotspot，则禁止提交，或者自动修正到最近合法状态
+7. 增加并整理几何辅助方法，供后续算法使用：
+   - 判断点是否在四边形内
+   - 判断四边形是否合法、是否凸
+   - 生成默认 200×300 四边形
+   - 计算整体平移（使 hotspot 和 polygon 一起移动）
+   - 校验 polygon 是否包含 hotspot
+8. 存储层、序列化层、UI 显示层都同步更新：
+   - 存储 hotspot
+   - 读取 hotspot
+   - UI 上明确显示核心点
+   - UI 上明确显示自动生成的设备框
+9. 这次不要改任何“指向判定逻辑”，包括：
+   - 不要改射线
+   - 不要改打分
+   - 不要改窗口累计
+   - 不要改最终设备选择
+   这次只完成设备定义与设备编辑逻辑升级。
+ok
+```
+
+**助手原文**：
+```text
+已经改完了，这次只动了设备定义和设备编辑链，没有去碰射线、打分、窗口统计和最终排序。
+
+核心结果：
+- 设备模型现在是 `hotspot + polygon`，不再是只有四边形。
+- 仓库层和配置文件现在都保存 `hotspot` 与 `polygon`，旧的矩形兼容读取已经删掉。
+- 新建设备改成先点核心点，再自动生成默认 `200x300` 四边形；创建时如果点太贴边，会自动推回到距边缘至少 `150px` 的位置。
+- 设备整体移动时，`hotspot` 和 `polygon` 会一起移动。
+- 拖四个角时，如果四边形不再凸、非法，或者不再包含 `hotspot`，这次拖动会被拒绝，保持最近的合法形状。
+- 编辑视图和 overlay 都会明确画出设备核心点。
+
+改动文件：
+- [DeviceConfig.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/data/model/DeviceConfig.kt)
+- [RoomRepository.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/data/repository/RoomRepository.kt)
+- [LivingRoomEditorView.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/views/LivingRoomEditorView.kt)
+- [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt)
+- [DetectionOverlayView.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt)
+- [DeviceGeometryUtils.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/utils/DeviceGeometryUtils.kt)
+
+验证：`.:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [075] 2026-03-28 02:35:05 - 修复设备默认框居中与贴边参照
+
+**用户原文**：
+```text
+出现了一些问题，当我点击一个地方时候，整个矩形不是围绕着它而画的。也就是说不是他的中心点。 我说的贴边是屏幕边缘
+ok
+```
+
+**助手原文**：
+```text
+已经修了。根因就是我上一版把设备新建时的两个坐标系混用了：`hotspot` 是按实际画面 `dstRect` 归一化的，但“贴边 150px”和默认 `200x300` 框生成却按整个 View 算，所以默认框看起来就没有围绕点击点居中。
+
+现在我已经改成统一基于 `dstRect`，也就是实际屏幕画面边缘来做：
+- `150px` 贴边限制按画面边缘算
+- 默认 `200x300` 框也按画面区域居中生成
+- 只有真的接近画面边缘时才会被推开，否则会严格以点击点为几何中心
+
+`.:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [076] 2026-03-28 02:58:55 - 接入设备窗口级指向判定器
+
+**用户原文**：
+```text
+现在开始下一步：在现有“设备 = hotspot + polygon”结构已经改好的前提下，接入完整的窗口级指向设备判定算法。
+
+重要约束：
+1. 不要再改设备创建/编辑交互，这部分已经完成。
+2. 不要再改设备数据结构定义，默认已经有：
+   - hotspot
+   - polygon
+3. 保留现有“射线生成逻辑”，不要去改手势识别、手指方向计算、射线拟合本身。
+4. 这一步只改“评分、窗口累计、最终设备选择”。
+5. 代码要尽量模块化，便于后面单测和调参。
+6. 如果项目里已经有旧的设备命中逻辑，请不要直接删光，优先替换接入点或封装成新策略，避免影响其他功能。
+...
+这个结构可以，按这条线开始改。
+
+但开工前请再明确这几个约束：
+
+1. 新设备链路的输入不要再退化成旧的 RectF target，直接使用现在的设备结构（deviceId + hotspot + polygon）。
+2. 现有 frameQuality 在新算法里就作为“当前帧射线置信度”使用，不要再额外发明第二套置信度变量。
+3. 当前帧可用置信因子是帧级变量，每帧只算一次；命中比例和领先比例都共用它，不要在设备循环里重复算。
+4. 本帧第一名/第二名的排序按“单帧总分”做，但“本帧领先倍率”必须显式按“纯几何得分”计算，不要混掉。
+5. 旧的 RectF 逻辑可以保留，但设备模式下不要再调用 computeGeomScore / evaluateFastAccept / evaluateNormalAccept / finalizeTimeoutDecision 这条旧链；设备模式统一走新的 DevicePointingWindowJudge。
+6. 调试输出必须包含：
+   - 每帧每设备：热点得分、四边形得分、纯几何得分、单帧总分
+   - 每窗口结束：加权平均帧分累计、时序峰值帧分、加权命中比例累计、加权领先比例累计、最终总分、第一名、第二名、最终领先倍率、动态最终阈值、置信状态
+
+按这个约束开始改。
+```
+
+**助手原文**：
+```text
+已经接好了，而且这次只动了“设备评分/窗口累计/最终判定”这条链，没有再去碰设备创建 UI、设备编辑 UI、射线生成逻辑。
+
+这次的实现结构是：
+- [DevicePointingGeometry.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/logic/pointing/DevicePointingGeometry.kt)：几何层，负责点到射线距离、射线到四边形距离、相交、穿透长度等基础计算。
+- [DevicePointingScorer.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/logic/pointing/DevicePointingScorer.kt)：单帧评分层，输出每帧每设备的热点得分、四边形得分、纯几何得分、单帧总分。
+- [DevicePointingWindowJudge.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/logic/pointing/DevicePointingWindowJudge.kt)：窗口累计层，按你给的公式算平均项、峰值项、命中比例、领先比例、最终总分和高/低/未定。
+- [DeviceTriggeredPointingResolver.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/logic/pointing/DeviceTriggeredPointingResolver.kt)：设备模式接入层，复用现有射线生成和 `frameQuality`，统一走新的窗口判定器。
+
+接入点也已经切到新链：
+- [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt) 现在不再把设备退化成旧 `RectF` target，而是直接把 `deviceId + hotspot + polygon` 喂给新 resolver。
+- 旧 `TriggeredPointingResolver.kt` 还保留，没有删；只是设备模式不再走它里面那条旧 `RectF` 评分链。
+
+调试输出已加：
+- 每帧每设备：热点得分、四边形得分、纯几何得分、单帧总分
+- 每窗口结束：加权平均帧分累计、时序峰值帧分、加权命中比例累计、加权领先比例累计、最终总分、第一名、第二名、最终领先倍率、动态最终阈值、置信状态
+
+`.:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [077] 2026-03-28 03:07:13 - 缩小手部关键点并切换看手按钮交互
+
+**用户原文**：
+```text
+我们在手上绘制的点的直径是多少？
+好像还有些描边什么的?直接改成2f半径,不要描边
+同时把按住看手变 成当前看手/当前看人,开始吧
+```
+
+**助手原文**：
+```text
+已经改了。
+
+现在手部关键点在 [DetectionOverlayView.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt) 里改成了只有一层实心点，半径 `2f`，白色描边已经去掉。
+
+同时 [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt) 里原来 `ACTION_DOWN / ACTION_UP` 的“按住看手”逻辑已经改成点击切换：
+- 当前关闭时，按钮显示 `当前看人`
+- 点击后进入手部视图，按钮显示 `当前看手`
+- 再点一次切回人视图，并取消当前手部指向 session
+
+布局默认文案也已经在 [activity_main.xml](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/res/layout/activity_main.xml) 里改成 `当前看人`。
+
+验证：`.:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [078] 2026-03-28 03:24:55 - 看手模式调试面板切换为设备命中标注
+
+**用户原文**：
+```text
+接下来我们要做的修改是重构调试面板，当当前看手的时候调试面板。要和之前的完全不同。我们之前是调试的是关于人的一些东西，对吧？我们全部都不要了。我们现在的调试面板开启之后。要两个按钮，一是记录。正确命中事件。第二个是跳转到下一个事件。当点击记录。的时候。提示用户点击。选择设备。然后我们把这个时间点记录下来。在这里最重要的是时间和当前命中的设备应该是谁。同样，我们也有和。进出子房间。一样的删除逻辑。如果你对那个逻辑已经不太熟悉了，可以去看一下。
+
+好的,注意实现方式,尽量解耦和规范.
+```
+
+**助手原文**：
+```text
+已经改好了。
+
+现在“当前看手 + 调试面板开启”时，会切到一条独立的设备命中标注链：
+- 右侧调试面板不再显示原 ROI/人体信息，只显示看手标注状态
+- 底部工具栏主按钮变成“记录正确命中事件”和“跳转到下一个事件”
+- 点击“记录正确命中事件”会先冻结当前时间点，再提示你点击设备；你在 overlay 上点中设备四边形后，会记录“这个时间点应该命中的设备”
+- 当前帧附近已有设备命中标注时，会出现删除按钮，删除确认逻辑和原进出子房间事件一致
+- 时间线上也会显示设备命中标注刻度
+
+这次新增/修改了：
+- DeviceHitMarkerManager.kt
+- DetectionOverlayView.kt
+- MainActivity.kt
+
+验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [079] 2026-03-28 03:29:33 - 修复看手模式下设备标注菜单被播放态隐藏
+
+**用户原文**：
+```text
+我没有看到记录正确命中事件""这几个字,甚至这个菜单都没出现
+
+ok
+```
+
+**助手原文**：
+```text
+已经修了。
+
+问题就是我把看手模式下这排按钮的显示条件仍然沿用了旧逻辑，要求：
+- 视频模式
+- 调试面板开启
+- 当前不是播放中
+
+所以只要视频还在播放，整排设备标注菜单就不会出现，你自然也看不到“记录正确命中事件”。
+
+现在已经改成：
+- 只要是 `当前看手 + 调试面板开启 + 视频模式`
+- 这排设备标注菜单就直接显示
+- 不再要求必须先暂停
+
+看人模式下原来的进出子房间事件菜单逻辑保持不变。验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [080] 2026-03-28 03:36:55 - 等待选择设备时切换为纯选择态并支持空白取消
+
+**用户原文**：
+```text
+等待，点击设备的时候应该。其他菜单，包括整个界面的所有显示的东西全部都隐藏而且不影响我的点击设备的。
+
+是的，你就弹出一个。很小的提示说请点击设备 点击空白处时取消。
+```
+
+**助手原文**：
+```text
+已经改了。
+
+现在点“记录正确命中事件”后，会进入一个真正的纯选择态：
+- 普通控制栏会隐藏
+- 底部事件按钮栏会隐藏
+- overlay 不再显示手点、ROI、时间线、调试面板等其它内容
+- 只保留设备框和核心点，保证不影响你点设备
+
+顶部会出现一条很小的提示：
+`请点击设备，点击空白处取消`
+
+行为也已经接好了：
+- 点中设备：正常记录并恢复原界面
+- 点空白处：直接取消本次选择并恢复原界面
+
+验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [081] 2026-03-28 03:42:52 - 修复设备纯选择态点击未被 overlay 接管
+
+**用户原文**：
+```text
+我点击了显示后的设备之后并没有任何的响应。
+
+关键是现在点击空白处也没有取消。
+
+命中范围先不改，先改我们现在真正的问题。开始吧。
+```
+
+**助手原文**：
+```text
+已经修了这条真正的问题。
+
+这次我没有去改设备命中范围，只修了“设备选择态下触摸根本没被 overlay 稳定接管”这件事：
+- 设备选择态激活时，`DetectionOverlayView` 会显式切成可点击并自己消费触摸
+- 点击处理被提到 `onTouchEvent` 的最前面
+- 点中设备就走设备选择回调
+- 点空白就直接走取消回调
+- 不再落到默认 `super.onTouchEvent()` 链里
+
+验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [082] 2026-03-28 03:46:52 - 补设备纯选择态点击链调试日志
+
+**用户原文**：
+```text
+在设定任意点击任何地方都没有任何响应。没办法的话就加个日志
+
+开始,然后告诉我搜什么看日志
+```
+
+**助手原文**：
+```text
+已经加好了调试日志，而且这次只加观测，不继续盲改交互。
+
+统一搜这个 tag：
+`DeviceHitSelect`
+
+你复现一遍后，重点看这几类日志：
+- `armSelection ...`
+  说明你点“记录正确命中事件”后，是否真的进入等待选择态。
+- `syncUi selecting=true ...`
+  说明主界面是否真的切到了设备选择态。
+- `overlay selectionMode active=true ...`
+  说明 overlay 是否真的进入了纯选择态。
+- `overlay touch action=0 ...`
+  说明 overlay 是否真的收到了点击。
+- `overlay hit polygon ...`
+  说明点击被识别成命中设备。
+- `overlay noHit ...`
+  说明点击被识别成空白。
+- `confirmDeviceTap ...`
+  说明设备选择回调真的触发了。
+- `cancelSelection ...`
+  说明空白取消回调真的触发了。
+
+如果你一条 `overlay touch` 都看不到，那就说明触摸根本没到 `DetectionOverlayView`，下一步我就直接改到更上层去接管。
+```
+
+---
+
+## [083] 2026-03-28 03:53:37 - 进入设备纯选择态时强制 overlay 置顶并压下遮挡层
+
+**用户原文**：
+```text
+建议你确认好之后再下手。
+
+ok
+```
+
+**助手原文**：
+```text
+这次我先确认了根因再下手。
+
+根据你给的日志，状态机已经进入了设备纯选择态，但一条 `overlay touch` 都没有，说明问题不在设备命中，而在于触摸根本没进 `DetectionOverlayView`。所以我这次只修这一层：
+- 进入设备纯选择态时，保存并压下可能挡触摸的全屏层，重点是 `editorView` 和雷达层
+- 同时强制 `overlayView` 保持可见并 `bringToFront()`
+- 退出纯选择态时恢复之前保存的可见性
+- 顺手补了层级日志，继续确认到底是谁挡了点击
+
+验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [084] 2026-03-28 03:57:29 - 将设备纯选择态点击接管上移到 Activity
+
+**用户原文**：
+```text
+ok
+```
+
+**助手原文**：
+```text
+已经按确认后的方向改了。
+
+这次不再依赖 `DetectionOverlayView` 自己收到触摸，而是把设备纯选择态的点击接管上移到了 `MainActivity.dispatchTouchEvent()`：
+- 只要当前处于等待选择设备状态，Activity 会先拦截点击
+- 命中设备就直接确认
+- 没命中就直接取消
+- 彻底绕过当前 View 分发链
+
+这次新增的关键日志还是看 `DeviceHitSelect`，但优先关注：
+- `activity dispatch action=0 ...`
+- `activity dispatch hit device ...`
+- `activity dispatch blank -> cancel`
+
+验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [085] 2026-03-28 04:01:01 - 修复设备选择完成后菜单被 overlay 压层
+
+**用户原文**：
+```text
+这一次点击没有问题了，不过点击之后。整个菜单项是被盖在下面了。
+
+ok
+```
+
+**助手原文**：
+```text
+已经修了这条层级恢复问题。
+
+这次我只改了 `MainActivity` 的层级恢复：
+- 等待选择设备时，保持 overlay 在最上层
+- 选择完成或取消后，把普通控制栏、事件栏、编辑栏、计数器、雷达层按当前可见状态重新 `bringToFront()`
+- 避免菜单虽然恢复可见，但仍被 overlay 压在下面
+
+验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [086] 2026-03-28 04:05:47 - 统一顶部进度条按看手看人切换事件源
+
+**用户原文**：
+```text
+还有一个问题就是当切换看手和看人的。见面的时候。最顶上进度条里面的事件记录处理的不一致。准确说就是看手的时候。如果关闭调试面板，那么事件记录还是用的。进出房间的
+
+ok
+```
+
+**助手原文**：
+```text
+已经修了这条显示语义。
+
+现在顶部进度条事件源只按“当前看手 / 当前看人”切换：
+- `当前看手`：顶部始终显示设备事件
+- `当前看人`：顶部始终显示进出房间事件
+
+调试面板开关现在只影响右侧面板和底部按钮栏，不再影响顶部进度条的事件源。验证：`:app:compileDebugKotlin` 已通过。
+```
+
+---
+
+## [087] 2026-03-28 04:08:00 - 新增设备指向链路录制与标记验证待办
+
+**用户原文**：
+```text
+记录一个to do。这一部分的开发基本完成了。接下来的主要是调试工作。下面要去重新录制一段摆放好各种设备的视频，然后再进行标记和测试，看能不能通过。
+
+ok
+```
+
+**助手原文**：
+```text
+已经记到 `todo.md` 里了，作为新的正式待办：
+- 编号：`TODO-004`
+- 标题：`设备指向链路录制与标记验证`
+
+内容已经整理成“录制新视频 -> 标记事件 -> 回放测试 -> 回修问题”这条主线，状态先记为“待实现”。
+```
+
+---
+
+## [088] 2026-03-28 11:39:44 - 拆分设备选择态与编辑态层级恢复
+
+**用户原文**：
+```text
+只有在设备选择时才需要把视频提到最上面吧,好好构思一下,怎么改合理
+ok
+```
+
+**助手原文**：
+```text
+已经按这个原则收口了。现在只有等待点击设备时才进入 DEVICE_SELECTION 层级并把 overlay 临时置顶；平时进入设置房间会走独立的 EDITING 层级，把 editorView 和 llEditorControls 明确提到 overlay 之上，不再依赖设备选择态退出时的通用恢复。改动只在 MainActivity.kt，编译验证 `:app:compileDebugKotlin` 已通过。你现在再试“点击设置房间”，菜单应该不会再被盖住；如果还异常，我再继续顺着这三套层级模式查。
+```
+
+---
+
+## [089] 2026-03-28 11:46:05 - 修复新视频无配置时重启恢复旧配置
+
+**用户原文**：
+```text
+一个新视频,没有配置过任何,重启后还是给我加载成之前一个视频的配置文件了
+ok
+```
+
+**助手原文**：
+```text
+已经修了。现在当前视频默认配置不存在时，[SettingsHomeFragment.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt#L183) 这条分支不再只是临时切到空配置，而是会同时清掉 `AppSettings.activeRoomConfigPath`，并把 `AppSettings.isNoRoomConfigSelected` 设为 `true`。这样冷启动时 [RoomRepository.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/data/repository/RoomRepository.kt#L26) 就会继续保持空配置，不会再恢复到上一个视频的真实配置文件。
+
+验证已过：`.:app:compileDebugKotlin`。你现在可以再复现一次：切到一个从未配过配置的新视频，看到“无房间配置文件”后彻底重启，应该不会再回到旧视频配置。
+```
+
+---
+
+## [090] 2026-03-28 11:56:20 - 设备设置切换为纯净编辑显示
+
+**用户原文**：
+```text
+进入设备设置,和添加设备的时候,房间图和其他东西都不应该显示.看看怎么处理,不要出错
+ok
+```
+
+**助手原文**：
+```text
+已经按“设备编辑纯净显示”收口了。现在进入设备设置或添加设备时，`DetectionOverlayView` 会只保留视频底图，直接跳过 ROI、事件条、人物/手部可视化和其它调试元素；同时 `LivingRoomEditorView` 的 `DEVICE` 模式不再绘制客厅轮廓和顶点，只画设备本身与草稿设备。`MainActivity` 负责在切到设备模式和退出设备模式时同步切换这套显示。验证已过：`.:app:compileDebugKotlin`。
+```
+
+---
+
+## [091] 2026-03-28 12:43:30 - 给 pose 左右手腕增加红色描边
+
+**用户原文**：
+```text
+把手腕(就是我们现在判定ROI这个pose点吧?)都绘制成红色描边.两个手都是.
+ok
+```
+
+**助手原文**：
+```text
+已经加上了。现在 [PoseDrawer.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/drawers/PoseDrawer.kt#L177) 在原有 pose 关键点绘制之后，会额外对 `9/10` 两个手腕索引各画一层红色描边圆；两个手都会画，只要该手腕关键点置信度高于基础可见阈值。其它关键点颜色和手部 ROI 判定逻辑都没改。
+
+验证已过：`.:app:compileDebugKotlin`。
+```
+
+---
+

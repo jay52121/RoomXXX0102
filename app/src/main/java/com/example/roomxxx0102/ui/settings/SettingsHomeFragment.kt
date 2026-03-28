@@ -190,6 +190,8 @@ class SettingsHomeFragment : Fragment() {
             "已加载默认配置: ${defaultFile.nameWithoutExtension}"
         } else {
             RoomRepository.loadTemporaryEmptyConfig()
+            AppSettings.setActiveRoomConfigPath(null)
+            AppSettings.setNoRoomConfigSelected(true)
             "无房间配置文件"
         }
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
