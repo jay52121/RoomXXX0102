@@ -57,6 +57,7 @@ class DetectionOverlayView @JvmOverloads constructor(
     private var showCenterPoints = true 
     private var showPose = false
     private var showHandOnly = false
+    private var audioOnlyMode = false
     private var handResults: List<List<HandSmokeTester.HandPoint>> = emptyList()
     private var selectedHandIndex: Int? = null
     private var showPointingDebugOverlay = false
@@ -473,6 +474,11 @@ class DetectionOverlayView @JvmOverloads constructor(
         postInvalidate()
     }
 
+    fun setAudioOnlyMode(active: Boolean) {
+        audioOnlyMode = active
+        postInvalidate()
+    }
+
     fun setPointingDebugOverlayEnabled(enabled: Boolean) {
         showPointingDebugOverlay = enabled
         if (!enabled) {
@@ -596,6 +602,14 @@ class DetectionOverlayView @JvmOverloads constructor(
 
         val w = width.toFloat()
         val h = height.toFloat()
+        val now = System.currentTimeMillis()
+
+        if (audioOnlyMode) {
+            dstRect.set(0f, 0f, w, h)
+            val markerRect = drawEventMarkerBar(canvas)
+            drawUnlockBannerBelowMarker(canvas, markerRect, now)
+            return
+        }
 
         var drawLeft = 0f
         var drawTop = 0f
@@ -749,7 +763,6 @@ class DetectionOverlayView @JvmOverloads constructor(
             drawDevices(canvas, drawLeft, drawTop, drawWidth, drawHeight)
         }
 
-        val now = System.currentTimeMillis()
         val markerRect = drawEventMarkerBar(canvas)
         drawUnlockBannerBelowMarker(canvas, markerRect, now)
 

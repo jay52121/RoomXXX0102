@@ -35,6 +35,11 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -80,12 +85,14 @@ import com.example.roomxxx0102.logic.validation.EventType
 import com.example.roomxxx0102.logic.validation.MarkedEvent
 import com.example.roomxxx0102.logic.validation.RuntimeRoomEvent
 import com.example.roomxxx0102.logic.video.VideoFeeder
+import com.example.roomxxx0102.ui.audio.KwsPanelScreen
 import com.example.roomxxx0102.ui.views.DetectionOverlayView
 import com.example.roomxxx0102.ui.views.LivingRoomEditorView
 import com.example.roomxxx0102.ui.views.TacticalMapView
 import com.example.roomxxx0102.utils.AppLog
 import com.example.roomxxx0102.utils.BitmapTransfer
 import com.example.roomxxx0102.utils.GeometryUtils
+import com.example.roomxxx_vocie.KwsControllerImpl
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.ArrayDeque
@@ -101,6 +108,7 @@ class MainActivity : ComponentActivity() {
 
     private val previewView: PreviewView by lazy { findViewById(R.id.previewView) }
     private val textureView: android.view.TextureView by lazy { findViewById(R.id.textureView) }
+    private val composeAudioScreen: ComposeView by lazy { findViewById(R.id.composeAudioScreen) }
     private val overlayView: DetectionOverlayView by lazy { findViewById(R.id.overlayView) }
     private val editorView: LivingRoomEditorView by lazy { findViewById(R.id.editorView) }
     private val llNormalControls: View by lazy { findViewById(R.id.llNormalControls) }
@@ -128,12 +136,15 @@ class MainActivity : ComponentActivity() {
     private var poseAnalyzer: YoloPoseAnalyzer? = null
     private var handSmokeTester: HandSmokeTester? = null
     private var videoFeeder: VideoFeeder? = null
-    private var isHandOverlayPressed = false
+    private enum class ObserveMode { PERSON, HAND, AUDIO }
+    private var currentObserveMode = ObserveMode.PERSON
     @Volatile private var latestHandResults: List<List<HandSmokeTester.HandPoint>> = emptyList()
     @Volatile private var latestSelectedHandIndex: Int? = null
     private val pointingResolver = DeviceTriggeredPointingResolver()
     private val pointingGuideMinQuality = 0.45f
     private var pointingTargetLabelById: Map<String, String> = emptyMap()
+    private val kwsController by lazy { KwsControllerImpl(applicationContext) }
+    private var isAudioScreenBound = false
 
     private var isVideoMode = true
     private var currentLivingRoomBoundary: List<PointF> = emptyList()
@@ -791,7 +802,7 @@ class MainActivity : ComponentActivity() {
         if (decision !is PointingDecision.Pending) {
             runOnUiThread {
                 handleTriggeredPointingDecision(decision)
-                if (isHandOverlayPressed) {
+                if (isHandObserveMode()) {
                     startTriggeredPointingSession()
                 }
             }
@@ -1157,18 +1168,7 @@ class MainActivity : ComponentActivity() {
             true
         }
         btnHandOverlay?.setOnClickListener {
-            isHandOverlayPressed = !isHandOverlayPressed
-            if (isHandOverlayPressed) {
-                handSmokeTester?.startConfidenceProbeSession()
-                startTriggeredPointingSession()
-                if (pointingResolver.isActive()) {
-                    overlayView.showUnlockBanner("手点采样+指向识别中")
-                }
-            } else {
-                pointingResolver.cancelSession()
-                overlayView.updatePointingLiveSnapshot(null)
-            }
-            updateHandOverlayMode()
+            cycleObserveMode()
         }
         overlayView.setOnUnlockBannerLongPressListener {
             onValidationBannerLongPressed()
@@ -1941,11 +1941,72 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun isHandObserveMode(): Boolean = currentObserveMode == ObserveMode.HAND
+
+    private fun isAudioObserveMode(): Boolean = currentObserveMode == ObserveMode.AUDIO
+
+    private fun cycleObserveMode() {
+        val nextMode = when (currentObserveMode) {
+            ObserveMode.PERSON -> ObserveMode.HAND
+            ObserveMode.HAND -> ObserveMode.AUDIO
+            ObserveMode.AUDIO -> ObserveMode.PERSON
+        }
+        applyObserveMode(nextMode)
+    }
+
+    private fun applyObserveMode(mode: ObserveMode) {
+        if (currentObserveMode == mode) return
+        val leavingHandMode = currentObserveMode == ObserveMode.HAND && mode != ObserveMode.HAND
+        currentObserveMode = mode
+        if (leavingHandMode) {
+            pointingResolver.cancelSession()
+            overlayView.updatePointingLiveSnapshot(null)
+        }
+        if (mode == ObserveMode.HAND) {
+            handSmokeTester?.startConfidenceProbeSession()
+            startTriggeredPointingSession()
+            if (pointingResolver.isActive()) {
+                overlayView.showUnlockBanner("手点采样+指向识别中")
+            }
+        }
+        updateHandOverlayMode()
+    }
+
+    private fun syncAudioScreenMode(active: Boolean) {
+        if (active && !isAudioScreenBound) {
+            composeAudioScreen.setViewCompositionStrategy(
+                ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+            )
+            composeAudioScreen.setContent {
+                MaterialTheme {
+                    KwsPanelScreen(
+                        modifier = Modifier.fillMaxSize(),
+                        controller = kwsController,
+                        currentPlayerTimeMsProvider = { currentVideoTimestampMs() }
+                    )
+                }
+            }
+            isAudioScreenBound = true
+        } else if (!active && isAudioScreenBound) {
+            composeAudioScreen.setContent { }
+            isAudioScreenBound = false
+        }
+        composeAudioScreen.visibility = if (active) View.VISIBLE else View.GONE
+    }
+
     private fun updateHandOverlayMode() {
-        overlayView.setHandOnlyState(isHandOverlayPressed)
-        overlayView.setPoseState(AppSettings.isPoseModeEnabled && !isHandOverlayPressed)
-        btnHandOverlay?.text = if (isHandOverlayPressed) "当前看手" else "当前看人"
-        if (!isHandOverlayPressed) {
+        val handMode = isHandObserveMode()
+        val audioMode = isAudioObserveMode()
+        overlayView.setHandOnlyState(handMode)
+        overlayView.setAudioOnlyMode(audioMode)
+        overlayView.setPoseState(AppSettings.isPoseModeEnabled && !handMode && !audioMode)
+        btnHandOverlay?.text = when (currentObserveMode) {
+            ObserveMode.PERSON -> "当前看人"
+            ObserveMode.HAND -> "当前看手"
+            ObserveMode.AUDIO -> "当前听声音"
+        }
+        syncAudioScreenMode(audioMode)
+        if (!handMode) {
             isAwaitingDeviceHitSelection = false
             pendingDeviceHitTimestampMs = null
             pendingDeviceHitFrameIndex = null
@@ -2047,7 +2108,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshEventMarkerUi() {
-        if (isHandOverlayPressed) {
+        if (isHandObserveMode()) {
             refreshDeviceHitMarkerOverlay()
         } else {
             refreshEventMarkerOverlay()
@@ -2149,7 +2210,7 @@ class MainActivity : ComponentActivity() {
     private fun refreshDeviceHitMarkerControls() {
         val shouldShow = isVideoMode &&
             isDebugPanelEnabled &&
-            isHandOverlayPressed &&
+            isHandObserveMode() &&
             !isAwaitingDeviceHitSelection
         llEventMarkerControls.visibility = if (shouldShow) View.VISIBLE else View.GONE
 
@@ -2299,7 +2360,7 @@ class MainActivity : ComponentActivity() {
         val selecting = isAwaitingDeviceHitSelection
         Log.i(
             "DeviceHitSelect",
-            "syncUi selecting=$selecting handMode=$isHandOverlayPressed debug=$isDebugPanelEnabled " +
+            "syncUi selecting=$selecting handMode=${isHandObserveMode()} audioMode=${isAudioObserveMode()} debug=$isDebugPanelEnabled " +
                 "normalControls=${llNormalControls.visibility} eventControls=${llEventMarkerControls.visibility} " +
                 "editor=${editorView.visibility} radar=${flRadarContainer.visibility} overlay=${overlayView.visibility}"
         )
@@ -2384,7 +2445,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun isHandDebugMarkerMode(): Boolean {
-        return isHandOverlayPressed && isDebugPanelEnabled
+        return isHandObserveMode() && isDebugPanelEnabled
     }
 
     private fun armDeviceHitSelection() {
@@ -2455,7 +2516,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshDebugPanelMode() {
-        if (!isDebugPanelEnabled || !isHandOverlayPressed) {
+        if (!isDebugPanelEnabled || !isHandObserveMode()) {
             overlayView.setDebugPanelOverride(null, null)
             return
         }

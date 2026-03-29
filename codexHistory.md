@@ -1,5 +1,95 @@
 # Codex History
 
+## [302] 2026-03-30 03:07:35 - 收口听声音界面日志样式与播放器时间
+
+**用户指令**：
+> 这个界面里面。的标题的黑色几乎看不到。不知道是不是因为透明度的原因。
+> 然后右边的那些。调试日志我们做一些修改，首先把时间修改为。播放器的时间,其次，里面的参数全部折叠起来。再其次。把。时间弄短一点儿，不需要。精确到。那么多，只要时间。分钟和秒钟就可以了。命中两个字也。去掉。这样的话，基本上就总。长度控制在一排了。点击可以展开它里面具体的括号的信息展示。每一次点击一条的时候，其他的被展开的会收起来。然后右半部分更宽一些左半部分把它收窄一些。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：提升 `KwsPanelScreen` 的文字可读性，并把右侧日志改成播放器时间驱动的可折叠一行摘要；同时进一步调整左右栏宽度。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：KwsPanelScreen、SliderLine、appendLog、formatPlayerTime、MainActivity.syncAudioScreenMode、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将滑条标签等原本易发黑的文本统一改成浅色，提高深色背景下的可读性。
+      *   右侧日志从 `List<String>` 改为结构化 `OutputLogEntry`，每条包含播放器时间、摘要文本、详细信息。
+      *   日志时间不再使用系统时间，而是通过 `MainActivity.syncAudioScreenMode()` 传入当前播放器时间；显示格式缩短为 `mm:ss`。
+      *   去掉日志前缀“命中”，默认一行显示为“时间 + 指令 + 延迟”，详细括号信息折叠到展开态。
+      *   支持点击单条日志展开详细信息；同一时刻只允许展开一条，新展开时旧条目自动收起。
+      *   调整两栏宽度：右栏加宽，左栏收窄，更符合“左边设置、右边动态输出”的使用方式。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [301] 2026-03-30 02:51:33 - 重构听声音界面为左右双栏
+
+**用户指令**：
+> 看起来运行没有什么太大问题，我们把。新的调试界面，切成两部分。也就是从中间分开。左边是所有的设置菜单之类的，最右边是。输出，调试结果日志的那个菜单。就是里面有命中总延迟之类的那些东西。
+> 不用考虑窄屏,开始吧
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：把 `KwsPanelScreen` 从原来的单列滚动布局改成左右双栏，左侧专门承载设置与控制，右侧专门承载状态输出与命中日志。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：KwsPanelScreen、SliderLine、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `KwsPanelScreen` 根布局从单个 `Column` 改为左右分栏 `Row`。
+      *   左栏新增标题“KWS 设置与控制”，继续保留原有滑条参数、监听开关、电平表、应用/清空/堵塞/录音/播放按钮，以及最近录音信息。
+      *   中间加入竖向分隔线，强化左右两部分的视觉分区。
+      *   右栏新增标题“输出与调试日志”，单独展示监听状态、最近状态、统计状态和命中日志列表；日志区域独立滚动。
+      *   保持现有 KWS 控制逻辑和录音按钮行为不变，只重构界面结构。
+      *   验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [300] 2026-03-30 02:41:00 - 接入听声音模式与 KWS 调试界面
+
+**用户指令**：
+> 我运行了没发现问题,继续吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：继续完成小项目第二阶段接入，把 KWS 调试界面嵌入当前主工程的“看人/看手/听声音”三态切换中，并确保 AUDIO 模式下不显示视频画面但保留顶部进度条。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、app/src/main/res/layout/activity_main.xml、app/src/main/AndroidManifest.xml、app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.cycleObserveMode、MainActivity.applyObserveMode、MainActivity.syncAudioScreenMode、MainActivity.updateHandOverlayMode、DetectionOverlayView.setAudioOnlyMode、DetectionOverlayView.onDraw、KwsPanelScreen、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `activity_main.xml` 中新增 `ComposeView(composeAudioScreen)`，作为“听声音”模式的界面承载层，位置位于视频层之上、overlay 之下。
+      *   在 `MainActivity` 中新增 `ObserveMode(PERSON/HAND/AUDIO)` 三态切换，并把原来的“当前看人/当前看手”按钮扩展为“当前看人/当前看手/当前听声音”循环切换。
+      *   新增 `syncAudioScreenMode()`，在 AUDIO 模式下通过 `ComposeView` 加载 `KwsPanelScreen(controller = KwsControllerImpl(...))`，退出 AUDIO 时释放该 Compose 内容。
+      *   在 `DetectionOverlayView` 中新增 `audioOnlyMode`，AUDIO 模式下只保留顶部事件进度条与 banner，跳过视频帧、ROI、人物/手部等其它覆盖内容。
+      *   新增 `ui/audio/KwsPanelScreen.kt`，迁入小项目的主要调试界面与参数持久化、电平表、录音/播放、日志等功能；当前仍保留原有录音按钮逻辑，后续再改成“切换麦克风”。
+      *   将 `KwsPanelScreen` 根容器改为不透明深色背景，确保“听声音”模式下不会透出视频画面。
+      *   在 `AndroidManifest.xml` 中补充 `RECORD_AUDIO` 权限，供当前阶段的麦克风输入方案使用。
+      *   验证通过：`:app:compileDebugKotlin`、`:app:assembleDebug` 均成功。
+
+---
+
+## [299] 2026-03-30 02:22:38 - 并入 KWS 核心模块与模型资源
+
+**用户指令**：
+> 好的.KWS项目里面有个叫录音的按钮,移植时把那个录音换成"切换麦克风",激活后把音源从分离出的音源切换为麦克风.(这一步可以后面做,先保留原有代码尽量减少问题)
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：先完成小项目第一阶段第 1 步，把 `RoomXXXvocie` 的 `kws-sdk`、Sherpa AAR、模型与关键词资源整体并入当前工程，为后续“听声音”界面接入做准备；暂不改录音按钮逻辑。
+    *   修改文件：settings.gradle.kts、app/build.gradle.kts、kws-sdk/*（新增模块源码、assets、libs、Gradle 文件）、kws-sdk/build.gradle.kts、codexHistory.md、dialogueHistory.md
+    *   涉及方法：Gradle include(:kws-sdk)、app dependencies、KwsControllerImpl.start、AudioRecordSource.start、AssetFileCopier.copyAssetDirToFiles、AssetFileCopier.copyAssetFileToFiles、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `RoomXXXvocie/kws-sdk` 整体复制到当前工程，连同 `libs/sherpa-onnx-1.12.20.aar`、`src/main/assets/kws_model`、`src/main/assets/kws_keywords` 一并引入。
+      *   在当前工程 `settings.gradle.kts` 中注册 `:kws-sdk` 模块，并在 `app/build.gradle.kts` 中加入 `implementation(project(":kws-sdk"))` 与 Sherpa AAR 运行时依赖。
+      *   将并入的 `kws-sdk/build.gradle.kts` 调整为适配当前 AGP 9/Kotlin DSL：库模块 `minSdk` 对齐到 26，移除无效的 `targetSdk`，改用 `androidResources.noCompress` 和 `kotlin.compilerOptions.jvmTarget`。
+      *   验证通过：`:kws-sdk:compileDebugKotlin`、`:app:compileDebugKotlin` 均成功。
+
+---
+
 ## [298] 2026-03-30 02:09:02 - 将长按 +1 帧改为临时正常播放
 
 **用户指令**：
