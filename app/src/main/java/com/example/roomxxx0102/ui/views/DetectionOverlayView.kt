@@ -79,6 +79,7 @@ class DetectionOverlayView @JvmOverloads constructor(
     private var deviceSelectionModeActive = false
     private var deviceSelectionPrompt: String? = null
     private var deviceEditCleanMode = false
+    private var overlayDiagCounter = 0
 
     // 🔥 ROI 绘制相关
     private var roiBox: RectF? = null
@@ -613,8 +614,10 @@ class DetectionOverlayView @JvmOverloads constructor(
             srcRect.set(0, 0, bmp.width, bmp.height)
             dstRect.set(drawLeft, drawTop, drawLeft + drawWidth, drawTop + drawHeight)
             canvas.drawBitmap(bmp, srcRect, dstRect, bitmapPaint)
+            maybeLogOverlayBitmapDiag(bmp, w, h)
         } else {
             dstRect.set(0f, 0f, w, h)
+            maybeLogOverlayBitmapDiag(null, w, h)
         }
 
         if (deviceSelectionModeActive) {
@@ -1194,6 +1197,20 @@ class DetectionOverlayView @JvmOverloads constructor(
             canvas.drawLine(hotspotX - 12f, hotspotY, hotspotX + 12f, hotspotY, deviceHotspotStrokePaint)
             canvas.drawLine(hotspotX, hotspotY - 12f, hotspotX, hotspotY + 12f, deviceHotspotStrokePaint)
         }
+    }
+
+    private fun maybeLogOverlayBitmapDiag(bitmap: Bitmap?, viewWidth: Float, viewHeight: Float) {
+        overlayDiagCounter += 1
+        if (overlayDiagCounter % 10 != 0 && bitmap != null) {
+            return
+        }
+        Log.i(
+            "RoomOverlayDiag",
+            "view=${viewWidth}x${viewHeight} " +
+                "bitmapNull=${bitmap == null} " +
+                "bitmap=${bitmap?.width ?: -1}x${bitmap?.height ?: -1} " +
+                "dstRect=$dstRect"
+        )
     }
 
     private fun drawDeviceSelectionPrompt(canvas: Canvas) {

@@ -140,6 +140,11 @@ class YoloAnalyzer(
             val trackedResults = processAndTrack(lb.scale, lb.dx, lb.dy, bitmap.width, bitmap.height)
 
             val bgBitmap = if (drawOnOverlay) bitmap else null
+            Log.i(
+                TAG,
+                "detectOnBitmap results=${trackedResults.size} drawOnOverlay=$drawOnOverlay " +
+                    "bitmap=${bitmap.width}x${bitmap.height} bgBitmapNull=${bgBitmap == null}"
+            )
             overlayView.updateData(trackedResults, bgBitmap, System.currentTimeMillis() - t1)
 
         } catch (e: Exception) {

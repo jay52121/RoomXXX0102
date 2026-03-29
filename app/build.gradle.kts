@@ -58,6 +58,7 @@ dependencies {
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.fragment.ktx)
     implementation(libs.okhttp)
+    implementation(libs.androidx.media3.exoplayer)
 
     // CameraX
     implementation(libs.androidx.camera.core)

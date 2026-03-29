@@ -13,7 +13,6 @@ import android.graphics.Color
 import android.graphics.PointF
 import android.graphics.RectF
 import android.content.res.ColorStateList
-import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -84,6 +83,7 @@ import com.example.roomxxx0102.logic.video.VideoFeeder
 import com.example.roomxxx0102.ui.views.DetectionOverlayView
 import com.example.roomxxx0102.ui.views.LivingRoomEditorView
 import com.example.roomxxx0102.ui.views.TacticalMapView
+import com.example.roomxxx0102.utils.AppLog
 import com.example.roomxxx0102.utils.BitmapTransfer
 import com.example.roomxxx0102.utils.GeometryUtils
 import java.io.File
@@ -154,6 +154,7 @@ class MainActivity : ComponentActivity() {
     private var seekHoldActive = false
     private var seekHoldDirection = 0 // -1: 后退, +1: 前进
     private val seekHoldStartDelayMs = 500L
+    private var forwardHoldPreviewPlaying = false
     private var lastPresenceCountsForPause: Map<String, Int>? = null
     private var lastPresenceAnomalyDumpKey: String? = null
     private val beijingTimeFormatter: SimpleDateFormat by lazy {
@@ -234,6 +235,11 @@ class MainActivity : ComponentActivity() {
 
         yoloAnalyzer = YoloAnalyzer(this, overlayView)
         poseAnalyzer = YoloPoseAnalyzer(this) { results, bitmap, time ->
+            Log.i(
+                "RoomPoseUiDiag",
+                "poseCallback results=${results.size} bitmapNull=${bitmap == null} " +
+                    "bitmap=${bitmap?.width ?: -1}x${bitmap?.height ?: -1} timeMs=$time"
+            )
             // 过滤有效目标
             val logicResults = results.filter { result ->
                 val kpts = result.keypoints
@@ -267,7 +273,7 @@ class MainActivity : ComponentActivity() {
             }
 
             // Presence 估计：独立工具类统一处理“位置判定/房间切换事件/持久化人数”
-            val presenceNowMs = videoFeeder?.getCurrentPositionMs()?.toLong() ?: -1L
+            val presenceNowMs = videoFeeder?.peekLastAnalysisPositionMs()?.toLong() ?: -1L
             val observedTargets = results.map { pose ->
                 val box = pose.box
                 PresenceTrackObservation(
@@ -320,7 +326,7 @@ class MainActivity : ComponentActivity() {
                     roomNameById
                 ),
                 countsText = buildPresenceCountsText(presenceResult.presenceCounts, roomNameById),
-                posMs = videoFeeder?.getCurrentPositionMs()
+                posMs = videoFeeder?.peekLastAnalysisPositionMs()
             )
             allRooms.forEach { room ->
                 room.persistentPersonCount = presenceResult.presenceCounts[room.id] ?: 0
@@ -398,6 +404,11 @@ class MainActivity : ComponentActivity() {
             }
 
             runOnUiThread {
+                Log.i(
+                    "RoomPoseUiDiag",
+                    "poseUiUpdate logicResults=${logicResults.size} bitmapNull=${bitmap == null} " +
+                        "bitmap=${bitmap?.width ?: -1}x${bitmap?.height ?: -1}"
+                )
                 val nowMs = currentVideoTimestampMs()
                 val frameIndex = currentEstimatedFrameIndex(nowMs)
                 val validationRuntimeEvents = appendRuntimeEventsForValidation(
@@ -2198,7 +2209,7 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "无事件", Toast.LENGTH_SHORT).show()
             return
         }
-        videoFeeder?.seekToMs(next.timestampMs.toInt(), MediaPlayer.SEEK_CLOSEST)
+        videoFeeder?.seekToMs(next.timestampMs.toInt())
         scheduleEventMarkerUiRefresh()
     }
 
@@ -2209,7 +2220,7 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "无事件", Toast.LENGTH_SHORT).show()
             return
         }
-        videoFeeder?.seekToMs(next.timestampMs.toInt(), MediaPlayer.SEEK_CLOSEST)
+        videoFeeder?.seekToMs(next.timestampMs.toInt())
         scheduleEventMarkerUiRefresh()
     }
 
@@ -3074,48 +3085,123 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun createSeekHoldTouchListener(direction: Int): View.OnTouchListener {
-        return View.OnTouchListener { _, event ->
+        return View.OnTouchListener { view, event ->
+            AppLog.i(
+                "RoomStepFullDiag",
+                "touch direction=$direction action=${event.actionMasked} playState=$currentPlayState " +
+                    "active=$seekHoldActive holdDirection=$seekHoldDirection preview=$forwardHoldPreviewPlaying"
+            )
+            val shouldInterceptForwardStill = direction > 0 && currentPlayState == PlayState.STILL
+            if (!shouldInterceptForwardStill) {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        if (currentPlayState == PlayState.STILL) {
+                            startSeekHold(direction)
+                        }
+                    }
+                    MotionEvent.ACTION_UP,
+                    MotionEvent.ACTION_CANCEL -> {
+                        stopSeekHold()
+                    }
+                }
+                return@OnTouchListener false
+            }
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    if (currentPlayState == PlayState.STILL) {
-                        startSeekHold(direction)
-                    }
+                    startSeekHold(direction)
                 }
                 MotionEvent.ACTION_UP,
                 MotionEvent.ACTION_CANCEL -> {
+                    val previewWasPlaying = forwardHoldPreviewPlaying
                     stopSeekHold()
+                    if (event.actionMasked == MotionEvent.ACTION_UP && !previewWasPlaying) {
+                        view.performClick()
+                        onSeekForwardRequested()
+                    }
                 }
             }
-            false
+            true
         }
     }
 
     private fun startSeekHold(direction: Int) {
         stopSeekHold()
-        if (currentPlayState != PlayState.STILL) return
+        if (currentPlayState != PlayState.STILL) {
+            AppLog.i("RoomStepFullDiag", "startIgnored direction=$direction playState=$currentPlayState")
+            return
+        }
         seekHoldActive = true
         seekHoldDirection = direction
+        AppLog.i(
+            "RoomStepFullDiag",
+            "start direction=$direction delayMs=$seekHoldStartDelayMs frameStepMs=${videoFeeder?.getFrameStepMs() ?: 33}"
+        )
         seekHoldHandler.postDelayed(seekHoldRunnable, seekHoldStartDelayMs)
     }
 
     private fun stopSeekHold() {
+        AppLog.i(
+            "RoomStepFullDiag",
+            "stop active=$seekHoldActive direction=$seekHoldDirection playState=$currentPlayState preview=$forwardHoldPreviewPlaying"
+        )
         seekHoldActive = false
         seekHoldDirection = 0
         seekHoldHandler.removeCallbacks(seekHoldRunnable)
+        stopForwardHoldPreviewIfNeeded()
     }
 
     private val seekHoldRunnable = object : Runnable {
         override fun run() {
-            if (!seekHoldActive || currentPlayState != PlayState.STILL) return
+            AppLog.i(
+                "RoomStepFullDiag",
+                "tick active=$seekHoldActive direction=$seekHoldDirection playState=$currentPlayState preview=$forwardHoldPreviewPlaying"
+            )
+            if (!seekHoldActive || currentPlayState != PlayState.STILL) {
+                AppLog.i(
+                    "RoomStepFullDiag",
+                    "tickAbort active=$seekHoldActive direction=$seekHoldDirection playState=$currentPlayState preview=$forwardHoldPreviewPlaying"
+                )
+                return
+            }
             if (seekHoldDirection > 0) {
-                onSeekForwardRequested()
+                startForwardHoldPreviewIfNeeded()
+                return
             } else if (seekHoldDirection < 0) {
                 onSeekBackwardRequested()
             }
             val stepMs = videoFeeder?.getFrameStepMs() ?: 33
             val interval = (stepMs * 2).coerceAtLeast(16)
+            AppLog.i("RoomStepFullDiag", "tickReschedule intervalMs=$interval")
             seekHoldHandler.postDelayed(this, interval.toLong())
         }
+    }
+
+    private fun startForwardHoldPreviewIfNeeded() {
+        if (forwardHoldPreviewPlaying) {
+            AppLog.i("RoomStepFullDiag", "previewAlreadyPlaying playState=$currentPlayState")
+            return
+        }
+        AppLog.i(
+            "RoomStepFullDiag",
+            "previewStart playState=$currentPlayState beforePos=${videoFeeder?.getCurrentPositionMs() ?: -1}"
+        )
+        forwardHoldPreviewPlaying = true
+        videoFeeder?.clearStepSeekTransientState()
+        videoFeeder?.setStillMode(false)
+        videoFeeder?.resume()
+    }
+
+    private fun stopForwardHoldPreviewIfNeeded() {
+        if (!forwardHoldPreviewPlaying) return
+        AppLog.i(
+            "RoomStepFullDiag",
+            "previewStop playState=$currentPlayState beforePos=${videoFeeder?.getCurrentPositionMs() ?: -1}"
+        )
+        forwardHoldPreviewPlaying = false
+        videoFeeder?.pause()
+        videoFeeder?.setStillMode(true)
+        refreshEventMarkerUi()
+        scheduleEventMarkerUiRefresh()
     }
 
     private fun refreshSeekButtons() {
