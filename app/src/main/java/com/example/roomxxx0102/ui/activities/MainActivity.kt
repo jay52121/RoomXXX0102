@@ -13,7 +13,6 @@ import android.graphics.Color
 import android.graphics.PointF
 import android.graphics.RectF
 import android.content.res.ColorStateList
-import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -36,6 +35,12 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -55,6 +60,7 @@ import com.example.roomxxx0102.logic.analyzer.RoiTracker
 import com.example.roomxxx0102.logic.analyzer.HandSmokeTester
 import com.example.roomxxx0102.logic.analyzer.YoloAnalyzer
 import com.example.roomxxx0102.logic.analyzer.YoloPoseAnalyzer
+import com.example.roomxxx0102.logic.audio.PlaybackVideoAudioSource
 import com.example.roomxxx0102.logic.pointing.DevicePointingTarget
 import com.example.roomxxx0102.logic.pointing.DeviceTriggeredPointingResolver
 import com.example.roomxxx0102.logic.pointing.HandObservation
@@ -81,11 +87,17 @@ import com.example.roomxxx0102.logic.validation.EventType
 import com.example.roomxxx0102.logic.validation.MarkedEvent
 import com.example.roomxxx0102.logic.validation.RuntimeRoomEvent
 import com.example.roomxxx0102.logic.video.VideoFeeder
+import com.example.roomxxx0102.ui.audio.KwsPanelScreen
 import com.example.roomxxx0102.ui.views.DetectionOverlayView
 import com.example.roomxxx0102.ui.views.LivingRoomEditorView
 import com.example.roomxxx0102.ui.views.TacticalMapView
+import com.example.roomxxx0102.utils.AppLog
 import com.example.roomxxx0102.utils.BitmapTransfer
 import com.example.roomxxx0102.utils.GeometryUtils
+import com.example.roomxxx_vocie.KwsControllerImpl
+import com.example.roomxxx_vocie.audio.AudioInputMode
+import com.example.roomxxx_vocie.audio.AudioRecordSource
+import com.example.roomxxx_vocie.audio.SwitchableAudioSource
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.ArrayDeque
@@ -101,6 +113,7 @@ class MainActivity : ComponentActivity() {
 
     private val previewView: PreviewView by lazy { findViewById(R.id.previewView) }
     private val textureView: android.view.TextureView by lazy { findViewById(R.id.textureView) }
+    private val composeAudioScreen: ComposeView by lazy { findViewById(R.id.composeAudioScreen) }
     private val overlayView: DetectionOverlayView by lazy { findViewById(R.id.overlayView) }
     private val editorView: LivingRoomEditorView by lazy { findViewById(R.id.editorView) }
     private val llNormalControls: View by lazy { findViewById(R.id.llNormalControls) }
@@ -128,12 +141,28 @@ class MainActivity : ComponentActivity() {
     private var poseAnalyzer: YoloPoseAnalyzer? = null
     private var handSmokeTester: HandSmokeTester? = null
     private var videoFeeder: VideoFeeder? = null
-    private var isHandOverlayPressed = false
+    private enum class ObserveMode { PERSON, HAND, AUDIO }
+    private var currentObserveMode = ObserveMode.PERSON
     @Volatile private var latestHandResults: List<List<HandSmokeTester.HandPoint>> = emptyList()
     @Volatile private var latestSelectedHandIndex: Int? = null
     private val pointingResolver = DeviceTriggeredPointingResolver()
     private val pointingGuideMinQuality = 0.45f
     private var pointingTargetLabelById: Map<String, String> = emptyMap()
+    private val kwsAudioSource by lazy {
+        SwitchableAudioSource(
+            microphoneSource = AudioRecordSource(applicationContext),
+            playbackSource = PlaybackVideoAudioSource(
+                context = applicationContext,
+                sourceProvider = { resolvePlaybackAudioSourceSpec() },
+                playbackPositionProvider = { videoFeeder?.peekLastAnalysisPositionMs()?.toLong() },
+                playbackActiveProvider = { isVideoMode }
+            ),
+            initialMode = AudioInputMode.PLAYBACK
+        )
+    }
+    private val kwsController by lazy { KwsControllerImpl(applicationContext, kwsAudioSource) }
+    private var isAudioScreenBound = false
+    private val kwsLogClearSignal = mutableIntStateOf(0)
 
     private var isVideoMode = true
     private var currentLivingRoomBoundary: List<PointF> = emptyList()
@@ -154,6 +183,7 @@ class MainActivity : ComponentActivity() {
     private var seekHoldActive = false
     private var seekHoldDirection = 0 // -1: 后退, +1: 前进
     private val seekHoldStartDelayMs = 500L
+    private var forwardHoldPreviewPlaying = false
     private var lastPresenceCountsForPause: Map<String, Int>? = null
     private var lastPresenceAnomalyDumpKey: String? = null
     private val beijingTimeFormatter: SimpleDateFormat by lazy {
@@ -234,6 +264,11 @@ class MainActivity : ComponentActivity() {
 
         yoloAnalyzer = YoloAnalyzer(this, overlayView)
         poseAnalyzer = YoloPoseAnalyzer(this) { results, bitmap, time ->
+            Log.i(
+                "RoomPoseUiDiag",
+                "poseCallback results=${results.size} bitmapNull=${bitmap == null} " +
+                    "bitmap=${bitmap?.width ?: -1}x${bitmap?.height ?: -1} timeMs=$time"
+            )
             // 过滤有效目标
             val logicResults = results.filter { result ->
                 val kpts = result.keypoints
@@ -267,7 +302,7 @@ class MainActivity : ComponentActivity() {
             }
 
             // Presence 估计：独立工具类统一处理“位置判定/房间切换事件/持久化人数”
-            val presenceNowMs = videoFeeder?.getCurrentPositionMs()?.toLong() ?: -1L
+            val presenceNowMs = videoFeeder?.peekLastAnalysisPositionMs()?.toLong() ?: -1L
             val observedTargets = results.map { pose ->
                 val box = pose.box
                 PresenceTrackObservation(
@@ -320,7 +355,7 @@ class MainActivity : ComponentActivity() {
                     roomNameById
                 ),
                 countsText = buildPresenceCountsText(presenceResult.presenceCounts, roomNameById),
-                posMs = videoFeeder?.getCurrentPositionMs()
+                posMs = videoFeeder?.peekLastAnalysisPositionMs()
             )
             allRooms.forEach { room ->
                 room.persistentPersonCount = presenceResult.presenceCounts[room.id] ?: 0
@@ -398,6 +433,11 @@ class MainActivity : ComponentActivity() {
             }
 
             runOnUiThread {
+                Log.i(
+                    "RoomPoseUiDiag",
+                    "poseUiUpdate logicResults=${logicResults.size} bitmapNull=${bitmap == null} " +
+                        "bitmap=${bitmap?.width ?: -1}x${bitmap?.height ?: -1}"
+                )
                 val nowMs = currentVideoTimestampMs()
                 val frameIndex = currentEstimatedFrameIndex(nowMs)
                 val validationRuntimeEvents = appendRuntimeEventsForValidation(
@@ -780,7 +820,7 @@ class MainActivity : ComponentActivity() {
         if (decision !is PointingDecision.Pending) {
             runOnUiThread {
                 handleTriggeredPointingDecision(decision)
-                if (isHandOverlayPressed) {
+                if (isHandObserveMode()) {
                     startTriggeredPointingSession()
                 }
             }
@@ -1146,18 +1186,7 @@ class MainActivity : ComponentActivity() {
             true
         }
         btnHandOverlay?.setOnClickListener {
-            isHandOverlayPressed = !isHandOverlayPressed
-            if (isHandOverlayPressed) {
-                handSmokeTester?.startConfidenceProbeSession()
-                startTriggeredPointingSession()
-                if (pointingResolver.isActive()) {
-                    overlayView.showUnlockBanner("手点采样+指向识别中")
-                }
-            } else {
-                pointingResolver.cancelSession()
-                overlayView.updatePointingLiveSnapshot(null)
-            }
-            updateHandOverlayMode()
+            cycleObserveMode()
         }
         overlayView.setOnUnlockBannerLongPressListener {
             onValidationBannerLongPressed()
@@ -1930,11 +1959,77 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun isHandObserveMode(): Boolean = currentObserveMode == ObserveMode.HAND
+
+    private fun isAudioObserveMode(): Boolean = currentObserveMode == ObserveMode.AUDIO
+
+    private fun cycleObserveMode() {
+        val nextMode = when (currentObserveMode) {
+            ObserveMode.PERSON -> ObserveMode.HAND
+            ObserveMode.HAND -> ObserveMode.AUDIO
+            ObserveMode.AUDIO -> ObserveMode.PERSON
+        }
+        applyObserveMode(nextMode)
+    }
+
+    private fun applyObserveMode(mode: ObserveMode) {
+        if (currentObserveMode == mode) return
+        val leavingHandMode = currentObserveMode == ObserveMode.HAND && mode != ObserveMode.HAND
+        currentObserveMode = mode
+        if (leavingHandMode) {
+            pointingResolver.cancelSession()
+            overlayView.updatePointingLiveSnapshot(null)
+        }
+        if (mode == ObserveMode.HAND) {
+            handSmokeTester?.startConfidenceProbeSession()
+            startTriggeredPointingSession()
+            if (pointingResolver.isActive()) {
+                overlayView.showUnlockBanner("手点采样+指向识别中")
+            }
+        }
+        updateHandOverlayMode()
+    }
+
+    private fun syncAudioScreenMode(active: Boolean) {
+        if (active && !isAudioScreenBound) {
+            composeAudioScreen.setViewCompositionStrategy(
+                ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+            )
+            composeAudioScreen.setContent {
+                MaterialTheme {
+                    KwsPanelScreen(
+                        modifier = Modifier.fillMaxSize(),
+                        controller = kwsController,
+                        currentPlayerTimeMsProvider = { currentVideoTimestampMs() },
+                        currentAudioInputModeProvider = { currentKwsAudioInputMode() },
+                        onSelectAudioInputMode = { mode -> setKwsAudioInputMode(mode) },
+                        currentPlaybackAudioSourceSpecProvider = { resolvePlaybackAudioSourceSpec() },
+                        playbackAudioActiveProvider = { isVideoMode },
+                        logClearSignal = kwsLogClearSignal.intValue
+                    )
+                }
+            }
+            isAudioScreenBound = true
+        } else if (!active && isAudioScreenBound) {
+            composeAudioScreen.setContent { }
+            isAudioScreenBound = false
+        }
+        composeAudioScreen.visibility = if (active) View.VISIBLE else View.GONE
+    }
+
     private fun updateHandOverlayMode() {
-        overlayView.setHandOnlyState(isHandOverlayPressed)
-        overlayView.setPoseState(AppSettings.isPoseModeEnabled && !isHandOverlayPressed)
-        btnHandOverlay?.text = if (isHandOverlayPressed) "当前看手" else "当前看人"
-        if (!isHandOverlayPressed) {
+        val handMode = isHandObserveMode()
+        val audioMode = isAudioObserveMode()
+        overlayView.setHandOnlyState(handMode)
+        overlayView.setAudioOnlyMode(audioMode)
+        overlayView.setPoseState(AppSettings.isPoseModeEnabled && !handMode && !audioMode)
+        btnHandOverlay?.text = when (currentObserveMode) {
+            ObserveMode.PERSON -> "当前看人"
+            ObserveMode.HAND -> "当前看手"
+            ObserveMode.AUDIO -> "当前听声音"
+        }
+        syncAudioScreenMode(audioMode)
+        if (!handMode) {
             isAwaitingDeviceHitSelection = false
             pendingDeviceHitTimestampMs = null
             pendingDeviceHitFrameIndex = null
@@ -2036,7 +2131,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshEventMarkerUi() {
-        if (isHandOverlayPressed) {
+        if (isHandObserveMode()) {
             refreshDeviceHitMarkerOverlay()
         } else {
             refreshEventMarkerOverlay()
@@ -2138,7 +2233,7 @@ class MainActivity : ComponentActivity() {
     private fun refreshDeviceHitMarkerControls() {
         val shouldShow = isVideoMode &&
             isDebugPanelEnabled &&
-            isHandOverlayPressed &&
+            isHandObserveMode() &&
             !isAwaitingDeviceHitSelection
         llEventMarkerControls.visibility = if (shouldShow) View.VISIBLE else View.GONE
 
@@ -2198,7 +2293,7 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "无事件", Toast.LENGTH_SHORT).show()
             return
         }
-        videoFeeder?.seekToMs(next.timestampMs.toInt(), MediaPlayer.SEEK_CLOSEST)
+        videoFeeder?.seekToMs(next.timestampMs.toInt())
         scheduleEventMarkerUiRefresh()
     }
 
@@ -2209,7 +2304,7 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "无事件", Toast.LENGTH_SHORT).show()
             return
         }
-        videoFeeder?.seekToMs(next.timestampMs.toInt(), MediaPlayer.SEEK_CLOSEST)
+        videoFeeder?.seekToMs(next.timestampMs.toInt())
         scheduleEventMarkerUiRefresh()
     }
 
@@ -2288,7 +2383,7 @@ class MainActivity : ComponentActivity() {
         val selecting = isAwaitingDeviceHitSelection
         Log.i(
             "DeviceHitSelect",
-            "syncUi selecting=$selecting handMode=$isHandOverlayPressed debug=$isDebugPanelEnabled " +
+            "syncUi selecting=$selecting handMode=${isHandObserveMode()} audioMode=${isAudioObserveMode()} debug=$isDebugPanelEnabled " +
                 "normalControls=${llNormalControls.visibility} eventControls=${llEventMarkerControls.visibility} " +
                 "editor=${editorView.visibility} radar=${flRadarContainer.visibility} overlay=${overlayView.visibility}"
         )
@@ -2373,7 +2468,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun isHandDebugMarkerMode(): Boolean {
-        return isHandOverlayPressed && isDebugPanelEnabled
+        return isHandObserveMode() && isDebugPanelEnabled
     }
 
     private fun armDeviceHitSelection() {
@@ -2444,7 +2539,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshDebugPanelMode() {
-        if (!isDebugPanelEnabled || !isHandOverlayPressed) {
+        if (!isDebugPanelEnabled || !isHandObserveMode()) {
             overlayView.setDebugPanelOverride(null, null)
             return
         }
@@ -3074,48 +3169,130 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun createSeekHoldTouchListener(direction: Int): View.OnTouchListener {
-        return View.OnTouchListener { _, event ->
+        return View.OnTouchListener { view, event ->
+            AppLog.i(
+                "RoomStepFullDiag",
+                "touch direction=$direction action=${event.actionMasked} playState=$currentPlayState " +
+                    "active=$seekHoldActive holdDirection=$seekHoldDirection preview=$forwardHoldPreviewPlaying"
+            )
+            val shouldInterceptForwardStill = direction > 0 && currentPlayState == PlayState.STILL
+            if (!shouldInterceptForwardStill) {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        if (currentPlayState == PlayState.STILL) {
+                            startSeekHold(direction)
+                        }
+                    }
+                    MotionEvent.ACTION_UP,
+                    MotionEvent.ACTION_CANCEL -> {
+                        stopSeekHold()
+                    }
+                }
+                return@OnTouchListener false
+            }
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    if (currentPlayState == PlayState.STILL) {
-                        startSeekHold(direction)
-                    }
+                    startSeekHold(direction)
                 }
                 MotionEvent.ACTION_UP,
                 MotionEvent.ACTION_CANCEL -> {
+                    val previewWasPlaying = forwardHoldPreviewPlaying
                     stopSeekHold()
+                    if (event.actionMasked == MotionEvent.ACTION_UP && !previewWasPlaying) {
+                        view.performClick()
+                        onSeekForwardRequested()
+                    }
                 }
             }
-            false
+            true
         }
+    }
+
+    private fun currentKwsAudioInputMode(): AudioInputMode = kwsAudioSource.getMode()
+
+    private fun setKwsAudioInputMode(mode: AudioInputMode): AudioInputMode {
+        kwsAudioSource.setMode(mode)
+        return kwsAudioSource.getMode()
     }
 
     private fun startSeekHold(direction: Int) {
         stopSeekHold()
-        if (currentPlayState != PlayState.STILL) return
+        if (currentPlayState != PlayState.STILL) {
+            AppLog.i("RoomStepFullDiag", "startIgnored direction=$direction playState=$currentPlayState")
+            return
+        }
         seekHoldActive = true
         seekHoldDirection = direction
+        AppLog.i(
+            "RoomStepFullDiag",
+            "start direction=$direction delayMs=$seekHoldStartDelayMs frameStepMs=${videoFeeder?.getFrameStepMs() ?: 33}"
+        )
         seekHoldHandler.postDelayed(seekHoldRunnable, seekHoldStartDelayMs)
     }
 
     private fun stopSeekHold() {
+        AppLog.i(
+            "RoomStepFullDiag",
+            "stop active=$seekHoldActive direction=$seekHoldDirection playState=$currentPlayState preview=$forwardHoldPreviewPlaying"
+        )
         seekHoldActive = false
         seekHoldDirection = 0
         seekHoldHandler.removeCallbacks(seekHoldRunnable)
+        stopForwardHoldPreviewIfNeeded()
     }
 
     private val seekHoldRunnable = object : Runnable {
         override fun run() {
-            if (!seekHoldActive || currentPlayState != PlayState.STILL) return
+            AppLog.i(
+                "RoomStepFullDiag",
+                "tick active=$seekHoldActive direction=$seekHoldDirection playState=$currentPlayState preview=$forwardHoldPreviewPlaying"
+            )
+            if (!seekHoldActive || currentPlayState != PlayState.STILL) {
+                AppLog.i(
+                    "RoomStepFullDiag",
+                    "tickAbort active=$seekHoldActive direction=$seekHoldDirection playState=$currentPlayState preview=$forwardHoldPreviewPlaying"
+                )
+                return
+            }
             if (seekHoldDirection > 0) {
-                onSeekForwardRequested()
+                startForwardHoldPreviewIfNeeded()
+                return
             } else if (seekHoldDirection < 0) {
                 onSeekBackwardRequested()
             }
             val stepMs = videoFeeder?.getFrameStepMs() ?: 33
             val interval = (stepMs * 2).coerceAtLeast(16)
+            AppLog.i("RoomStepFullDiag", "tickReschedule intervalMs=$interval")
             seekHoldHandler.postDelayed(this, interval.toLong())
         }
+    }
+
+    private fun startForwardHoldPreviewIfNeeded() {
+        if (forwardHoldPreviewPlaying) {
+            AppLog.i("RoomStepFullDiag", "previewAlreadyPlaying playState=$currentPlayState")
+            return
+        }
+        AppLog.i(
+            "RoomStepFullDiag",
+            "previewStart playState=$currentPlayState beforePos=${videoFeeder?.getCurrentPositionMs() ?: -1}"
+        )
+        forwardHoldPreviewPlaying = true
+        videoFeeder?.clearStepSeekTransientState()
+        videoFeeder?.setStillMode(false)
+        videoFeeder?.resume()
+    }
+
+    private fun stopForwardHoldPreviewIfNeeded() {
+        if (!forwardHoldPreviewPlaying) return
+        AppLog.i(
+            "RoomStepFullDiag",
+            "previewStop playState=$currentPlayState beforePos=${videoFeeder?.getCurrentPositionMs() ?: -1}"
+        )
+        forwardHoldPreviewPlaying = false
+        videoFeeder?.pause()
+        videoFeeder?.setStillMode(true)
+        refreshEventMarkerUi()
+        scheduleEventMarkerUiRefresh()
     }
 
     private fun refreshSeekButtons() {
@@ -3184,6 +3361,7 @@ class MainActivity : ComponentActivity() {
      * 目标是清除追踪/ROI/Presence/人数等运行期状态，避免历史状态污染。
      */
     private fun hardRestartPlayback() {
+        kwsLogClearSignal.intValue += 1
         yoloAnalyzer?.reset()
         poseAnalyzer?.resetTrackingState()
         roomPresenceAlgorithm.reset()
@@ -3280,6 +3458,23 @@ class MainActivity : ComponentActivity() {
         }
         val path = "/storage/emulated/0/Android/media/com.example.roomxxx0102/test_video.mp4"
         return if (File(path).exists()) "file:$path" else null
+    }
+
+    private fun resolvePlaybackAudioSourceSpec(): PlaybackVideoAudioSource.SourceSpec? {
+        val uriString = AppSettings.testVideoUri
+        if (!uriString.isNullOrBlank()) {
+            return try {
+                PlaybackVideoAudioSource.SourceSpec(uri = Uri.parse(uriString))
+            } catch (_: Throwable) {
+                null
+            }
+        }
+        val path = "/storage/emulated/0/Android/media/com.example.roomxxx0102/test_video.mp4"
+        return if (File(path).exists()) {
+            PlaybackVideoAudioSource.SourceSpec(filePath = path)
+        } else {
+            null
+        }
     }
 
     private fun startCameraMode() {

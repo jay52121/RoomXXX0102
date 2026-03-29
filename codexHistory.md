@@ -1,5 +1,566 @@
 # Codex History
 
+## [308] 2026-03-30 03:57:52 - 听声音界面默认开启电平表并上移左栏控件
+
+**用户指令**：
+> 继续吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：进入“听声音”界面时默认打开电平表，并将电平表与操作按钮整体上移到左栏顶部，减少来回视线切换。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：KwsPanelScreen、startMeterIfAllowed、左栏布局顺序、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `meterEnabled` 默认值改为开启状态，使进入“听声音”界面时电平表默认处于打开状态。
+      *   将左栏中的“电平表开关 + 电平条 + Peak/RMS/CLIP”以及“应用/清空/堵塞/音源”按钮整体上移到左栏顶部。
+      *   保留监听开关、参数滑条、状态文本原有逻辑，只调整默认开关与布局顺序，不改 KWS 主链。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [307] 2026-03-30 03:52:55 - 修复视频循环后听声音模块停摆
+
+**用户指令**：
+> 当一次正常播放完回到开头时候，整个。听声音的模块就像是。死掉了，一样。电平表不动了，右边的识别也没进行了。
+> ok，然后只要进入听声音界面,电平表就打开.另外把电平表和下方的操作按钮都放到左侧顶部去.直接开始
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复视频正常循环回到开头后，播放器音频源解码退出导致电平表与 KWS 识别一起停摆的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/audio/PlaybackVideoAudioSource.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：PlaybackVideoAudioSource.decodeLoop、PlaybackVideoAudioSource.resetDecoderToPlayback、PlaybackVideoAudioSource.seekExtractorToPlayback、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在播放器音频解码循环中新增“播放器时间回绕”检测；当视频从后段回到前段时，不再让音频源停在 EOF，而是自动清空累积器并将 `extractor + decoder` seek 回当前播放位置继续解码。
+      *   将原来 `outputDone=true` 后直接结束循环的处理，改成在循环视频场景下可恢复重启的处理，避免 `PlaybackVideoAudioSource` 自己退出并把状态落回 `IDLE`。
+      *   保持 KWS 控制器、电平表 UI、音源切换逻辑不变，只修复播放器音频源在视频循环时的生命周期问题。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [306] 2026-03-30 03:45:11 - 修复重播清空日志信号未触发 Compose 重组
+
+**用户指令**：
+> 重置后opne这个日志没有被清空
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复长按播放重播后“听声音”右侧日志仍未清空的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.syncAudioScreenMode、MainActivity.hardRestartPlayback、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `MainActivity` 中的 `kwsLogClearSignal` 从普通整数字段改为 Compose 可观察的 `mutableIntStateOf`。
+      *   `hardRestartPlayback()` 中改为更新可观察 state，确保 `KwsPanelScreen(logClearSignal=...)` 收到新值后真正触发 `LaunchedEffect(logClearSignal)`。
+      *   保持现有日志清空逻辑不变，只修复“信号变化没有触发 Compose 重组”的根因。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [305] 2026-03-30 03:40:38 - 重播时清空听声音日志并收紧行距
+
+**用户指令**：
+> 重新播放时(长按播放),清空右侧的日志
+> 右侧日志中间不需要隔开那么多,开始吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在长按播放重播时清空“听声音”右侧日志，并收紧右侧日志项之间的间距，减少视觉留白。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.syncAudioScreenMode、MainActivity.hardRestartPlayback、KwsPanelScreen、LaunchedEffect(logClearSignal)、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `MainActivity` 新增 `kwsLogClearSignal`，在 `hardRestartPlayback()` 中递增，用于向声音界面发出“清空日志”信号。
+      *   `KwsPanelScreen` 新增 `logClearSignal` 参数，并通过 `LaunchedEffect(logClearSignal)` 在收到信号时清空右侧日志并收起展开项。
+      *   将右侧日志区整体行距从较宽的 `8dp/6dp` 收紧到 `2dp/3dp`，让多条输出更紧凑。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [304] 2026-03-30 03:36:04 - 修复电平表跟随当前音源路径
+
+**用户指令**：
+> 好了,现在开始修复电平表
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“听声音”界面的电平表路径，使其在监听关闭时也能跟随当前选择的音源，不再固定偷偷走麦克风。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.syncAudioScreenMode、KwsPanelScreen、stopMeter、startMeterIfAllowed、权限回调、audioInputModeLabel、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `MainActivity.syncAudioScreenMode()` 新增向 `KwsPanelScreen` 透传当前播放器音频源信息和播放器音频是否可用的状态。
+      *   `KwsPanelScreen` 新增独立的 `PlaybackVideoAudioSource` 电平表输入，实现监听关闭时根据当前 `音源` 在“播放器/麦克风”之间选择正确的电平来源。
+      *   监听开启时，电平表仍继续复用 `controller.setAudioFrameListener` 的实时音频帧；监听关闭时才启用独立的电平音源。
+      *   切换 `音源` 后，如果当前只是开着电平表而没在监听，会自动停止旧电平链并按新音源重启。
+      *   麦克风权限分支已收紧：仅在切到麦克风且确实需要时才申请权限，授权后会恢复到对应的电平或监听路径。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [303] 2026-03-30 03:30:22 - 接入 KWS 双音源切换并替换录音按钮
+
+**用户指令**：
+> 先提交一次git,另外kws里面也有些识别配置文件别忘了.
+> 好的.KWS项目里面有个叫录音的按钮,移植时把那个录音换成"切换麦克风",激活后把音源从分离出的音源切换为麦克风.(这一步可以后面做,先保留原有代码尽量减少问题)
+> ok
+> 不需要录音按钮了,录音按钮切成刚才说的音源选择
+> 那电平表就先不动,然后我们先改造两条链路,
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在当前主工程内把 KWS 输入改成“播放器/麦克风”可切换双音源，并将听声音界面的“录音”按钮替换为“音源”选择按钮；电平表路径暂不调整。
+    *   修改文件：kws-sdk/src/main/java/com/example/roomxxx_vocie/audio/AudioInputMode.kt、kws-sdk/src/main/java/com/example/roomxxx_vocie/audio/SwitchableAudioSource.kt、app/src/main/java/com/example/roomxxx0102/logic/audio/PlaybackVideoAudioSource.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：SwitchableAudioSource.start/stop/setMode、PlaybackVideoAudioSource.start/decodeLoop/emitFrames、MainActivity.syncAudioScreenMode、MainActivity.currentKwsAudioInputMode、MainActivity.setKwsAudioInputMode、MainActivity.resolvePlaybackAudioSourceSpec、KwsPanelScreen、audioInputModeLabel、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `kws-sdk` 中新增 `AudioInputMode` 与 `SwitchableAudioSource`，为 KWS 提供统一的“播放器/麦克风”可切换音源代理。
+      *   在主工程新增 `PlaybackVideoAudioSource`，通过 `MediaExtractor + MediaCodec` 从当前视频源解出音频、转为 KWS 所需格式并按播放时间推进输出。
+      *   `MainActivity` 中不再直接用默认麦克风构造 `KwsControllerImpl`，而是注入 `SwitchableAudioSource`；同时新增当前视频源解析方法，供播放器音源链使用。
+      *   `KwsPanelScreen` 去掉录音按钮，替换为 `音源: 播放器/麦克风` 按钮；切到麦克风时仅在必要时申请权限，不再一进声音界面就默认请求麦克风权限。
+      *   保持电平表逻辑暂不调整，先只完成 KWS 主识别链的双音源切换。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [302] 2026-03-30 03:07:35 - 收口听声音界面日志样式与播放器时间
+
+**用户指令**：
+> 这个界面里面。的标题的黑色几乎看不到。不知道是不是因为透明度的原因。
+> 然后右边的那些。调试日志我们做一些修改，首先把时间修改为。播放器的时间,其次，里面的参数全部折叠起来。再其次。把。时间弄短一点儿，不需要。精确到。那么多，只要时间。分钟和秒钟就可以了。命中两个字也。去掉。这样的话，基本上就总。长度控制在一排了。点击可以展开它里面具体的括号的信息展示。每一次点击一条的时候，其他的被展开的会收起来。然后右半部分更宽一些左半部分把它收窄一些。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：提升 `KwsPanelScreen` 的文字可读性，并把右侧日志改成播放器时间驱动的可折叠一行摘要；同时进一步调整左右栏宽度。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：KwsPanelScreen、SliderLine、appendLog、formatPlayerTime、MainActivity.syncAudioScreenMode、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将滑条标签等原本易发黑的文本统一改成浅色，提高深色背景下的可读性。
+      *   右侧日志从 `List<String>` 改为结构化 `OutputLogEntry`，每条包含播放器时间、摘要文本、详细信息。
+      *   日志时间不再使用系统时间，而是通过 `MainActivity.syncAudioScreenMode()` 传入当前播放器时间；显示格式缩短为 `mm:ss`。
+      *   去掉日志前缀“命中”，默认一行显示为“时间 + 指令 + 延迟”，详细括号信息折叠到展开态。
+      *   支持点击单条日志展开详细信息；同一时刻只允许展开一条，新展开时旧条目自动收起。
+      *   调整两栏宽度：右栏加宽，左栏收窄，更符合“左边设置、右边动态输出”的使用方式。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [301] 2026-03-30 02:51:33 - 重构听声音界面为左右双栏
+
+**用户指令**：
+> 看起来运行没有什么太大问题，我们把。新的调试界面，切成两部分。也就是从中间分开。左边是所有的设置菜单之类的，最右边是。输出，调试结果日志的那个菜单。就是里面有命中总延迟之类的那些东西。
+> 不用考虑窄屏,开始吧
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：把 `KwsPanelScreen` 从原来的单列滚动布局改成左右双栏，左侧专门承载设置与控制，右侧专门承载状态输出与命中日志。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：KwsPanelScreen、SliderLine、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `KwsPanelScreen` 根布局从单个 `Column` 改为左右分栏 `Row`。
+      *   左栏新增标题“KWS 设置与控制”，继续保留原有滑条参数、监听开关、电平表、应用/清空/堵塞/录音/播放按钮，以及最近录音信息。
+      *   中间加入竖向分隔线，强化左右两部分的视觉分区。
+      *   右栏新增标题“输出与调试日志”，单独展示监听状态、最近状态、统计状态和命中日志列表；日志区域独立滚动。
+      *   保持现有 KWS 控制逻辑和录音按钮行为不变，只重构界面结构。
+      *   验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [300] 2026-03-30 02:41:00 - 接入听声音模式与 KWS 调试界面
+
+**用户指令**：
+> 我运行了没发现问题,继续吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：继续完成小项目第二阶段接入，把 KWS 调试界面嵌入当前主工程的“看人/看手/听声音”三态切换中，并确保 AUDIO 模式下不显示视频画面但保留顶部进度条。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、app/src/main/res/layout/activity_main.xml、app/src/main/AndroidManifest.xml、app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.cycleObserveMode、MainActivity.applyObserveMode、MainActivity.syncAudioScreenMode、MainActivity.updateHandOverlayMode、DetectionOverlayView.setAudioOnlyMode、DetectionOverlayView.onDraw、KwsPanelScreen、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `activity_main.xml` 中新增 `ComposeView(composeAudioScreen)`，作为“听声音”模式的界面承载层，位置位于视频层之上、overlay 之下。
+      *   在 `MainActivity` 中新增 `ObserveMode(PERSON/HAND/AUDIO)` 三态切换，并把原来的“当前看人/当前看手”按钮扩展为“当前看人/当前看手/当前听声音”循环切换。
+      *   新增 `syncAudioScreenMode()`，在 AUDIO 模式下通过 `ComposeView` 加载 `KwsPanelScreen(controller = KwsControllerImpl(...))`，退出 AUDIO 时释放该 Compose 内容。
+      *   在 `DetectionOverlayView` 中新增 `audioOnlyMode`，AUDIO 模式下只保留顶部事件进度条与 banner，跳过视频帧、ROI、人物/手部等其它覆盖内容。
+      *   新增 `ui/audio/KwsPanelScreen.kt`，迁入小项目的主要调试界面与参数持久化、电平表、录音/播放、日志等功能；当前仍保留原有录音按钮逻辑，后续再改成“切换麦克风”。
+      *   将 `KwsPanelScreen` 根容器改为不透明深色背景，确保“听声音”模式下不会透出视频画面。
+      *   在 `AndroidManifest.xml` 中补充 `RECORD_AUDIO` 权限，供当前阶段的麦克风输入方案使用。
+      *   验证通过：`:app:compileDebugKotlin`、`:app:assembleDebug` 均成功。
+
+---
+
+## [299] 2026-03-30 02:22:38 - 并入 KWS 核心模块与模型资源
+
+**用户指令**：
+> 好的.KWS项目里面有个叫录音的按钮,移植时把那个录音换成"切换麦克风",激活后把音源从分离出的音源切换为麦克风.(这一步可以后面做,先保留原有代码尽量减少问题)
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：先完成小项目第一阶段第 1 步，把 `RoomXXXvocie` 的 `kws-sdk`、Sherpa AAR、模型与关键词资源整体并入当前工程，为后续“听声音”界面接入做准备；暂不改录音按钮逻辑。
+    *   修改文件：settings.gradle.kts、app/build.gradle.kts、kws-sdk/*（新增模块源码、assets、libs、Gradle 文件）、kws-sdk/build.gradle.kts、codexHistory.md、dialogueHistory.md
+    *   涉及方法：Gradle include(:kws-sdk)、app dependencies、KwsControllerImpl.start、AudioRecordSource.start、AssetFileCopier.copyAssetDirToFiles、AssetFileCopier.copyAssetFileToFiles、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `RoomXXXvocie/kws-sdk` 整体复制到当前工程，连同 `libs/sherpa-onnx-1.12.20.aar`、`src/main/assets/kws_model`、`src/main/assets/kws_keywords` 一并引入。
+      *   在当前工程 `settings.gradle.kts` 中注册 `:kws-sdk` 模块，并在 `app/build.gradle.kts` 中加入 `implementation(project(":kws-sdk"))` 与 Sherpa AAR 运行时依赖。
+      *   将并入的 `kws-sdk/build.gradle.kts` 调整为适配当前 AGP 9/Kotlin DSL：库模块 `minSdk` 对齐到 26，移除无效的 `targetSdk`，改用 `androidResources.noCompress` 和 `kotlin.compilerOptions.jvmTarget`。
+      *   验证通过：`:kws-sdk:compileDebugKotlin`、`:app:compileDebugKotlin` 均成功。
+
+---
+
+## [298] 2026-03-30 02:09:02 - 将长按 +1 帧改为临时正常播放
+
+**用户指令**：
+> 把长按+1帧换成正常播放(松手仍然暂停)
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将 STILL 模式下 `+1帧` 的长按行为从连续步进改为临时正常播放，并在松手后立即回到 `STILL`，同时保留单击 `+1帧` 仍是原有的单步 35ms 行为。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.createSeekHoldTouchListener、MainActivity.startSeekHold、MainActivity.stopSeekHold、MainActivity.seekHoldRunnable.run、MainActivity.startForwardHoldPreviewIfNeeded、MainActivity.stopForwardHoldPreviewIfNeeded、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   仅对 `direction=1` 且 `PlayState.STILL` 的触摸链改为自行接管：短按时手动执行一次 `+1帧`，长按超过 `500ms` 后不再连续步进，而是启动临时正常播放。
+      *   新增 `forwardHoldPreviewPlaying` 状态；长按触发后调用 `videoFeeder.clearStepSeekTransientState()`、`setStillMode(false)`、`resume()` 进入预览播放。
+      *   在 `ACTION_UP/ACTION_CANCEL` 统一调用 `stopSeekHold()`；若此时处于预览播放，则执行 `pause()` + `setStillMode(true)`，保证松手后回到 `STILL`。
+      *   `-1帧` 长按逻辑、普通 `±5s`、识别链和 overlay 未改。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [297] 2026-03-30 00:00:00 - 统一 STILL 步进排查日志到单一 tag
+
+**用户指令**：
+> 好吧。最好只让我搜一个东西然后我一次性把那个东西全部贴给你。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将 STILL 步进相关的调试日志统一收口到一个 tag，避免用户需要同时搜 `RoomStepDiag`、`RoomRenderDiag`、`RoomSeekHold` 多个来源。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/video/FrameStepController.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：FrameStepController.Companion TAG、VideoFeeder.analyzeRunnable.run、VideoFeeder 中 PlayerEventListener.onSeekComplete、VideoFeeder.seekForwardFrame、VideoFeeder.seekBackwardFrame、VideoFeeder.forcePausedFrameRefresh、MainActivity.createSeekHoldTouchListener、MainActivity.startSeekHold、MainActivity.stopSeekHold、MainActivity.seekHoldRunnable.run、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `FrameStepController` 的主 tag 从 `RoomStepDiag` 改为 `RoomStepFullDiag`。
+      *   将 `VideoFeeder` 中原 `RoomRenderDiag / RoomStepDiag` 相关日志统一改为 `RoomStepFullDiag`。
+      *   将 `MainActivity` 中原 `RoomSeekHold` 相关日志统一改为 `RoomStepFullDiag`。
+      *   同时把 `forcePausedFrameRefresh()` 的 begin/end 也纳入 `RoomStepFullDiag`，保证步进请求、seek、渲染观测、长按调度、刷新脉冲都能一次性搜全。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [296] 2026-03-30 00:00:00 - 增加 STILL 步进的渲染链诊断日志
+
+**用户指令**：
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：定位 STILL 连续步进时“时间轴持续前进，但画面偶发冻结几秒后再猛跳”的渲染链问题，区分到底是 seek 后 `textureView.bitmap` 内容没有变化，还是 bitmap 已变化但显示层没及时呈现。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：VideoFeeder 中 PlayerEventListener.onSeekComplete、VideoFeeder.analyzeRunnable.run、VideoFeeder.seekForwardFrame、VideoFeeder.seekBackwardFrame、VideoFeeder.stop、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   新增 `observedFrameSeq + lastObservedFrameDigest`，基于每次抓到的 `textureView.bitmap` 摘要变化近似记录“可见画面摘要序号”。
+      *   新增 `RoomRenderDiag` 日志，串联 `stepRequest -> seekComplete -> bitmapObserved` 三个节点，打印当前 `pos / frameSeq / digest / changed`。
+      *   保留原有 `RoomStepDiag`，并在 `observePending` 中追加 `frameSeq`，方便和 `RoomRenderDiag` 对照。
+      *   本轮只加诊断，不改步进行为、不改识别链、不改 overlay。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [295] 2026-03-30 00:00:00 - 增加长按步进调度链日志
+
+**用户指令**：
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：给长按 `+1/-1` 的调度链补最小日志，定位“卡住时日志也不再打印”究竟是触摸事件链中断、`stopSeekHold()` 被意外触发，还是 `seekHoldRunnable` 没再继续调度。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.createSeekHoldTouchListener、MainActivity.startSeekHold、MainActivity.stopSeekHold、MainActivity.seekHoldRunnable.run、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   新增 `RoomSeekHold` 日志，覆盖 `ACTION_DOWN/UP/CANCEL`、`start/stop`、`tick/tickAbort/tickReschedule` 等关键调度节点。
+      *   本轮只加观测，不改变长按步进实际行为。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [294] 2026-03-30 00:00:00 - 去掉 STILL 静止标准帧跳过的高频刷屏日志
+
+**用户指令**：
+> 基本正常了,不过偶尔还是卡住,很奇怪的是都没按了,还在不停刷一个东西.omxxx0102              I  stillSkip pendingStep=false temporalAdvanced=false pos=32424
+> ...
+> 先把stillSkip 尽量干掉,这个干啥的
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：去掉 STILL 模式下 `skipUnchangedStillFrame` 触发时每 100ms 刷一次的 `stillSkip ...` 调试日志，避免干扰排查与使用体验，同时保留静止标准帧跳过行为本身不变。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：VideoFeeder.analyzeRunnable.run、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   删除 `skipUnchangedStillFrame` 分支中的 `RoomStepDiag stillSkip ...` 高频日志输出。
+      *   仍保留 `observePending ...` 等与 pending step 直接相关的必要日志，方便继续观察偶发卡住问题。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [293] 2026-03-30 00:00:00 - 修复 STILL 步进被静止标准帧跳过逻辑卡死
+
+**用户指令**：
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复 STILL 模式下第二次开始步进后长期保持 `BUSY`、看起来“后面就没动静”的问题。根因是 pending step 存在时，分析循环仍可能被 `skipUnchangedStillFrame` 提前返回，导致 `onFrameObserved(...)` 永远不执行。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：VideoFeeder.analyzeRunnable.run、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `analyzeRunnable` 中引入 `hasPendingStep` 判断；只要当前仍有未完成的步进，就禁止走 `skipUnchangedStillFrame` 这条提前返回。
+      *   新增两条最小 `RoomStepDiag` 日志：`stillSkip ...` 和 `observePending ...`，用于确认 STILL 步进时是否真的走到了 `onFrameObserved(...)`。
+      *   本轮未修改步进时间、阈值、识别链、overlay 或其它播放器逻辑。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [292] 2026-03-30 00:00:00 - 将 STILL 步进退回为固定 35ms 直接步进
+
+**用户指令**：
+> 我忘了交代。我们的整个画面几乎是完全不动的只有人所在的地方会栋一点,这是固定摄像机.你可以试试直接按三十帧来，稍微多给一点点毫秒数。 然后其他不用管.
+> 如果直接以。 35毫秒。然后不要其他任何东西。试一试。
+> 我的意思是不是调阈值是？彻底不要那个东西了反正我们就正常往前走试试。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将 STILL 模式下的 `+1/-1` 退回成最朴素的固定 `35ms` 直接步进试验版本，先验证固定机位视频里“正常往前走”是否比可见差异判定更符合体感。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/video/FrameStepController.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：FrameStepController.PendingStep、FrameStepController.onSeekComplete、FrameStepController.onFrameObserved、FrameStepController.startStep、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   移除阈值比较、多候选尝试和可见差异判定，`+1/-1` 改为固定以 `35ms` 为步长直接 seek。
+      *   仍保留 pending step 与短 settle window，用于在 seek 完成并等待短暂稳定后确认实际落点并刷新 anchor。
+      *   保留 BUSY 防重入和 `RoomStepDiag` 日志，但日志语义改为固定步长单次步进，不再输出候选 diff/threshold。
+      *   本轮未修改识别链、overlay、普通播放/暂停/±5s 等其它逻辑。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [291] 2026-03-30 00:00:00 - 修复长按 +1/-1 时步进重入覆盖问题
+
+**用户指令**：
+> 五秒暂停的问题解决了，但是按住+1帧很久都没动静,必须的话可以加上log
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复 STILL 模式下长按 `+1/-1` 时，由于新的步进请求不断覆盖尚未完成的 pending step，导致体感上“按住很久都没动静”的问题，并补齐步进调试日志。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/video/FrameStepController.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：FrameStepController.startStep、FrameStepController.onFrameObserved、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `FrameStepController.startStep(...)` 中增加不可重入保护：如果当前已有未完成的 `pendingStep`，新的 `stepForward/stepBackward` 不再覆盖旧任务，而是返回 `BUSY` 结果。
+      *   新增 `RoomStepDiag` 关键日志：记录 `stepStart`、`stepRejectedBusy`、每次候选评估的 `candidateCheck(diff/threshold)`，便于判断长按时是忙碌重入还是差异阈值未通过。
+      *   本轮不调整识别链、不调整 overlay、不改普通 seek，只定位并修复步进控制器的重入问题。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [290] 2026-03-30 00:00:00 - 修复 ±5 秒误暂停并增强可见步进体感
+
+**用户指令**：
+> 1.点击+-5秒会自动暂停播放 2.+-1帧仍旧几乎没有变化,偶尔动一点点
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复播放态点击 `±5s` 后被误打成暂停的问题，并增强 STILL 模式下 `±1帧` 的可见变化体感，避免只出现轻微变化就被判定为步进成功。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/video/FrameStepController.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：FrameStepController.Companion 中差异阈值与候选步长配置、VideoFeeder 中 PlayerEventListener.onSeekComplete、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将可见步进的差异阈值从 `0.035` 提高到 `0.06`，并把候选倍数调整为 `1.0x / 2.0x / 3.0x / 4.5x * baseStepMs`，让 `±1帧` 更偏向“明显变化”而不是“轻微变化也算成功”。
+      *   移除播放态普通 seek 完成后的 `forcePausedFrameRefresh(play(); pause())` 触发条件，保留该刷新只服务 STILL 模式下存在 pending step 的可见步进流程，避免 `±5s` 把播放态误切成暂停。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [289] 2026-03-29 00:00:00 - 修复 STILL 下连续步进拿旧帧的问题
+
+**用户指令**：
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复 STILL 模式下第一下步进有效、后续连续步进又拿回旧帧，导致用户感觉“第一下有用，后面就再也没用了”的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/video/FrameStepController.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：FrameStepController.hasPendingStep、VideoFeeder 中 PlayerEventListener.onSeekComplete、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `FrameStepController` 新增 `hasPendingStep()`，用于暴露当前是否仍处于步进候选 seek 流程中。
+      *   `VideoFeeder.onSeekComplete()` 中增加 STILL 模式下的特殊处理：如果当前仍有待判定的步进候选，就主动执行一次 `forcePausedFrameRefresh(...)`，确保 seek 后目标画面真正刷新出来。
+      *   这次不调整候选步长、不调整阈值，只修 STILL 步进候选 seek 完成后的目标画面刷新时机。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [288] 2026-03-29 00:00:00 - 重构 STILL 下的可见步进/步退逻辑
+
+**用户指令**：
+> 现在只做“步进 / 步退”新方案，不要再碰识别链。
+> 目标是：每点一次，画面一定明显变化；宁愿跨得稍微多一点，也不要点了没反应。
+> 只改步进 / 步退逻辑，不要修改 pose / hand 分析逻辑、overlay 映射逻辑、KWS 相关代码、普通播放 / 暂停 / seek / 切视频逻辑。
+> 并要求：
+> 1. anchorTimeMs / anchorSignature 明确重置时机
+> 2. seek 完成后增加短稳定窗口
+> 3. 候选时间点边界保护和去重
+> 4. 成功后记录实际确认落点
+> 5. 画面摘要比较使用阈值
+> 6. stepForward/stepBackward 返回明确结果
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将 STILL 模式下的 `+1/-1` 从“固定时间步长 + 固定 +10ms 补偿”重构为“基于锚点画面和阈值摘要比较的可见步进/步退”，目标是每次点击都让画面明显变化。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/utils/AppLog.kt、app/src/main/java/com/example/roomxxx0102/logic/video/FrameSignatureUtils.kt、app/src/main/java/com/example/roomxxx0102/logic/video/FrameStepController.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：AppLog.d/i/w/e、FrameSignatureUtils.create/differenceScore、FrameStepController.resetAnchor/onSeekComplete/onFrameObserved/stepForward/stepBackward、VideoFeeder.analyzeRunnable.run/setStillMode/seekForward/seekBackward/seekForwardFrame/seekBackwardFrame/seekToMs/clearStepSeekTransientState/setupMediaPlayer/stop、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   新增 `FrameStepController`，内部维护 `anchorTimeMs + anchorSignature`，只负责 STILL 模式下的前进到下一张明显不同画面 / 后退到上一张明显不同画面。
+      *   新增 `FrameSignatureUtils`，使用轻量灰度采样摘要并按阈值比较，不再依赖“摘要完全相同/不同”。
+      *   `+1/-1` 改成按 `1.0x / 1.5x / 2.0x / 3.0x * baseStepMs` 的候选时间点尝试，带边界保护与去重；成功后记录实际确认落点，失败则回 anchor 并记录最后一次候选差异值。
+      *   seek 完成不再立即判定，而是通过 `onSeekComplete + 短稳定窗口 + 下一次帧采样` 再决定是否真的出现明显变化。
+      *   在切视频、普通 seek、±5s、停止、首次进入 STILL、首次进入视频模式等路径显式重置 anchor。
+      *   删除旧的固定 `+10ms` 补偿链和相关状态字段，保留普通播放 / 暂停 / seek / 切视频 / 识别链不变。
+      *   本轮新增日志统一通过 `AppLog` 封装，不再在新控制器里直接散落写 `Log.d()`。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [287] 2026-03-29 00:00:00 - 修复 pose 回调中的第二处 Exo wrong-thread 访问
+
+**用户指令**：
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修掉 pose 分析回调里残留的第二处后台线程播放器访问，避免 `RoiLogAggregator.updatePresenceDebug` 再次触发 ExoPlayer 的 `wrong thread` 异常。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.onCreate 中的 YoloPoseAnalyzer 回调、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `RoiLogAggregator.updatePresenceDebug(... posMs = videoFeeder?.getCurrentPositionMs())` 改为读取 `videoFeeder?.peekLastAnalysisPositionMs()`。
+      *   这样 pose 回调在后台线程里不再直接访问 ExoPlayer，本轮已把该回调中的两处 wrong-thread 读取都替换为缓存值。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [286] 2026-03-29 00:00:00 - 修复 pose 分析回调跨线程访问 ExoPlayer
+
+**用户指令**：
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复 Exo 替换后，pose 分析回调在后台线程里直接读取播放器当前位置，触发 “Player is accessed on the wrong thread” 并导致 overlay 背景帧、pose 和地图覆盖层一起失效的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：VideoFeeder.analyzeRunnable.run、VideoFeeder.peekLastAnalysisPositionMs、VideoFeeder.stop、MainActivity.onCreate 中的 YoloPoseAnalyzer 回调、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `VideoFeeder` 在主线程抓图分析循环里缓存最新的播放位置 `lastAnalysisPositionMs`。
+      *   新增线程安全只读入口 `peekLastAnalysisPositionMs()`，供后台线程读取缓存值，而不直接访问 ExoPlayer。
+      *   `MainActivity` 的 pose 回调里，Presence 时间戳来源从 `videoFeeder.getCurrentPositionMs()` 改为 `videoFeeder.peekLastAnalysisPositionMs()`。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [285] 2026-03-29 00:00:00 - 补充分析回灌链诊断日志
+
+**用户指令**：
+> 现在地图绘制到了画面都没有覆盖到的地方.继续吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在已确认 Exo 渲染和 `TextureView.bitmap` 抓图正常后，继续沿“分析任务 -> analyzer -> overlay UI 回灌”这条链补充最小日志，定位为什么 `DetectionOverlayView.currentFrame` 一直为空。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/YoloAnalyzer.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：VideoFeeder.submitInferenceTask、YoloAnalyzer.detectOnBitmap、MainActivity.onCreate 中的 YoloPoseAnalyzer 回调、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `VideoFeeder.submitInferenceTask` 新增 `RoomInferenceDiag` 日志，输出当前是否走 pose 模式、bitmap 尺寸、ROI、任务开始/结束/异常。
+      *   `YoloAnalyzer.detectOnBitmap` 新增结果日志，确认非 pose 模式下是否把背景 bitmap 回灌到 overlay。
+      *   `MainActivity` 的 pose 回调新增 `RoomPoseUiDiag` 日志，确认 pose 结果和 bitmap 是否真正传入 `overlayView.updatePoseData`。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [284] 2026-03-29 00:00:00 - 补充 Exo 抓图与 overlay 对齐诊断日志
+
+**用户指令**：
+> 先别只加通用日志，先优先确认这 3 件事：
+> 1. Exo 当前是否明确渲染到原来的同一个 TextureView
+> 2. 如果用了 PlayerView，确认 surface_type
+> 3. 检查 adjustAspectRatio()/TextureView transform 是否仍在生效，以及是否和 Exo/PlayerView 的缩放逻辑重复叠加
+> 然后再补最小日志：
+> - textureView.width/height
+> - textureView.bitmap 是否为 null
+> - bitmap.width/height
+> - 连续几帧 bitmap 的像素摘要是否变化
+> - overlay 的 dstRect 和 textureView 实际显示区域
+> 我优先想先知道“Exo 是否还真的在往原来的 TextureView 渲染”
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在不先改行为的前提下，补充 Exo 替换后的最小诊断日志，确认 `TextureView.bitmap` 是否稳定拿到有效帧，以及 overlay 的 `dstRect` 是否与视频显示区域一致。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：VideoFeeder.analyzeRunnable.run、VideoFeeder.maybeLogBitmapDiag、VideoFeeder.stop、DetectionOverlayView.onDraw、DetectionOverlayView.maybeLogOverlayBitmapDiag、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   先确认当前 Exo 仍然通过 `setVideoTextureView(textureView)` 渲染到原来的 `TextureView`，没有混入 `PlayerView` 或 `SurfaceView`。
+      *   在 `VideoFeeder` 中新增 `RoomBitmapDiag` 日志，输出 `textureView` 的 `x/y/width/height`、`bitmap` 是否为空、位图尺寸、连续帧摘要是否变化以及当前位置。
+      *   在 `DetectionOverlayView` 中新增 `RoomOverlayDiag` 日志，输出 overlay 视图尺寸、当前帧位图尺寸以及计算后的 `dstRect`。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [283] 2026-03-29 00:00:00 - 第一阶段切换到 ExoPlayer 播放器 facade
+
+**用户指令**：
+> 第一阶段只做播放器替换：MediaPlayer -> Media3/ExoPlayer
+> 先抽 VideoPlayerFacade，再提供 ExoVideoPlayer 实现
+> 不要接音频旁路
+> 不要改 TextureView.bitmap 抓图分析链
+> 不要重写业务状态机，只做 ExoPlayer 状态到现有 PLAYING/STILL/PAUSED 语义的映射
+> 保证 MainActivity 现有交互、进度条、marker、pause/seek 行为尽量不变
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：完成第一阶段播放器替换，在不接音频旁路、不改抓图分析链和业务状态机的前提下，把底层播放实现从 `MediaPlayer` 切到 `Media3/ExoPlayer`。
+    *   修改文件：gradle/libs.versions.toml、app/build.gradle.kts、app/src/main/java/com/example/roomxxx0102/logic/video/PlayerEventListener.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoPlayerFacade.kt、app/src/main/java/com/example/roomxxx0102/logic/video/ExoVideoPlayer.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：VideoPlayerFacade.attachTextureView/setListener/prepare/play/pause/stop/release/seekTo/isPlaying/getCurrentPositionMs/getDurationMs、ExoVideoPlayer 对上述接口的实现、VideoFeeder.setupMediaPlayer/pause/resume/seekToMs/seekByMs/stop、MainActivity.jumpToNextMarkedEvent/jumpToNextDeviceHitEvent、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   新增 `VideoPlayerFacade`、`PlayerEventListener` 和 `ExoVideoPlayer`，把 Media3/ExoPlayer 封进独立播放抽象层。
+      *   为项目增加 `androidx.media3:media3-exoplayer` 依赖，但本阶段不接任何音频旁路、不新增 PCM 总线。
+      *   `VideoFeeder` 内部从直接持有 `MediaPlayer` 改为持有 `VideoPlayerFacade`，对外保留原有 `start/pause/resume/seek/position/duration` 调用方式，继续使用 `TextureView.bitmap` 做抓图分析。
+      *   `MainActivity` 去掉对 `MediaPlayer.SEEK_CLOSEST` 的直接依赖，事件跳转继续通过 `VideoFeeder.seekToMs(...)` 完成。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
 ## [282] 2026-03-28 12:43:30 - 给 pose 左右手腕增加红色描边
 
 **用户指令**：

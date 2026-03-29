@@ -18,6 +18,12 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/composeAudioScreen"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
     <!-- 2. 检测覆盖层 -->
     <com.example.roomxxx0102.ui.views.DetectionOverlayView
         android:id="@+id/overlayView"

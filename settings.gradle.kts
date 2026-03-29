@@ -25,3 +25,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "RoomXXX0102"
 include(":app")
+include(":kws-sdk")
