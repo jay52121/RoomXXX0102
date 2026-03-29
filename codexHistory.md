@@ -1,5 +1,132 @@
 # Codex History
 
+## [308] 2026-03-30 03:57:52 - 听声音界面默认开启电平表并上移左栏控件
+
+**用户指令**：
+> 继续吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：进入“听声音”界面时默认打开电平表，并将电平表与操作按钮整体上移到左栏顶部，减少来回视线切换。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：KwsPanelScreen、startMeterIfAllowed、左栏布局顺序、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `meterEnabled` 默认值改为开启状态，使进入“听声音”界面时电平表默认处于打开状态。
+      *   将左栏中的“电平表开关 + 电平条 + Peak/RMS/CLIP”以及“应用/清空/堵塞/音源”按钮整体上移到左栏顶部。
+      *   保留监听开关、参数滑条、状态文本原有逻辑，只调整默认开关与布局顺序，不改 KWS 主链。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [307] 2026-03-30 03:52:55 - 修复视频循环后听声音模块停摆
+
+**用户指令**：
+> 当一次正常播放完回到开头时候，整个。听声音的模块就像是。死掉了，一样。电平表不动了，右边的识别也没进行了。
+> ok，然后只要进入听声音界面,电平表就打开.另外把电平表和下方的操作按钮都放到左侧顶部去.直接开始
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复视频正常循环回到开头后，播放器音频源解码退出导致电平表与 KWS 识别一起停摆的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/audio/PlaybackVideoAudioSource.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：PlaybackVideoAudioSource.decodeLoop、PlaybackVideoAudioSource.resetDecoderToPlayback、PlaybackVideoAudioSource.seekExtractorToPlayback、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在播放器音频解码循环中新增“播放器时间回绕”检测；当视频从后段回到前段时，不再让音频源停在 EOF，而是自动清空累积器并将 `extractor + decoder` seek 回当前播放位置继续解码。
+      *   将原来 `outputDone=true` 后直接结束循环的处理，改成在循环视频场景下可恢复重启的处理，避免 `PlaybackVideoAudioSource` 自己退出并把状态落回 `IDLE`。
+      *   保持 KWS 控制器、电平表 UI、音源切换逻辑不变，只修复播放器音频源在视频循环时的生命周期问题。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [306] 2026-03-30 03:45:11 - 修复重播清空日志信号未触发 Compose 重组
+
+**用户指令**：
+> 重置后opne这个日志没有被清空
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复长按播放重播后“听声音”右侧日志仍未清空的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.syncAudioScreenMode、MainActivity.hardRestartPlayback、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `MainActivity` 中的 `kwsLogClearSignal` 从普通整数字段改为 Compose 可观察的 `mutableIntStateOf`。
+      *   `hardRestartPlayback()` 中改为更新可观察 state，确保 `KwsPanelScreen(logClearSignal=...)` 收到新值后真正触发 `LaunchedEffect(logClearSignal)`。
+      *   保持现有日志清空逻辑不变，只修复“信号变化没有触发 Compose 重组”的根因。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [305] 2026-03-30 03:40:38 - 重播时清空听声音日志并收紧行距
+
+**用户指令**：
+> 重新播放时(长按播放),清空右侧的日志
+> 右侧日志中间不需要隔开那么多,开始吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在长按播放重播时清空“听声音”右侧日志，并收紧右侧日志项之间的间距，减少视觉留白。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.syncAudioScreenMode、MainActivity.hardRestartPlayback、KwsPanelScreen、LaunchedEffect(logClearSignal)、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `MainActivity` 新增 `kwsLogClearSignal`，在 `hardRestartPlayback()` 中递增，用于向声音界面发出“清空日志”信号。
+      *   `KwsPanelScreen` 新增 `logClearSignal` 参数，并通过 `LaunchedEffect(logClearSignal)` 在收到信号时清空右侧日志并收起展开项。
+      *   将右侧日志区整体行距从较宽的 `8dp/6dp` 收紧到 `2dp/3dp`，让多条输出更紧凑。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [304] 2026-03-30 03:36:04 - 修复电平表跟随当前音源路径
+
+**用户指令**：
+> 好了,现在开始修复电平表
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“听声音”界面的电平表路径，使其在监听关闭时也能跟随当前选择的音源，不再固定偷偷走麦克风。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.syncAudioScreenMode、KwsPanelScreen、stopMeter、startMeterIfAllowed、权限回调、audioInputModeLabel、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `MainActivity.syncAudioScreenMode()` 新增向 `KwsPanelScreen` 透传当前播放器音频源信息和播放器音频是否可用的状态。
+      *   `KwsPanelScreen` 新增独立的 `PlaybackVideoAudioSource` 电平表输入，实现监听关闭时根据当前 `音源` 在“播放器/麦克风”之间选择正确的电平来源。
+      *   监听开启时，电平表仍继续复用 `controller.setAudioFrameListener` 的实时音频帧；监听关闭时才启用独立的电平音源。
+      *   切换 `音源` 后，如果当前只是开着电平表而没在监听，会自动停止旧电平链并按新音源重启。
+      *   麦克风权限分支已收紧：仅在切到麦克风且确实需要时才申请权限，授权后会恢复到对应的电平或监听路径。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [303] 2026-03-30 03:30:22 - 接入 KWS 双音源切换并替换录音按钮
+
+**用户指令**：
+> 先提交一次git,另外kws里面也有些识别配置文件别忘了.
+> 好的.KWS项目里面有个叫录音的按钮,移植时把那个录音换成"切换麦克风",激活后把音源从分离出的音源切换为麦克风.(这一步可以后面做,先保留原有代码尽量减少问题)
+> ok
+> 不需要录音按钮了,录音按钮切成刚才说的音源选择
+> 那电平表就先不动,然后我们先改造两条链路,
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在当前主工程内把 KWS 输入改成“播放器/麦克风”可切换双音源，并将听声音界面的“录音”按钮替换为“音源”选择按钮；电平表路径暂不调整。
+    *   修改文件：kws-sdk/src/main/java/com/example/roomxxx_vocie/audio/AudioInputMode.kt、kws-sdk/src/main/java/com/example/roomxxx_vocie/audio/SwitchableAudioSource.kt、app/src/main/java/com/example/roomxxx0102/logic/audio/PlaybackVideoAudioSource.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：SwitchableAudioSource.start/stop/setMode、PlaybackVideoAudioSource.start/decodeLoop/emitFrames、MainActivity.syncAudioScreenMode、MainActivity.currentKwsAudioInputMode、MainActivity.setKwsAudioInputMode、MainActivity.resolvePlaybackAudioSourceSpec、KwsPanelScreen、audioInputModeLabel、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `kws-sdk` 中新增 `AudioInputMode` 与 `SwitchableAudioSource`，为 KWS 提供统一的“播放器/麦克风”可切换音源代理。
+      *   在主工程新增 `PlaybackVideoAudioSource`，通过 `MediaExtractor + MediaCodec` 从当前视频源解出音频、转为 KWS 所需格式并按播放时间推进输出。
+      *   `MainActivity` 中不再直接用默认麦克风构造 `KwsControllerImpl`，而是注入 `SwitchableAudioSource`；同时新增当前视频源解析方法，供播放器音源链使用。
+      *   `KwsPanelScreen` 去掉录音按钮，替换为 `音源: 播放器/麦克风` 按钮；切到麦克风时仅在必要时申请权限，不再一进声音界面就默认请求麦克风权限。
+      *   保持电平表逻辑暂不调整，先只完成 KWS 主识别链的双音源切换。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
 ## [302] 2026-03-30 03:07:35 - 收口听声音界面日志样式与播放器时间
 
 **用户指令**：

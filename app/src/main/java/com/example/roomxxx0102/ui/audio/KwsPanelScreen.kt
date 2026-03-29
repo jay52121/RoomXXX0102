@@ -3,7 +3,6 @@ package com.example.roomxxx0102.ui.audio
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.media.MediaPlayer
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +30,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -42,17 +42,17 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.core.content.ContextCompat
+import com.example.roomxxx0102.logic.audio.PlaybackVideoAudioSource
 import com.example.roomxxx_vocie.KwsConfig
 import com.example.roomxxx_vocie.KwsControllerImpl
+import com.example.roomxxx_vocie.audio.AudioInputMode
 import com.example.roomxxx_vocie.audio.AudioRecordSource
 import java.io.File
 import java.io.FileOutputStream
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.math.log10
-import kotlin.math.min
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -76,10 +76,19 @@ private const val MAX_LOG_ITEMS = 20
 fun KwsPanelScreen(
     controller: KwsControllerImpl,
     modifier: Modifier = Modifier,
-    currentPlayerTimeMsProvider: () -> Long = { 0L }
+    currentPlayerTimeMsProvider: () -> Long = { 0L },
+    currentAudioInputModeProvider: () -> AudioInputMode = { AudioInputMode.PLAYBACK },
+    onSelectAudioInputMode: (AudioInputMode) -> AudioInputMode = { it },
+    currentPlaybackAudioSourceSpecProvider: () -> PlaybackVideoAudioSource.SourceSpec? = { null },
+    playbackAudioActiveProvider: () -> Boolean = { false },
+    logClearSignal: Int = 0
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val currentAudioInputModeProviderState = rememberUpdatedState(currentAudioInputModeProvider)
+    val onSelectAudioInputModeState = rememberUpdatedState(onSelectAudioInputMode)
+    val currentPlaybackAudioSourceSpecProviderState = rememberUpdatedState(currentPlaybackAudioSourceSpecProvider)
+    val playbackAudioActiveProviderState = rememberUpdatedState(playbackAudioActiveProvider)
     val isListening = remember { mutableStateOf(true) }
     val currentConfig = remember { mutableStateOf(KwsConfig()) }
     val thresholdValue = remember { mutableStateOf(currentConfig.value.triggerThreshold) }
@@ -97,8 +106,16 @@ fun KwsPanelScreen(
     val latestStatus = remember { mutableStateOf("") }
     val statStatus = remember { mutableStateOf("") }
     val meterSource = remember { AudioRecordSource(context.applicationContext) }
+    val playbackMeterSource = remember {
+        PlaybackVideoAudioSource(
+            context = context.applicationContext,
+            sourceProvider = { currentPlaybackAudioSourceSpecProviderState.value() },
+            playbackPositionProvider = currentPlayerTimeMsProvider,
+            playbackActiveProvider = { playbackAudioActiveProviderState.value() }
+        )
+    }
     val meterRunning = remember { mutableStateOf(false) }
-    val meterEnabled = remember { mutableStateOf(false) }
+    val meterEnabled = remember { mutableStateOf(true) }
     val meterLatest = remember { AtomicReference<MeterSnapshot?>(null) }
     val clipHoldUntilMs = remember { AtomicLong(0L) }
     val meterLastFrameMs = remember { AtomicLong(0L) }
@@ -107,32 +124,22 @@ fun KwsPanelScreen(
     val peakDb = remember { mutableStateOf(-120.0) }
     val rmsDb = remember { mutableStateOf(-120.0) }
     val clipOn = remember { mutableStateOf(false) }
-    val recordSource = remember { AudioRecordSource(context.applicationContext) }
-    val recording = remember { mutableStateOf(false) }
-    val playing = remember { mutableStateOf(false) }
-    val lastRecordingFile = remember { mutableStateOf<File?>(null) }
-    val lastRecordingInfo = remember { mutableStateOf("无") }
     val logEntries = remember { mutableStateOf(listOf<OutputLogEntry>()) }
+    val audioInputMode = remember { mutableStateOf(currentAudioInputModeProvider()) }
+    val pendingAudioInputMode = remember { mutableStateOf<AudioInputMode?>(null) }
     var expandedLogId by remember { mutableStateOf<Long?>(null) }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            val cfg = pendingConfig.value ?: currentConfig.value
-            pendingConfig.value = null
-            isListening.value = true
-            controller.stop()
-            controller.start(cfg)
-            listenStatus.value = "监听中"
-        } else {
-            isListening.value = false
-            listenStatus.value = "已停止"
-        }
+
+    fun hasRecordPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     fun stopMeter() {
         if (meterRunning.value) {
             meterSource.stop()
+            playbackMeterSource.stop()
             meterRunning.value = false
         }
         meterLastFrameMs.set(0L)
@@ -140,22 +147,58 @@ fun KwsPanelScreen(
     }
 
     fun startMeterIfAllowed() {
-        if (meterRunning.value || !meterEnabled.value || recording.value || isListening.value) return
-        val hasPermission = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!hasPermission) return
-        meterSource.start(currentConfig.value) { frame ->
+        if (meterRunning.value || !meterEnabled.value || isListening.value) return
+        val meterCallback: (com.example.roomxxx_vocie.audio.AudioFrame) -> Unit = { frame ->
             val snapshot = computeMeterSnapshot(frame.pcm, clipHoldUntilMs)
             meterLatest.set(snapshot)
             meterLastFrameMs.set(frame.timestampMs)
             if (snapshot.peakDb > -30.0) lastPeakOverMs.set(frame.timestampMs)
         }
+        when (audioInputMode.value) {
+            AudioInputMode.MICROPHONE -> {
+                val hasPermission = hasRecordPermission()
+                if (!hasPermission) return
+                meterSource.start(currentConfig.value, meterCallback)
+            }
+            AudioInputMode.PLAYBACK -> {
+                playbackMeterSource.start(currentConfig.value, meterCallback)
+            }
+        }
         meterRunning.value = true
     }
 
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val pendingConfigValue = pendingConfig.value
+        if (granted) {
+            pendingAudioInputMode.value?.let { targetMode ->
+                audioInputMode.value = onSelectAudioInputModeState.value(targetMode)
+                latestStatus.value = "音源: ${audioInputModeLabel(audioInputMode.value)}"
+            }
+            pendingAudioInputMode.value = null
+            if (pendingConfigValue != null) {
+                pendingConfig.value = null
+                isListening.value = true
+                controller.stop()
+                controller.start(pendingConfigValue)
+                listenStatus.value = "监听中"
+            } else if (!isListening.value && meterEnabled.value) {
+                stopMeter()
+                startMeterIfAllowed()
+            }
+        } else {
+            pendingAudioInputMode.value = null
+            if (pendingConfigValue != null) {
+                pendingConfig.value = null
+                isListening.value = false
+                listenStatus.value = "已停止"
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
+        audioInputMode.value = currentAudioInputModeProviderState.value()
         val prefs = context.kwsSettingsDataStore.data.first()
         val loadedConfig = currentConfig.value.copy(
             triggerThreshold = prefs[KEY_THRESHOLD] ?: currentConfig.value.triggerThreshold,
@@ -181,8 +224,9 @@ fun KwsPanelScreen(
         dropQueueDepthValue.value = loadedConfig.dropQueueDepth.toFloat()
         dropMinIntervalValue.value = loadedConfig.dropMinIntervalMs.toFloat()
 
-        val hasPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        if (hasPermission) {
+        val requireMic = audioInputMode.value == AudioInputMode.MICROPHONE
+        val hasPermission = hasRecordPermission()
+        if (!requireMic || hasPermission) {
             controller.stop()
             controller.start(loadedConfig)
             isListening.value = true
@@ -257,7 +301,7 @@ fun KwsPanelScreen(
             controller.setAudioFrameListener(null)
             controller.stop()
             meterSource.stop()
-            recordSource.stop()
+            playbackMeterSource.stop()
         }
     }
 
@@ -279,45 +323,6 @@ fun KwsPanelScreen(
                 .verticalScroll(settingsScrollState),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            SliderLine("触发阈值", thresholdValue, currentConfig.value.triggerThreshold, 0.1f..1.0f, 8) { roundToStep(it, 0.1f, 0.1f, 1f) }
-            SliderLine("keywordsScore", keywordsScoreValue, currentConfig.value.keywordsScore, 1f..10f, 18) { roundToStep(it, 0.5f, 1f, 10f) }
-            SliderLine("冷却时长(ms)", cooldownValue, currentConfig.value.cooldownMs.toFloat(), 0f..5000f, 50) { roundToStep(it, 100f, 0f, 5000f) }
-            SliderLine("静音重置(ms)", silenceResetValue, currentConfig.value.silenceResetMs.toFloat(), 0f..5000f, 50) { roundToStep(it, 100f, 0f, 5000f) }
-            SliderLine("maxActivePaths", maxActivePathsValue, currentConfig.value.maxActivePaths.toFloat(), 2f..20f, 18) { roundToStep(it, 1f, 2f, 20f) }
-            SliderLine("numTrailingBlanks", numTrailingBlanksValue, currentConfig.value.numTrailingBlanks.toFloat(), 0f..2f, 1) { roundToStep(it, 1f, 0f, 2f) }
-            SliderLine("dropDispatchDelayMs", dropDispatchDelayValue, currentConfig.value.dropDispatchDelayMs.toFloat(), 400f..1600f, 24) { roundToStep(it, 50f, 400f, 1600f) }
-            SliderLine("dropBacklogFrames", dropBacklogFramesValue, currentConfig.value.dropBacklogFrames.toFloat(), 4f..16f, 11) { roundToStep(it, 1f, 4f, 16f) }
-            SliderLine("dropQueueDepth", dropQueueDepthValue, currentConfig.value.dropQueueDepth.toFloat(), 4f..16f, 11) { roundToStep(it, 1f, 4f, 16f) }
-            SliderLine("dropMinIntervalMs", dropMinIntervalValue, currentConfig.value.dropMinIntervalMs.toFloat(), 500f..3000f, 25) { roundToStep(it, 100f, 500f, 3000f) }
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Switch(
-                    checked = isListening.value,
-                    onCheckedChange = { checked ->
-                        if (checked) {
-                            val hasPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-                            if (hasPermission) {
-                                isListening.value = true
-                                controller.stop()
-                                controller.start(currentConfig.value)
-                                listenStatus.value = "监听中"
-                                stopMeter()
-                            } else {
-                                pendingConfig.value = currentConfig.value
-                                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            }
-                        } else {
-                            isListening.value = false
-                            controller.stop()
-                            listenStatus.value = "已停止"
-                            latestStatus.value = ""
-                            startMeterIfAllowed()
-                        }
-                    }
-                )
-                Text(buildStatusText(listenStatus.value, latestStatus.value, statStatus.value), color = Color(0xFFE8EAED))
-            }
-
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("电平表", color = Color(0xFFE8EAED))
                 Switch(
@@ -337,7 +342,11 @@ fun KwsPanelScreen(
                     }
                 )
             }
-            LinearProgressIndicator(progress = { meterProgress.value }, color = levelColor(peakDb.value, clipOn.value), modifier = Modifier.fillMaxWidth())
+            LinearProgressIndicator(
+                progress = { meterProgress.value },
+                color = levelColor(peakDb.value, clipOn.value),
+                modifier = Modifier.fillMaxWidth()
+            )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Peak dBFS: ${formatDb(peakDb.value)}", color = Color(0xFFE8EAED))
@@ -376,7 +385,8 @@ fun KwsPanelScreen(
                         }
                     }
                     val hasPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-                    if (hasPermission) {
+                    val requireMic = audioInputMode.value == AudioInputMode.MICROPHONE
+                    if (!requireMic || hasPermission) {
                         controller.stop()
                         controller.start(cfg)
                         isListening.value = true
@@ -393,65 +403,67 @@ fun KwsPanelScreen(
                 }, modifier = Modifier.weight(1f)) { Text("清空") }
                 Button(onClick = { controller.triggerDebugBlock(800) }, modifier = Modifier.weight(1f)) { Text("堵塞") }
                 Button(onClick = {
-                    if (recording.value) return@Button
-                    isListening.value = false
-                    controller.stop()
-                    listenStatus.value = "已停止"
-                    latestStatus.value = ""
-                    stopMeter()
-                    recording.value = true
-                    val cfg = currentConfig.value
-                    val totalSamples = cfg.sampleRate * 5
-                    val buffer = ShortArray(totalSamples)
-                    val writeIndex = AtomicInteger(0)
-                    recordSource.start(cfg) { frame ->
-                        val index = writeIndex.get()
-                        val remaining = totalSamples - index
-                        if (remaining <= 0) return@start
-                        val toCopy = min(remaining, frame.pcm.size)
-                        System.arraycopy(frame.pcm, 0, buffer, index, toCopy)
-                        writeIndex.addAndGet(toCopy)
-                        if (writeIndex.get() >= totalSamples) {
-                            recordSource.stop()
-                            recording.value = false
-                            scope.launch {
-                                val sampleCount = writeIndex.get()
-                                val wavFile = File(context.filesDir, "rec_${System.currentTimeMillis()}.wav")
-                                withContext(Dispatchers.IO) { writeWavFile(wavFile, buffer, sampleCount, cfg.sampleRate) }
-                                lastRecordingFile.value = wavFile
-                                val durationSec = sampleCount.toDouble() / cfg.sampleRate
-                                lastRecordingInfo.value = "${wavFile.name} | ${"%.2f".format(durationSec)}s | ${cfg.sampleRate}Hz"
-                                startMeterIfAllowed()
-                            }
+                    val targetMode = if (audioInputMode.value == AudioInputMode.PLAYBACK) {
+                        AudioInputMode.MICROPHONE
+                    } else {
+                        AudioInputMode.PLAYBACK
+                    }
+                    if (targetMode == AudioInputMode.MICROPHONE && !hasRecordPermission()) {
+                        pendingAudioInputMode.value = targetMode
+                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    } else {
+                        audioInputMode.value = onSelectAudioInputModeState.value(targetMode)
+                        latestStatus.value = "音源: ${audioInputModeLabel(audioInputMode.value)}"
+                        if (!isListening.value && meterEnabled.value) {
+                            stopMeter()
+                            startMeterIfAllowed()
                         }
                     }
-                }, modifier = Modifier.weight(1f)) { Text(if (recording.value) "录音中" else "录音") }
-                Button(onClick = {
-                    val wavFile = lastRecordingFile.value ?: return@Button
-                    isListening.value = false
-                    controller.stop()
-                    listenStatus.value = "已停止"
-                    latestStatus.value = ""
-                    val player = MediaPlayer()
-                    try {
-                        player.setDataSource(wavFile.absolutePath)
-                        player.setOnCompletionListener { mp -> mp.release(); playing.value = false }
-                        player.setOnPreparedListener { mp -> playing.value = true; mp.start() }
-                        player.prepare()
-                    } catch (e: Exception) {
-                        player.release()
-                        playing.value = false
-                        appendLog(
-                            logEntries = logEntries,
-                            playerTimeMs = currentPlayerTimeMsProvider(),
-                            summaryText = "播放失败",
-                            detailText = e.message ?: "未知错误"
-                        )
-                    }
-                }, modifier = Modifier.weight(1f)) { Text(if (playing.value) "播放中" else "播放") }
+                }, modifier = Modifier.weight(1f)) {
+                    Text("音源:${audioInputModeLabel(audioInputMode.value)}")
+                }
             }
 
-            Text("最近录音: ${lastRecordingInfo.value}", color = Color(0xFFD7DCE0))
+            SliderLine("触发阈值", thresholdValue, currentConfig.value.triggerThreshold, 0.1f..1.0f, 8) { roundToStep(it, 0.1f, 0.1f, 1f) }
+            SliderLine("keywordsScore", keywordsScoreValue, currentConfig.value.keywordsScore, 1f..10f, 18) { roundToStep(it, 0.5f, 1f, 10f) }
+            SliderLine("冷却时长(ms)", cooldownValue, currentConfig.value.cooldownMs.toFloat(), 0f..5000f, 50) { roundToStep(it, 100f, 0f, 5000f) }
+            SliderLine("静音重置(ms)", silenceResetValue, currentConfig.value.silenceResetMs.toFloat(), 0f..5000f, 50) { roundToStep(it, 100f, 0f, 5000f) }
+            SliderLine("maxActivePaths", maxActivePathsValue, currentConfig.value.maxActivePaths.toFloat(), 2f..20f, 18) { roundToStep(it, 1f, 2f, 20f) }
+            SliderLine("numTrailingBlanks", numTrailingBlanksValue, currentConfig.value.numTrailingBlanks.toFloat(), 0f..2f, 1) { roundToStep(it, 1f, 0f, 2f) }
+            SliderLine("dropDispatchDelayMs", dropDispatchDelayValue, currentConfig.value.dropDispatchDelayMs.toFloat(), 400f..1600f, 24) { roundToStep(it, 50f, 400f, 1600f) }
+            SliderLine("dropBacklogFrames", dropBacklogFramesValue, currentConfig.value.dropBacklogFrames.toFloat(), 4f..16f, 11) { roundToStep(it, 1f, 4f, 16f) }
+            SliderLine("dropQueueDepth", dropQueueDepthValue, currentConfig.value.dropQueueDepth.toFloat(), 4f..16f, 11) { roundToStep(it, 1f, 4f, 16f) }
+            SliderLine("dropMinIntervalMs", dropMinIntervalValue, currentConfig.value.dropMinIntervalMs.toFloat(), 500f..3000f, 25) { roundToStep(it, 100f, 500f, 3000f) }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Switch(
+                    checked = isListening.value,
+                    onCheckedChange = { checked ->
+                        if (checked) {
+                            val requireMic = audioInputMode.value == AudioInputMode.MICROPHONE
+                            val hasPermission = hasRecordPermission()
+                            if (!requireMic || hasPermission) {
+                                isListening.value = true
+                                controller.stop()
+                                controller.start(currentConfig.value)
+                                listenStatus.value = "监听中"
+                                stopMeter()
+                            } else {
+                                pendingConfig.value = currentConfig.value
+                                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        } else {
+                            isListening.value = false
+                            controller.stop()
+                            listenStatus.value = "已停止"
+                            latestStatus.value = ""
+                            startMeterIfAllowed()
+                        }
+                    }
+                )
+                Text(buildStatusText(listenStatus.value, latestStatus.value, statStatus.value), color = Color(0xFFE8EAED))
+            }
+
             Text("监听状态: ${listenStatus.value}", color = Color(0xFFD7DCE0))
             Text("最近状态: ${if (latestStatus.value.isBlank()) "无" else latestStatus.value}", color = Color(0xFFD7DCE0))
             Text("统计状态: ${if (statStatus.value.isBlank()) "无" else statStatus.value}", color = Color(0xFFD7DCE0))
@@ -475,7 +487,7 @@ fun KwsPanelScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(outputScrollState),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 if (logEntries.value.isEmpty()) {
                     Text("暂无调试输出", color = Color(0xFF8B949E))
@@ -489,8 +501,8 @@ fun KwsPanelScreen(
                                 .clickable {
                                     expandedLogId = if (expanded) null else entry.id
                                 }
-                                .padding(vertical = 6.dp, horizontal = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                .padding(vertical = 3.dp, horizontal = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
                                 text = "${entry.playerTimeText} ${entry.summaryText}",
@@ -508,6 +520,11 @@ fun KwsPanelScreen(
 
     LaunchedEffect(logEntries.value.size) {
         outputScrollState.scrollTo(outputScrollState.maxValue)
+    }
+
+    LaunchedEffect(logClearSignal) {
+        logEntries.value = emptyList()
+        expandedLogId = null
     }
 }
 
@@ -561,6 +578,13 @@ private fun formatPlayerTime(playerTimeMs: Long): String {
     val minutes = totalSeconds / 60L
     val seconds = totalSeconds % 60L
     return String.format("%02d:%02d", minutes, seconds)
+}
+
+private fun audioInputModeLabel(mode: AudioInputMode): String {
+    return when (mode) {
+        AudioInputMode.PLAYBACK -> "播放器"
+        AudioInputMode.MICROPHONE -> "麦克风"
+    }
 }
 
 private fun roundToStep(value: Float, step: Float, min: Float, max: Float): Float {

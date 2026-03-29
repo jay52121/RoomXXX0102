@@ -37,6 +37,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
@@ -59,6 +60,7 @@ import com.example.roomxxx0102.logic.analyzer.RoiTracker
 import com.example.roomxxx0102.logic.analyzer.HandSmokeTester
 import com.example.roomxxx0102.logic.analyzer.YoloAnalyzer
 import com.example.roomxxx0102.logic.analyzer.YoloPoseAnalyzer
+import com.example.roomxxx0102.logic.audio.PlaybackVideoAudioSource
 import com.example.roomxxx0102.logic.pointing.DevicePointingTarget
 import com.example.roomxxx0102.logic.pointing.DeviceTriggeredPointingResolver
 import com.example.roomxxx0102.logic.pointing.HandObservation
@@ -93,6 +95,9 @@ import com.example.roomxxx0102.utils.AppLog
 import com.example.roomxxx0102.utils.BitmapTransfer
 import com.example.roomxxx0102.utils.GeometryUtils
 import com.example.roomxxx_vocie.KwsControllerImpl
+import com.example.roomxxx_vocie.audio.AudioInputMode
+import com.example.roomxxx_vocie.audio.AudioRecordSource
+import com.example.roomxxx_vocie.audio.SwitchableAudioSource
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.ArrayDeque
@@ -143,8 +148,21 @@ class MainActivity : ComponentActivity() {
     private val pointingResolver = DeviceTriggeredPointingResolver()
     private val pointingGuideMinQuality = 0.45f
     private var pointingTargetLabelById: Map<String, String> = emptyMap()
-    private val kwsController by lazy { KwsControllerImpl(applicationContext) }
+    private val kwsAudioSource by lazy {
+        SwitchableAudioSource(
+            microphoneSource = AudioRecordSource(applicationContext),
+            playbackSource = PlaybackVideoAudioSource(
+                context = applicationContext,
+                sourceProvider = { resolvePlaybackAudioSourceSpec() },
+                playbackPositionProvider = { videoFeeder?.peekLastAnalysisPositionMs()?.toLong() },
+                playbackActiveProvider = { isVideoMode }
+            ),
+            initialMode = AudioInputMode.PLAYBACK
+        )
+    }
+    private val kwsController by lazy { KwsControllerImpl(applicationContext, kwsAudioSource) }
     private var isAudioScreenBound = false
+    private val kwsLogClearSignal = mutableIntStateOf(0)
 
     private var isVideoMode = true
     private var currentLivingRoomBoundary: List<PointF> = emptyList()
@@ -1982,7 +2000,12 @@ class MainActivity : ComponentActivity() {
                     KwsPanelScreen(
                         modifier = Modifier.fillMaxSize(),
                         controller = kwsController,
-                        currentPlayerTimeMsProvider = { currentVideoTimestampMs() }
+                        currentPlayerTimeMsProvider = { currentVideoTimestampMs() },
+                        currentAudioInputModeProvider = { currentKwsAudioInputMode() },
+                        onSelectAudioInputMode = { mode -> setKwsAudioInputMode(mode) },
+                        currentPlaybackAudioSourceSpecProvider = { resolvePlaybackAudioSourceSpec() },
+                        playbackAudioActiveProvider = { isVideoMode },
+                        logClearSignal = kwsLogClearSignal.intValue
                     )
                 }
             }
@@ -3185,6 +3208,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun currentKwsAudioInputMode(): AudioInputMode = kwsAudioSource.getMode()
+
+    private fun setKwsAudioInputMode(mode: AudioInputMode): AudioInputMode {
+        kwsAudioSource.setMode(mode)
+        return kwsAudioSource.getMode()
+    }
+
     private fun startSeekHold(direction: Int) {
         stopSeekHold()
         if (currentPlayState != PlayState.STILL) {
@@ -3331,6 +3361,7 @@ class MainActivity : ComponentActivity() {
      * 目标是清除追踪/ROI/Presence/人数等运行期状态，避免历史状态污染。
      */
     private fun hardRestartPlayback() {
+        kwsLogClearSignal.intValue += 1
         yoloAnalyzer?.reset()
         poseAnalyzer?.resetTrackingState()
         roomPresenceAlgorithm.reset()
@@ -3427,6 +3458,23 @@ class MainActivity : ComponentActivity() {
         }
         val path = "/storage/emulated/0/Android/media/com.example.roomxxx0102/test_video.mp4"
         return if (File(path).exists()) "file:$path" else null
+    }
+
+    private fun resolvePlaybackAudioSourceSpec(): PlaybackVideoAudioSource.SourceSpec? {
+        val uriString = AppSettings.testVideoUri
+        if (!uriString.isNullOrBlank()) {
+            return try {
+                PlaybackVideoAudioSource.SourceSpec(uri = Uri.parse(uriString))
+            } catch (_: Throwable) {
+                null
+            }
+        }
+        val path = "/storage/emulated/0/Android/media/com.example.roomxxx0102/test_video.mp4"
+        return if (File(path).exists()) {
+            PlaybackVideoAudioSource.SourceSpec(filePath = path)
+        } else {
+            null
+        }
     }
 
     private fun startCameraMode() {
