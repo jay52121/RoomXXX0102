@@ -1,5 +1,87 @@
 # Codex History
 
+## [325] 2026-03-31 00:00:00 - 手势设备识别窗口收紧为500ms
+
+**用户指令**：
+> 识别窗口改成500ms.其他的也要随之改
+> 识别失败之类的都要同步改哦
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将语音触发的手势设备匹配窗口从1000ms收紧为500ms，并同步调整快接受/正常接受门槛及成功后调试快照保留时长。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/pointing/TriggeredPointingResolver.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：PointingConfig 默认配置、TriggeredPointingResolver.evaluateFastAccept、TriggeredPointingResolver.evaluateNormalAccept、TriggeredPointingResolver.finalizeTimeoutDecision、MainActivity.handleTriggeredPointingDecision、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `timeoutMs` 从 `1000L` 调整为 `500L`。
+      *   将 `fastAcceptMinElapsedMs` 调整为 `120L`，`normalAcceptMinElapsedMs` 调整为 `220L`，并把正常接受窗口帧要求从 3 帧收紧为 2 帧，适配更短识别窗口。
+      *   将识别成功后调试快照的短暂保留时长从 `1000L` 同步改为 `500L`，保证成功/失败链路与新窗口长度一致。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [324] 2026-03-31 00:00:00 - 识别失败设备同时显示峰值分与最终分
+
+**用户指令**：
+> 我们同时标记两个分数第一个分数是。这段时间的最高分，也就是这一秒识别窗口内的最高分和。最后的最终分数。 ,颜色要区分
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在识别失败暂停后显示的 Top3 设备上，同时标记“窗口内峰值分”和“最终分”，并用不同颜色区分。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/pointing/TriggeredPointingResolver.kt、app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：TriggeredPointingResolver.submitFrame、TriggeredPointingResolver.finalizeRecognized、TriggeredPointingResolver.finalizeUnrecognized、TriggeredPointingResolver.peakScoreForTarget、TriggeredPointingResolver.buildFinalTargetDebugInfos、DetectionOverlayView.drawPointingDebugOverlay、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   为 `PointingTargetDebugInfo` 增加 `peakScore` 字段，表示这一秒识别窗口内该设备曾达到的最高分。
+      *   在 pending 快照中实时累计每个设备的峰值分；在最终快照中改用窗口最终加权分作为 `score`，同时保留同窗口峰值分。
+      *   overlay 在设备标签上同时绘制 `峰xx` 和 `终xx` 两组分数，并用不同颜色区分。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [323] 2026-03-30 23:00:17 - 黑边纯画面预览改为按住即触发
+
+**用户指令**：
+> 好吧我说错了应该是按着的时候他就隐藏现在隐藏操作看起来没有问题，你把它这个概念改一下就行了。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将看人/看手界面的黑边纯画面预览，从“长按达到阈值后触发”改为“按住黑边空白处立即触发、松手恢复”。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.dispatchTouchEvent、MainActivity.handleBlankPreviewTouch、MainActivity.enterBlankPreviewMode、MainActivity.cancelBlankPreviewTracking、MainActivity.refreshEventMarkerUi、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   去掉黑边预览的长按延时状态机，`ACTION_DOWN` 命中黑边空白处后直接进入纯画面预览。
+      *   `MOVE` 只负责在手指移出空白区或超出触摸容差时恢复 UI，`UP/CANCEL` 统一立即恢复。
+      *   修复 `ViewConfiguration` 导入缺失导致的编译阻塞，并重新验证 `:app:compileDebugKotlin` 成功。
+
+---
+
+## [322] 2026-03-30 22:54:23 - 长按黑边空白处进入纯画面预览
+
+**用户指令**：
+> 在看人和看手界面中,长按屏幕空白处(例如目前最左边和最右边都是黑的这种空白),隐藏屏幕里面所有东西,只要画面本身,好实现吗
+> 关键是你准备怎么做是去隐藏这一大堆东西呢？还是说把画面直接给提到顶层来？这两种我都可以接受你看怎么实现更好一些。
+> 先git一次,然后进行
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在看人/看手模式中，长按视频外侧黑边空白处时临时隐藏所有 UI，只保留视频画面，松手后恢复。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.dispatchTouchEvent、MainActivity.handleBlankPreviewTouch、MainActivity.isBlankPreviewEligible、MainActivity.isBlankAreaTouch、MainActivity.enterBlankPreviewMode、MainActivity.cancelBlankPreviewTracking、MainActivity.refreshEventMarkerUi、MainActivity.onPause、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `dispatchTouchEvent()` 中增加“黑边空白处长按”检测，仅在 `看人/看手` 模式、且非设备选择态/非编辑态时生效。
+      *   通过延迟长按状态机进入纯画面预览，不改变层级，只临时隐藏 `overlay`、普通控制、事件条、编辑栏、计数器、雷达层和编辑视图。
+      *   松手、取消、移动出空白区域或页面进入后台时，恢复进入预览前保存的可见性状态。
+      *   在 `refreshEventMarkerUi()` 中增加预览态保护，避免识别回调在长按期间把隐藏的 UI 又刷出来。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
 ## [321] 2026-03-30 22:46:43 - 识别失败时显示Top3设备分数并保持到下次播放
 
 **用户指令**：

@@ -278,6 +278,25 @@ class DetectionOverlayView @JvmOverloads constructor(
         textSize = 20f
         isAntiAlias = true
     }
+    private val pointingPeakScorePaint = Paint().apply {
+        color = Color.WHITE
+        textSize = 20f
+        isAntiAlias = true
+    }
+    private val pointingFinalScorePaint = Paint().apply {
+        color = Color.WHITE
+        textSize = 20f
+        isAntiAlias = true
+    }
+    private val pointingScoreStrokePaint = Paint().apply {
+        color = Color.BLACK
+        textSize = 20f
+        isAntiAlias = true
+        style = Paint.Style.STROKE
+        strokeWidth = 4f
+        strokeJoin = Paint.Join.ROUND
+        strokeMiter = 10f
+    }
     private val debugPointPaint = Paint().apply {
         style = Paint.Style.FILL
         isAntiAlias = true
@@ -868,7 +887,32 @@ class DetectionOverlayView @JvmOverloads constructor(
             val rect = mapRect(target.rect)
             val winner = target.id == heldSnapshot.bestTargetId
             canvas.drawRect(rect, if (winner) pointingWinnerRectPaint else pointingRectPaint)
-            canvas.drawText("${target.id} ${String.format("%.2f", target.score)}", rect.left, rect.top - 8f, pointingLabelPaint)
+            val labelBaseY = rect.top - 8f
+            canvas.drawText(target.id, rect.left, labelBaseY - 22f, pointingLabelPaint)
+            canvas.drawText(
+                "峰${String.format("%.2f", target.peakScore)}",
+                rect.left,
+                labelBaseY,
+                pointingScoreStrokePaint
+            )
+            canvas.drawText(
+                "峰${String.format("%.2f", target.peakScore)}",
+                rect.left,
+                labelBaseY,
+                pointingPeakScorePaint
+            )
+            canvas.drawText(
+                "终${String.format("%.2f", target.score)}",
+                rect.left + 88f,
+                labelBaseY,
+                pointingScoreStrokePaint
+            )
+            canvas.drawText(
+                "终${String.format("%.2f", target.score)}",
+                rect.left + 88f,
+                labelBaseY,
+                pointingFinalScorePaint
+            )
         }
         heldSnapshot?.targets?.take(2)?.forEach { target ->
             if (target.id == heldSnapshot.bestTargetId || heldSnapshot.top3Targets.any { it.first == target.id }) {

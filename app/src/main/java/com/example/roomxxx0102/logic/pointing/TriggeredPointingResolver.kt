@@ -50,20 +50,20 @@ data class PointingConfig(
     val baseToleranceRatioOfImageDiagonal: Float = 0.012f,
     val sizeToleranceRatioOfRectDiagonal: Float = 0.10f,
     val distanceSigmaMultiplier: Float = 1.15f,
-    val fastAcceptMinElapsedMs: Long = 200L,
+    val fastAcceptMinElapsedMs: Long = 120L,
     val fastAcceptMinValidFrames: Int = 2,
     val fastAcceptMinAvgScore: Float = 0.90f,
     val fastAcceptMinAvgMargin: Float = 0.25f,
     val fastAcceptMinAvgFrameQuality: Float = 0.65f,
-    val normalAcceptMinElapsedMs: Long = 300L,
-    val normalAcceptMinValidFrames: Int = 3,
-    val normalAcceptWindowSize: Int = 3,
+    val normalAcceptMinElapsedMs: Long = 220L,
+    val normalAcceptMinValidFrames: Int = 2,
+    val normalAcceptWindowSize: Int = 2,
     val normalAcceptMinWins: Int = 2,
     val normalAcceptMinTailStreak: Int = 2,
     val normalAcceptMinAvgScore: Float = 0.82f,
     val normalAcceptMinAvgMargin: Float = 0.18f,
     val normalAcceptMinAvgFrameQuality: Float = 0.55f,
-    val timeoutMs: Long = 1000L,
+    val timeoutMs: Long = 500L,
     val timeoutMinValidFrames: Int = 2,
     val timeoutMinBestScore: Float = 0.72f,
     val timeoutMinMargin: Float = 0.12f,
@@ -99,8 +99,22 @@ data class PointingTargetDebugInfo(
     val id: String,
     val rect: RectF,
     val expandedRect: RectF,
-    val score: Float
-)
+    val score: Float,
+    val peakScore: Float = score
+) {
+    constructor(
+        id: String,
+        rect: RectF,
+        expandedRect: RectF,
+        score: Float
+    ) : this(
+        id = id,
+        rect = rect,
+        expandedRect = expandedRect,
+        score = score,
+        peakScore = score
+    )
+}
 
 data class PointingDebugSnapshot(
     val isActive: Boolean,
@@ -409,7 +423,13 @@ class TriggeredPointingResolver(
             validFrames = evidences.count { it.validHandFrame } + 1,
             noHandFrames = evidences.count { it.noHandFrame },
             targets = targetScores.map {
-                PointingTargetDebugInfo(it.id, it.rect, it.expandedRect, it.score)
+                PointingTargetDebugInfo(
+                    id = it.id,
+                    rect = it.rect,
+                    expandedRect = it.expandedRect,
+                    score = it.score,
+                    peakScore = peakScoreForTarget(it.id, targetScores)
+                )
             },
             top3Targets = targetScores.take(3).map { it.id to it.score }
         )
@@ -549,6 +569,7 @@ class TriggeredPointingResolver(
             acceptPath = path,
             validFrames = diagnostics.validFrames,
             noHandFrames = diagnostics.noHandFrames,
+            targets = buildFinalTargetDebugInfos(),
             top3Targets = diagnostics.top3Targets
         )
         cancelSession()
@@ -577,6 +598,7 @@ class TriggeredPointingResolver(
             acceptPath = acceptPath,
             validFrames = diagnostics.validFrames,
             noHandFrames = diagnostics.noHandFrames,
+            targets = buildFinalTargetDebugInfos(),
             top3Targets = diagnostics.top3Targets
         )
         cancelSession()
@@ -634,6 +656,53 @@ class TriggeredPointingResolver(
         val last = evidences.lastOrNull { it.validHandFrame } ?: return 0f
         val top = last.targetScores.firstOrNull { it.id != bestId }
         return top?.score ?: 0f
+    }
+
+    private fun peakScoreForTarget(
+        targetId: String,
+        currentScores: List<TargetComputedScore> = emptyList()
+    ): Float {
+        val historyPeak = evidences
+            .asSequence()
+            .flatMap { evidence -> evidence.targetScores.asSequence() }
+            .filter { it.id == targetId }
+            .map { it.score }
+            .maxOrNull() ?: 0f
+        val currentPeak = currentScores
+            .asSequence()
+            .filter { it.id == targetId }
+            .map { it.score }
+            .maxOrNull() ?: 0f
+        return max(historyPeak, currentPeak)
+    }
+
+    private fun buildFinalTargetDebugInfos(): List<PointingTargetDebugInfo> {
+        val finalScores = recencyWeightedScores(evidences.filter { it.validHandFrame })
+        if (finalScores.isEmpty()) return emptyList()
+        val snapshotTargetsById = latestDebugSnapshot?.targets?.associateBy { it.id }.orEmpty()
+        val sessionTargetsById = targets.associateBy { it.id }
+        val snapshot = latestDebugSnapshot
+        val imageDiagonal = if (snapshot != null) {
+            hypot(snapshot.imageWidth.toFloat(), snapshot.imageHeight.toFloat())
+        } else {
+            0f
+        }
+        return finalScores.mapNotNull { finalScore ->
+            val baseTarget = snapshotTargetsById[finalScore.id]
+            val targetRect = baseTarget?.rect ?: sessionTargetsById[finalScore.id]?.rect ?: return@mapNotNull null
+            val expandedRect = baseTarget?.expandedRect ?: if (imageDiagonal > 0f) {
+                computeExpandedRect(targetRect, imageDiagonal)
+            } else {
+                RectF(targetRect)
+            }
+            PointingTargetDebugInfo(
+                id = finalScore.id,
+                rect = RectF(targetRect),
+                expandedRect = RectF(expandedRect),
+                score = finalScore.score,
+                peakScore = peakScoreForTarget(finalScore.id)
+            )
+        }
     }
 
     private fun lastValidFrames(count: Int): List<FrameEvidence> =

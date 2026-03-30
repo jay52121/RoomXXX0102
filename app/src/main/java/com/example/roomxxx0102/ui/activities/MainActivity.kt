@@ -23,6 +23,7 @@ import android.util.Log
 import android.util.Size
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -221,6 +222,17 @@ class MainActivity : ComponentActivity() {
     private var seekHoldDirection = 0 // -1: 后退, +1: 前进
     private val seekHoldStartDelayMs = 500L
     private var forwardHoldPreviewPlaying = false
+    private var blankPreviewActive = false
+    private var blankPreviewDownRawX = 0f
+    private var blankPreviewDownRawY = 0f
+    private val blankPreviewTouchSlop by lazy { ViewConfiguration.get(this).scaledTouchSlop.toFloat() }
+    private var savedOverlayVisibility: Int? = null
+    private var savedNormalControlsVisibility: Int? = null
+    private var savedEventControlsVisibility: Int? = null
+    private var savedEditorControlsVisibility: Int? = null
+    private var savedCounterVisibility: Int? = null
+    private var savedRadarVisibility: Int? = null
+    private var savedEditorViewVisibility: Int? = null
     private var lastPresenceCountsForPause: Map<String, Int>? = null
     private var lastPresenceAnomalyDumpKey: String? = null
     private val beijingTimeFormatter: SimpleDateFormat by lazy {
@@ -885,7 +897,7 @@ class MainActivity : ComponentActivity() {
                 )
                 overlayView.updatePointingDebugSnapshot(
                     pointingResolver.latestDebugSnapshot(),
-                    holdMs = 1000L
+                    holdMs = 500L
                 )
                 pendingVoicePointingFeedback = false
             }
@@ -2176,10 +2188,14 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         stopSeekHold()
+        cancelBlankPreviewTracking(restoreUi = true)
         if (isVideoMode) videoFeeder?.pause()
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (handleBlankPreviewTouch(ev)) {
+            return true
+        }
         if (isAwaitingDeviceHitSelection) {
             Log.i(
                 "DeviceHitSelect",
@@ -2202,6 +2218,119 @@ class MainActivity : ComponentActivity() {
             return true
         }
         return super.dispatchTouchEvent(ev)
+    }
+
+    private fun handleBlankPreviewTouch(ev: MotionEvent): Boolean {
+        if (!isBlankPreviewEligible()) {
+            AppLog.i(
+                "RoomBlankPreview",
+                "ignore action=${ev.actionMasked} eligible=false mode=$currentObserveMode video=$isVideoMode awaiting=$isAwaitingDeviceHitSelection editor=${llEditorControls.visibility}"
+            )
+            cancelBlankPreviewTracking(restoreUi = true)
+            return false
+        }
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                val blank = isBlankAreaTouch(ev.rawX, ev.rawY)
+                AppLog.i(
+                    "RoomBlankPreview",
+                    "down raw=(${ev.rawX},${ev.rawY}) blank=$blank"
+                )
+                if (!blank) return false
+                blankPreviewDownRawX = ev.rawX
+                blankPreviewDownRawY = ev.rawY
+                enterBlankPreviewMode()
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!blankPreviewActive) return false
+                val moved = kotlin.math.hypot(
+                    (ev.rawX - blankPreviewDownRawX).toDouble(),
+                    (ev.rawY - blankPreviewDownRawY).toDouble()
+                ).toFloat()
+                val blank = isBlankAreaTouch(ev.rawX, ev.rawY)
+                AppLog.i(
+                    "RoomBlankPreview",
+                    "move raw=(${ev.rawX},${ev.rawY}) moved=$moved slop=$blankPreviewTouchSlop blank=$blank active=$blankPreviewActive"
+                )
+                if (moved > blankPreviewTouchSlop || !blank) {
+                    AppLog.i("RoomBlankPreview", "cancel on move")
+                    cancelBlankPreviewTracking(restoreUi = true)
+                }
+                return blankPreviewActive
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val consumed = blankPreviewActive
+                AppLog.i(
+                    "RoomBlankPreview",
+                    "end action=${ev.actionMasked} consumed=$consumed active=$blankPreviewActive"
+                )
+                cancelBlankPreviewTracking(restoreUi = true)
+                return consumed
+            }
+        }
+        return blankPreviewActive
+    }
+
+    private fun isBlankPreviewEligible(): Boolean {
+        return isVideoMode &&
+            (currentObserveMode == ObserveMode.PERSON || currentObserveMode == ObserveMode.HAND) &&
+            !isAwaitingDeviceHitSelection &&
+            llEditorControls.visibility != View.VISIBLE &&
+            !isAudioObserveMode()
+    }
+
+    private fun isBlankAreaTouch(rawX: Float, rawY: Float): Boolean {
+        if (!textureView.isShown) return false
+        val rect = android.graphics.Rect()
+        textureView.getGlobalVisibleRect(rect)
+        val blank = !rect.contains(rawX.toInt(), rawY.toInt())
+        AppLog.i(
+            "RoomBlankPreview",
+            "hitTest raw=($rawX,$rawY) texture=(${rect.left},${rect.top},${rect.right},${rect.bottom}) blank=$blank"
+        )
+        return blank
+    }
+
+    private fun enterBlankPreviewMode() {
+        if (blankPreviewActive) return
+        blankPreviewActive = true
+        AppLog.i("RoomBlankPreview", "enter preview")
+        savedOverlayVisibility = overlayView.visibility
+        savedNormalControlsVisibility = llNormalControls.visibility
+        savedEventControlsVisibility = llEventMarkerControls.visibility
+        savedEditorControlsVisibility = llEditorControls.visibility
+        savedCounterVisibility = cardCounter.visibility
+        savedRadarVisibility = flRadarContainer.visibility
+        savedEditorViewVisibility = editorView.visibility
+        overlayView.visibility = View.GONE
+        llNormalControls.visibility = View.GONE
+        llEventMarkerControls.visibility = View.GONE
+        llEditorControls.visibility = View.GONE
+        cardCounter.visibility = View.GONE
+        flRadarContainer.visibility = View.GONE
+        editorView.visibility = View.GONE
+    }
+
+    private fun cancelBlankPreviewTracking(restoreUi: Boolean) {
+        if (!blankPreviewActive) return
+        blankPreviewActive = false
+        AppLog.i("RoomBlankPreview", "restore preview restoreUi=$restoreUi")
+        if (!restoreUi) return
+        savedOverlayVisibility?.let { overlayView.visibility = it }
+        savedNormalControlsVisibility?.let { llNormalControls.visibility = it }
+        savedEventControlsVisibility?.let { llEventMarkerControls.visibility = it }
+        savedEditorControlsVisibility?.let { llEditorControls.visibility = it }
+        savedCounterVisibility?.let { cardCounter.visibility = it }
+        savedRadarVisibility?.let { flRadarContainer.visibility = it }
+        savedEditorViewVisibility?.let { editorView.visibility = it }
+        savedOverlayVisibility = null
+        savedNormalControlsVisibility = null
+        savedEventControlsVisibility = null
+        savedEditorControlsVisibility = null
+        savedCounterVisibility = null
+        savedRadarVisibility = null
+        savedEditorViewVisibility = null
     }
 
     /**
@@ -2228,6 +2357,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshEventMarkerUi() {
+        if (blankPreviewActive) {
+            llEventMarkerControls.visibility = View.GONE
+            llNormalControls.visibility = View.GONE
+            cardCounter.visibility = View.GONE
+            overlayView.visibility = View.GONE
+            flRadarContainer.visibility = View.GONE
+            return
+        }
         if (isHandObserveMode()) {
             refreshDeviceHitMarkerOverlay()
         } else {

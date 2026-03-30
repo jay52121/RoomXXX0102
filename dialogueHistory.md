@@ -3563,3 +3563,215 @@ ok
 
 ---
 
+## [131] 2026-03-30 22:54:23 - 长按黑边空白处进入纯画面预览
+
+**用户原文**：
+```text
+在看人和看手界面中,长按屏幕空白处(例如目前最左边和最右边都是黑的这种空白),隐藏屏幕里面所有东西,只要画面本身,好实现吗
+关键是你准备怎么做是去隐藏这一大堆东西呢？还是说把画面直接给提到顶层来？这两种我都可以接受你看怎么实现更好一些。
+先git一次,然后进行
+```
+
+**助手原文**：
+```text
+已经改好了。
+
+现在：
+- 只在 `看人` / `看手` 模式生效
+- 长按视频外侧黑边空白处时，会临时隐藏屏幕里所有 UI，只保留视频画面本身
+- 松手、取消、移动出空白区域或切后台后，会恢复原来的界面状态
+
+实现方式走的是“临时隐藏 UI”，没有去改层级，也没有把视频提到顶层。
+
+这次改了：
+- [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt)
+
+验证结果：
+- `:app:compileDebugKotlin` 已通过
+```
+
+---
+
+## [132] 2026-03-30 23:00:17 - 黑边纯画面预览改为按住即触发
+
+**用户原文**：
+```text
+点击黑边时没有任何反应。需要的话，就打日志。之前的日志，如果看得出来也可以。
+ok
+2026-03-30 23:00:17.917 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  hitTest raw=(139.05957,504.0996) texture=(264,0,2496,1256) blank=true
+2026-03-30 23:00:17.917 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  down raw=(139.05957,504.0996) blank=true
+2026-03-30 23:00:17.917 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  armed timeoutMs=400
+2026-03-30 23:00:17.930 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  hitTest raw=(139.05957,504.0996) texture=(264,0,2496,1256) blank=true
+2026-03-30 23:00:17.930 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  move raw=(139.05957,504.0996) moved=0.0 slop=24.0 blank=true active=false pending=true
+2026-03-30 23:00:17.946 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  hitTest raw=(139.05957,504.0996) texture=(264,0,2496,1256) blank=true
+2026-03-30 23:00:17.947 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  move raw=(139.05957,504.0996) moved=0.0 slop=24.0 blank=true active=false pending=true
+2026-03-30 23:00:17.963 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  hitTest raw=(139.05957,504.0996) texture=(264,0,2496,1256) blank=true
+2026-03-30 23:00:17.963 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  move raw=(139.05957,504.0996) moved=0.0 slop=24.0 blank=true active=false pending=true
+2026-03-30 23:00:18.163 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  hitTest raw=(139.05957,504.0996) texture=(264,0,2496,1256) blank=true
+2026-03-30 23:00:18.163 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  move raw=(139.05957,504.0996) moved=0.0 slop=24.0 blank=true active=false pending=true
+2026-03-30 23:00:18.279 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  hitTest raw=(139.05957,504.0996) texture=(264,0,2496,1256) blank=true
+2026-03-30 23:00:18.280 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  move raw=(139.05957,504.0996) moved=0.0 slop=24.0 blank=true active=false pending=true
+2026-03-30 23:00:18.296 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  hitTest raw=(142.70508,509.21484) texture=(264,0,2496,1256) blank=true
+2026-03-30 23:00:18.296 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  move raw=(142.70508,509.21484) moved=6.281349 slop=24.0 blank=true active=false pending=true
+2026-03-30 23:00:18.300 30169-30169 RoomBlankPreview        com.example.roomxxx0102              I  end action=1 consumed=true active=false pending=true
+好吧我说错了应该是按着的时候他就隐藏现在隐藏操作看起来没有问题，你把它这个概念改一下就行了。
+ok
+```
+
+**助手原文**：
+```text
+日志已经说明原因了，不是判空白失败。
+
+关键点：
+- `blank=true` 一直成立，说明黑边命中判断没问题
+- `armed timeoutMs=400`，说明长按计时也启动了
+- 但最后是：
+  - `end action=1 consumed=true active=false pending=true`
+- 中间没有 `enter preview`
+
+这表示：
+- 你松手时还没到长按阈值
+- 当前机器上的长按阈值是 `400ms`
+- 这次从 `down` 到 `up` 大约只有 `383ms`
+- 所以预览态根本还没来得及触发
+
+最小修法很简单：
+1. 不再用系统长按阈值
+2. 这条链单独改成更短一点，比如：
+   - `250ms` 或 `300ms`
+3. 其它逻辑不动
+
+我建议直接改成 `250ms`，这种“按住看纯画面”会更跟手。
+
+我理解成你要的不是“长按达到阈值后才隐藏”，而是：
+
+- 只要手指按在黑边空白处
+- 就立刻进入纯画面预览
+- 按着的时候保持隐藏
+- 一松手就恢复
+
+也就是把它从“长按触发”改成“按住即触发”。
+
+最小改法：
+1. 取消当前这条链里的长按定时器
+2. `ACTION_DOWN` 命中黑边空白处时直接 `enterBlankPreviewMode()`
+3. `MOVE` 只负责维持/取消
+4. `UP/CANCEL` 立即恢复
+5. 其它逻辑不动
+
+已经修好了。
+
+现在黑边纯画面预览的语义已经改成：
+- 在 `看人` / `看手` 模式下
+- 只要手指按住视频外侧黑边空白处，就立即隐藏所有 UI，只保留视频画面
+- 松手、取消，或手指移出空白区域后，马上恢复原来的界面
+
+这次只改了：
+- [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt)
+
+验证结果：
+- `:app:compileDebugKotlin` 已通过
+```
+
+---
+
+## [133] 2026-03-31 00:00:00 - 识别失败设备同时显示峰值分与最终分
+
+**用户原文**：
+```text
+我们同时标记两个分数第一个分数是。这段时间的最高分，也就是这一秒识别窗口内的最高分和。最后的最终分数。 ,颜色要区分
+ok
+```
+
+**助手原文**：
+```text
+最小方案我建议这样做：
+
+1. 只改失败时显示在设备上的分数字样，不动判定算法。
+2. 每个入选设备同时显示两组分数：
+   - `峰值分`：这一秒识别窗口里，这个设备拿到过的最高分
+   - `最终分`：窗口结束时用于最终决策的那次分数
+3. 颜色区分：
+   - `峰值分` 用一种颜色
+   - `最终分` 用另一种颜色
+4. 范围仍然只显示失败时的 Top3 设备，避免画面太乱。
+5. 我会优先改这两处：
+   - [TriggeredPointingResolver.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/logic/pointing/TriggeredPointingResolver.kt)
+   - [DetectionOverlayView.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt)
+
+已经改好了。
+
+现在识别失败暂停后显示的 Top3 设备，会同时显示两组分数：
+- `峰xx`：这一秒识别窗口内该设备拿到过的最高分
+- `终xx`：窗口结束时的最终分数
+
+两组分数已经用不同颜色区分，便于直接比较“这段时间冲到过多高”和“最后真正落到多少”。
+
+这次改了：
+- [TriggeredPointingResolver.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/logic/pointing/TriggeredPointingResolver.kt)
+- [DetectionOverlayView.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt)
+
+验证结果：
+- `:app:compileDebugKotlin` 已通过
+```
+
+---
+
+## [134] 2026-03-31 00:00:00 - 手势设备识别窗口收紧为500ms
+
+**用户原文**：
+```text
+识别窗口改成500ms.其他的也要随之改
+识别失败之类的都要同步改哦
+ok
+```
+
+**助手原文**：
+```text
+最小方案是：
+
+1. 把手势设备匹配窗口从 `1000ms` 改成 `500ms`
+- 位置主要在 [TriggeredPointingResolver.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/logic/pointing/TriggeredPointingResolver.kt)
+
+2. 同步收口依赖这个窗口长度的判定阈值
+- `fastAcceptMinElapsedMs`
+- `normalAcceptMinElapsedMs`
+- 与有效帧数/尾部连续帧有关的门槛
+- 目标是让 500ms 下仍然保持原来的“快接受 / 正常接受 / 超时失败”节奏
+
+3. 同步失败链路
+- `识别失败` 提示时机
+- `识别失败暂停`
+- 失败时保留的 Top3 分数
+- 这些都仍然以“窗口结束”为准，只是结束点变成 500ms
+
+4. 不改这些
+- KWS
+- 设备打分公式
+- UI 文案
+- 分数字样
+
+已经改好了。
+
+现在语音触发的手势设备匹配窗口已经从 `1000ms` 收成了 `500ms`，并且相关门槛也一起同步调整了：
+- `fastAcceptMinElapsedMs` 从 `200ms` 改到 `120ms`
+- `normalAcceptMinElapsedMs` 从 `300ms` 改到 `220ms`
+- 正常接受窗口从 `3帧` 收成 `2帧`
+
+另外同步改了成功后的调试快照保留时长：
+- 从 `1000ms` 改成 `500ms`
+
+失败链路本身没有改语义：
+- 仍然会在窗口结束时进入 `识别失败`
+- `识别失败暂停`、失败 Top3 分数保留等逻辑仍照常工作，只是结束点现在更早了
+
+这次改了：
+- [TriggeredPointingResolver.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/logic/pointing/TriggeredPointingResolver.kt)
+- [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt)
+
+验证结果：
+- `:app:compileDebugKotlin` 已通过
+```
+
+---
+
