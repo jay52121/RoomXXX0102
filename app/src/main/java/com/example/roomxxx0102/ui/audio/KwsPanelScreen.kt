@@ -81,7 +81,8 @@ fun KwsPanelScreen(
     onSelectAudioInputMode: (AudioInputMode) -> AudioInputMode = { it },
     currentPlaybackAudioSourceSpecProvider: () -> PlaybackVideoAudioSource.SourceSpec? = { null },
     playbackAudioActiveProvider: () -> Boolean = { false },
-    logClearSignal: Int = 0
+    logClearSignal: Int = 0,
+    latestDeviceResultUpdate: AudioCommandLogUpdate? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -125,6 +126,7 @@ fun KwsPanelScreen(
     val rmsDb = remember { mutableStateOf(-120.0) }
     val clipOn = remember { mutableStateOf(false) }
     val logEntries = remember { mutableStateOf(listOf<OutputLogEntry>()) }
+    val pendingLogUpdates = remember { mutableStateOf<Map<Long, AudioCommandLogUpdate>>(emptyMap()) }
     val audioInputMode = remember { mutableStateOf(currentAudioInputModeProvider()) }
     val pendingAudioInputMode = remember { mutableStateOf<AudioInputMode?>(null) }
     var expandedLogId by remember { mutableStateOf<Long?>(null) }
@@ -275,10 +277,16 @@ fun KwsPanelScreen(
                 val detail = controller.getLastDelayDetail().ifBlank { "readGapMs=? procCostMs=? backlogMs=?" }
                 appendLog(
                     logEntries = logEntries,
+                    token = event.timestampMs,
                     playerTimeMs = playerTimeMs,
                     summaryText = "${event.command}  ${summaryLatency}",
                     detailText = "总延迟: ${if (latencyMs >= 0L) "${latencyMs}ms" else "未知"}\n$detail"
                 )
+                pendingLogUpdates.value[event.timestampMs]?.let { update ->
+                    if (updateCommandLog(logEntries, update)) {
+                        pendingLogUpdates.value = pendingLogUpdates.value - event.timestampMs
+                    }
+                }
             }
         }
         controller.setStatusListener { message ->
@@ -522,8 +530,17 @@ fun KwsPanelScreen(
         outputScrollState.scrollTo(outputScrollState.maxValue)
     }
 
+    LaunchedEffect(latestDeviceResultUpdate?.updateId) {
+        latestDeviceResultUpdate?.let { update ->
+            if (!updateCommandLog(logEntries, update)) {
+                pendingLogUpdates.value = pendingLogUpdates.value + (update.token to update)
+            }
+        }
+    }
+
     LaunchedEffect(logClearSignal) {
         logEntries.value = emptyList()
+        pendingLogUpdates.value = emptyMap()
         expandedLogId = null
     }
 }
@@ -545,8 +562,16 @@ private fun formatSliderValue(value: Float): String {
     return if (value == value.toInt().toFloat()) value.toInt().toString() else "%.1f".format(value)
 }
 
+data class AudioCommandLogUpdate(
+    val token: Long,
+    val summarySuffix: String,
+    val detailSuffix: String = "",
+    val updateId: Long = System.nanoTime()
+)
+
 private data class OutputLogEntry(
     val id: Long,
+    val token: Long?,
     val playerTimeText: String,
     val summaryText: String,
     val detailText: String
@@ -554,6 +579,7 @@ private data class OutputLogEntry(
 
 private fun appendLog(
     logEntries: MutableState<List<OutputLogEntry>>,
+    token: Long? = null,
     playerTimeMs: Long,
     summaryText: String,
     detailText: String
@@ -563,6 +589,7 @@ private fun appendLog(
     next.add(
         OutputLogEntry(
             id = System.nanoTime(),
+            token = token,
             playerTimeText = formatPlayerTime(playerTimeMs),
             summaryText = summaryText,
             detailText = detailText
@@ -570,6 +597,32 @@ private fun appendLog(
     )
     if (next.size > MAX_LOG_ITEMS) next.subList(0, next.size - MAX_LOG_ITEMS).clear()
     logEntries.value = next
+}
+
+private fun updateCommandLog(
+    logEntries: MutableState<List<OutputLogEntry>>,
+    update: AudioCommandLogUpdate
+): Boolean {
+    var changed = false
+    val next = logEntries.value.map { entry ->
+        if (entry.token != update.token) return@map entry
+        changed = true
+        val mergedDetail = if (update.detailSuffix.isBlank()) {
+            entry.detailText
+        } else if (entry.detailText.isBlank()) {
+            update.detailSuffix
+        } else {
+            "${entry.detailText}\n${update.detailSuffix}"
+        }
+        entry.copy(
+            summaryText = "${entry.summaryText}  ${update.summarySuffix}",
+            detailText = mergedDetail
+        )
+    }
+    if (changed) {
+        logEntries.value = next
+    }
+    return changed
 }
 
 private fun formatPlayerTime(playerTimeMs: Long): String {

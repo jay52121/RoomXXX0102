@@ -39,6 +39,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
@@ -89,6 +90,7 @@ import com.example.roomxxx0102.logic.validation.EventType
 import com.example.roomxxx0102.logic.validation.MarkedEvent
 import com.example.roomxxx0102.logic.validation.RuntimeRoomEvent
 import com.example.roomxxx0102.logic.video.VideoFeeder
+import com.example.roomxxx0102.ui.audio.AudioCommandLogUpdate
 import com.example.roomxxx0102.ui.audio.KwsPanelScreen
 import com.example.roomxxx0102.ui.views.DetectionOverlayView
 import com.example.roomxxx0102.ui.views.LivingRoomEditorView
@@ -150,6 +152,7 @@ class MainActivity : ComponentActivity() {
     private var handSmokeTester: HandSmokeTester? = null
     private var videoFeeder: VideoFeeder? = null
     private enum class ObserveMode { PERSON, HAND, AUDIO }
+    private enum class CenterBannerDomain { DEVICE, ROOM }
     private var currentObserveMode = ObserveMode.PERSON
     @Volatile private var latestHandResults: List<List<HandSmokeTester.HandPoint>> = emptyList()
     @Volatile private var latestSelectedHandIndex: Int? = null
@@ -158,6 +161,9 @@ class MainActivity : ComponentActivity() {
     private var pointingTargetLabelById: Map<String, String> = emptyMap()
     private var pendingVoicePointingFeedback = false
     private val persistentHandBannerDurationMs = 60 * 60 * 1000L
+    private val pointingReplayHistory = ArrayDeque<HandObservation>()
+    private val pointingReplayHistoryWindowMs = 250L
+    private val pointingReplayRetentionMs = 1200L
     private val kwsAudioSource by lazy {
         SwitchableAudioSource(
             microphoneSource = AudioRecordSource(applicationContext),
@@ -173,6 +179,9 @@ class MainActivity : ComponentActivity() {
     private val kwsController by lazy { KwsControllerImpl(applicationContext, kwsAudioSource) }
     private var isAudioScreenBound = false
     private val kwsLogClearSignal = mutableIntStateOf(0)
+    private val latestKwsAudioLogUpdate = mutableStateOf<AudioCommandLogUpdate?>(null)
+    private var pendingVoiceCommandToken: Long? = null
+    private var lastCenterBannerDomain: CenterBannerDomain? = null
 
     private fun createPoseRoiTracker(): RoiTracker {
         return when (AppSettings.poseRoiSizeMode) {
@@ -218,6 +227,16 @@ class MainActivity : ComponentActivity() {
     private var lastPlusOneSeekDebug: VideoFeeder.StepSeekDebug? = null
     private val seekHoldHandler = Handler(Looper.getMainLooper())
     private val eventUiHandler = Handler(Looper.getMainLooper())
+    private var pendingVoiceTimeoutToken: Long? = null
+    private val pendingVoiceTimeoutRunnable = Runnable {
+        val token = pendingVoiceTimeoutToken ?: return@Runnable
+        if (!pendingVoicePointingFeedback || pendingVoiceCommandToken != token) return@Runnable
+        if (!pointingResolver.isActive()) return@Runnable
+        val decision = pointingResolver.submitFrame(null)
+        if (decision !is PointingDecision.Pending) {
+            handleTriggeredPointingDecision(decision)
+        }
+    }
     private var seekHoldActive = false
     private var seekHoldDirection = 0 // -1: 后退, +1: 前进
     private val seekHoldStartDelayMs = 500L
@@ -521,8 +540,9 @@ class MainActivity : ComponentActivity() {
                         currentPlayState == PlayState.STILL
                     ) {
                         stopSeekHold()
-                        overlayView.showUnlockBanner(
-                            "检测到房间切换($switchTypeLabel): $fromName->$toName，偏差=$switchOffsetText，已停止+1帧长按"
+                        showCenterBanner(
+                            "检测到房间切换($switchTypeLabel): $fromName->$toName，偏差=$switchOffsetText，已停止+1帧长按",
+                            CenterBannerDomain.ROOM
                         )
                     }
                     val shouldAutoPause = AppSettings.isPauseOnRoomSwitchEnabled &&
@@ -531,8 +551,9 @@ class MainActivity : ComponentActivity() {
                     if (shouldAutoPause) {
                         val pauseButton = findViewById<Button>(R.id.btnPause)
                         togglePause(pauseButton)
-                        overlayView.showUnlockBanner(
-                            "检测到房间切换($switchTypeLabel): $fromName->$toName，偏差=$switchOffsetText，已自动暂停"
+                        showCenterBanner(
+                            "检测到房间切换($switchTypeLabel): $fromName->$toName，偏差=$switchOffsetText，已自动暂停",
+                            CenterBannerDomain.ROOM
                         )
                         didAutoPause = true
                     }
@@ -569,8 +590,9 @@ class MainActivity : ComponentActivity() {
                         if (shouldAutoPause) {
                             val pauseButton = findViewById<Button>(R.id.btnPause)
                             togglePause(pauseButton)
-                            overlayView.showUnlockBanner(
-                                "检测到人数扣减($likelyCause): $deltaText，已自动暂停"
+                            showCenterBanner(
+                                "检测到人数扣减($likelyCause): $deltaText，已自动暂停",
+                                CenterBannerDomain.ROOM
                             )
                             didAutoPause = true
                         }
@@ -627,7 +649,7 @@ class MainActivity : ComponentActivity() {
                 RoiLogAggregator.updateHumanRoiRatio(roiRatio)
                 poseAnalyzer?.consumeUnlockMessage()?.let { msg ->
                     Log.i("RoomLockDiag", "ui_consume $msg")
-                    overlayView.showUnlockBanner(msg)
+                    showCenterBanner(msg, CenterBannerDomain.ROOM)
                     tryCaptureUnlockDebugToClipboard(msg)
                 }
                 refreshEventMarkerUi()
@@ -651,7 +673,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             this.onStepNudge = { msg ->
-                overlayView.showUnlockBanner(msg)
+                showCenterBanner(msg, CenterBannerDomain.ROOM)
             }
         }
 
@@ -841,32 +863,59 @@ class MainActivity : ComponentActivity() {
         return targets to labels
     }
 
-    private fun startTriggeredPointingSession() {
+    private fun startTriggeredPointingSession(
+        preRollMs: Long = 0L,
+        centerTimestampMs: Long = SystemClock.uptimeMillis()
+    ): PointingDecision? {
         val bitmap = textureView.bitmap
         if (bitmap == null) {
-            overlayView.showUnlockBanner("指向识别启动失败")
+            cancelPendingVoiceTimeout()
+            if (pendingVoicePointingFeedback) {
+                showCenterBanner("指向识别启动失败", CenterBannerDomain.DEVICE)
+            }
             pendingVoicePointingFeedback = false
-            return
+            pendingVoiceCommandToken = null
+            return null
         }
         val (targets, labels) = buildPointingDeviceTargets()
         pointingTargetLabelById = labels
-        val startTimestampMs = SystemClock.uptimeMillis()
+        val startTimestampMs = (centerTimestampMs - preRollMs).coerceAtLeast(0L)
         pointingResolver.startSession(targets, bitmap.width, bitmap.height, startTimestampMs)
+        val replayDecision = if (preRollMs > 0L) {
+            replayRecentPointingObservations(startTimestampMs, centerTimestampMs)
+        } else {
+            null
+        }
         Log.i(
             "DevicePointingJudge",
             "DEVICE_POINTING|START|targets=${targets.joinToString { "${it.id}:hot=${String.format(Locale.US, "%.3f", it.hotspot.x)},${String.format(Locale.US, "%.3f", it.hotspot.y)}" }}"
         )
+        return replayDecision
     }
 
     private fun handleTriggeredPointingObservation(observation: HandObservation) {
+        rememberPointingObservation(observation)
+        if (!pointingResolver.isActive()) {
+            if (isHandObserveMode()) {
+                startTriggeredPointingSession()
+            } else {
+                return
+            }
+        }
         if (!pointingResolver.isActive()) return
         val decision = pointingResolver.submitFrame(observation)
-        val liveSnapshot = pointingResolver.latestDebugSnapshot()?.takeIf { snapshot ->
-            snapshot.smoothedOrigin != null &&
-                snapshot.smoothedDir != null &&
-                snapshot.frameQuality >= pointingGuideMinQuality
+        val latestSnapshot = pointingResolver.latestDebugSnapshot()
+        val liveSnapshot = if (shouldShowLivePointingDebug()) {
+            latestSnapshot?.takeIf { snapshot ->
+                snapshot.smoothedOrigin != null &&
+                    snapshot.smoothedDir != null &&
+                    snapshot.frameQuality >= pointingGuideMinQuality
+            }
+        } else {
+            null
         }
         runOnUiThread {
+            overlayView.updatePointingPanelSnapshot(latestSnapshot)
             overlayView.updatePointingLiveSnapshot(liveSnapshot)
         }
         if (decision !is PointingDecision.Pending) {
@@ -880,6 +929,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleTriggeredPointingDecision(decision: PointingDecision) {
+        cancelPendingVoiceTimeout()
         when (decision) {
             is PointingDecision.Pending -> Unit
             is PointingDecision.Recognized -> {
@@ -890,7 +940,9 @@ class MainActivity : ComponentActivity() {
                     PointingConfidenceStatus.UNDETERMINED -> "未定"
                 }
                 val message = "命中：$label [$confidenceText] (${String.format(Locale.US, "%.2f", decision.score)})"
-                overlayView.showUnlockBanner(message)
+                if (pendingVoicePointingFeedback) {
+                    showCenterBanner(message, CenterBannerDomain.DEVICE)
+                }
                 Log.i(
                     "DevicePointingJudge",
                     "DEVICE_POINTING|RECOGNIZED|target=${decision.targetId}|label=$label|score=${String.format(Locale.US, "%.3f", decision.score)}|elapsed=${decision.elapsedMs}|path=${decision.diagnostics.acceptPath}|confidence=${decision.diagnostics.confidenceStatus}|lead=${String.format(Locale.US, "%.3f", decision.diagnostics.finalLeadRatio)}|threshold=${String.format(Locale.US, "%.3f", decision.diagnostics.dynamicFinalThreshold)}|top3=${decision.diagnostics.top3Targets}"
@@ -899,26 +951,41 @@ class MainActivity : ComponentActivity() {
                     pointingResolver.latestDebugSnapshot(),
                     holdMs = 500L
                 )
+                pendingVoiceCommandToken?.let { token ->
+                    val deviceElapsedMs = (decision.elapsedMs - pointingReplayHistoryWindowMs).coerceAtLeast(0L)
+                    latestKwsAudioLogUpdate.value = AudioCommandLogUpdate(
+                        token = token,
+                        summarySuffix = "设备 ${deviceElapsedMs}ms",
+                        detailSuffix = "设备命中耗时: ${deviceElapsedMs}ms"
+                    )
+                }
+                pendingVoiceCommandToken = null
                 pendingVoicePointingFeedback = false
             }
             is PointingDecision.Unrecognized -> {
-                val message = if (pendingVoicePointingFeedback && isHandObserveMode()) {
-                    "识别失败"
-                } else {
-                    "未识别(${decision.reason})"
-                }
-                overlayView.showUnlockBanner(message)
+                val message = "设备未命中"
                 Log.i(
                     "DevicePointingJudge",
                     "DEVICE_POINTING|UNRECOGNIZED|reason=${decision.reason}|score=${String.format(Locale.US, "%.3f", decision.score)}|elapsed=${decision.elapsedMs}|path=${decision.diagnostics.acceptPath}|confidence=${decision.diagnostics.confidenceStatus}|lead=${String.format(Locale.US, "%.3f", decision.diagnostics.finalLeadRatio)}|threshold=${String.format(Locale.US, "%.3f", decision.diagnostics.dynamicFinalThreshold)}|top3=${decision.diagnostics.top3Targets}"
                 )
+                if (pendingVoicePointingFeedback) {
+                    showCenterBanner(message, CenterBannerDomain.DEVICE, persistentHandBannerDurationMs)
+                }
                 if (pendingVoicePointingFeedback && isHandObserveMode()) {
-                    overlayView.showUnlockBanner(message, persistentHandBannerDurationMs)
                     overlayView.updatePointingDebugSnapshot(
                         buildTop3FailureSnapshot(pointingResolver.latestDebugSnapshot()),
                         holdMs = 0L
                     )
                 }
+                pendingVoiceCommandToken?.let { token ->
+                    val deviceElapsedMs = (decision.elapsedMs - pointingReplayHistoryWindowMs).coerceAtLeast(0L)
+                    latestKwsAudioLogUpdate.value = AudioCommandLogUpdate(
+                        token = token,
+                        summarySuffix = "未命中 ${deviceElapsedMs}ms",
+                        detailSuffix = "设备未命中耗时: ${deviceElapsedMs}ms"
+                    )
+                }
+                pendingVoiceCommandToken = null
                 if (pendingVoicePointingFeedback &&
                     AppSettings.isPauseOnVoiceRecognizeFailEnabled &&
                     isVideoMode &&
@@ -2045,6 +2112,30 @@ class MainActivity : ComponentActivity() {
 
     private fun isAudioObserveMode(): Boolean = currentObserveMode == ObserveMode.AUDIO
 
+    private fun shouldShowCenterBanner(domain: CenterBannerDomain): Boolean {
+        return when (domain) {
+            CenterBannerDomain.DEVICE -> isHandObserveMode() || isAudioObserveMode()
+            CenterBannerDomain.ROOM -> currentObserveMode == ObserveMode.PERSON
+        }
+    }
+
+    private fun showCenterBanner(
+        message: String,
+        domain: CenterBannerDomain,
+        durationMs: Long = 5000L
+    ) {
+        if (!shouldShowCenterBanner(domain)) return
+        lastCenterBannerDomain = domain
+        overlayView.showUnlockBanner(message, durationMs)
+    }
+
+    private fun clearModeMismatchedCenterBanner() {
+        val domain = lastCenterBannerDomain ?: return
+        if (shouldShowCenterBanner(domain)) return
+        overlayView.clearUnlockBanner()
+        lastCenterBannerDomain = null
+    }
+
     private fun cycleObserveMode() {
         val nextMode = when (currentObserveMode) {
             ObserveMode.PERSON -> ObserveMode.HAND
@@ -2065,11 +2156,9 @@ class MainActivity : ComponentActivity() {
         if (mode == ObserveMode.HAND) {
             handSmokeTester?.startConfidenceProbeSession()
             startTriggeredPointingSession()
-            if (pointingResolver.isActive()) {
-                overlayView.showUnlockBanner("手点采样+指向识别中")
-            }
         }
         updateHandOverlayMode()
+        clearModeMismatchedCenterBanner()
     }
 
     private fun syncAudioScreenMode(active: Boolean) {
@@ -2087,7 +2176,8 @@ class MainActivity : ComponentActivity() {
                         onSelectAudioInputMode = { mode -> setKwsAudioInputMode(mode) },
                         currentPlaybackAudioSourceSpecProvider = { resolvePlaybackAudioSourceSpec() },
                         playbackAudioActiveProvider = { isVideoMode },
-                        logClearSignal = kwsLogClearSignal.intValue
+                        logClearSignal = kwsLogClearSignal.intValue,
+                        latestDeviceResultUpdate = latestKwsAudioLogUpdate.value
                     )
                 }
             }
@@ -2104,25 +2194,75 @@ class MainActivity : ComponentActivity() {
                     "KwsOpenPointing",
                     "${event.command}命中，立即触发一次手势设备匹配 score=${event.score ?: -1f}"
                 )
-                triggerPointingSessionFromVoice()
+                triggerPointingSessionFromVoice(
+                    command = event.command,
+                    commandTimestampMs = event.timestampMs
+                )
             }
         }
     }
 
-    private fun triggerPointingSessionFromVoice() {
+    private fun triggerPointingSessionFromVoice(command: Command, commandTimestampMs: Long) {
         if (!isVideoMode) {
-            AppLog.i("KwsOpenPointing", "忽略OPEN触发：当前不是视频模式")
+            AppLog.i("KwsOpenPointing", "忽略${command.name}触发：当前不是视频模式")
             return
         }
-        startTriggeredPointingSession()
+        cancelPendingVoiceTimeout()
+        pendingVoicePointingFeedback = true
+        pendingVoiceCommandToken = commandTimestampMs
+        showCenterBanner(
+            "${command.name.lowercase(Locale.US)}命中，启动一次手势设备匹配",
+            CenterBannerDomain.DEVICE,
+            persistentHandBannerDurationMs
+        )
+        val immediateDecision = startTriggeredPointingSession(
+            preRollMs = pointingReplayHistoryWindowMs,
+            centerTimestampMs = commandTimestampMs
+        )
+        if (immediateDecision != null) {
+            handleTriggeredPointingDecision(immediateDecision)
+            return
+        }
         if (pointingResolver.isActive()) {
-            pendingVoicePointingFeedback = true
-            if (isHandObserveMode()) {
-                overlayView.showUnlockBanner("准备识别", persistentHandBannerDurationMs)
-            } else {
-                overlayView.showUnlockBanner("open命中，启动一次手势设备匹配")
+            schedulePendingVoiceTimeout(commandTimestampMs)
+        }
+    }
+
+    private fun schedulePendingVoiceTimeout(commandTimestampMs: Long) {
+        pendingVoiceTimeoutToken = commandTimestampMs
+        eventUiHandler.removeCallbacks(pendingVoiceTimeoutRunnable)
+        eventUiHandler.postDelayed(pendingVoiceTimeoutRunnable, pointingReplayHistoryWindowMs)
+    }
+
+    private fun cancelPendingVoiceTimeout() {
+        pendingVoiceTimeoutToken = null
+        eventUiHandler.removeCallbacks(pendingVoiceTimeoutRunnable)
+    }
+
+    private fun rememberPointingObservation(observation: HandObservation) {
+        pointingReplayHistory.addLast(observation)
+        val keepFrom = observation.timestampMs - pointingReplayRetentionMs
+        while (pointingReplayHistory.isNotEmpty() &&
+            pointingReplayHistory.first().timestampMs < keepFrom
+        ) {
+            pointingReplayHistory.removeFirst()
+        }
+    }
+
+    private fun replayRecentPointingObservations(
+        fromTimestampMs: Long,
+        toTimestampMs: Long
+    ): PointingDecision? {
+        val replayFrames = pointingReplayHistory.filter { observation ->
+            observation.timestampMs in fromTimestampMs..toTimestampMs
+        }
+        for (observation in replayFrames) {
+            val decision = pointingResolver.submitFrame(observation)
+            if (decision !is PointingDecision.Pending) {
+                return decision
             }
         }
+        return null
     }
 
     private fun updateHandOverlayMode() {
@@ -2350,10 +2490,31 @@ class MainActivity : ComponentActivity() {
     private fun applySettings() {
         overlayView.setDebugBoxState(AppSettings.isDebugBoxShown)
         overlayView.setCenterPointState(AppSettings.isCenterPointShown)
-        overlayView.setPointingDebugOverlayEnabled(AppSettings.isPointingDebugOverlayEnabled)
+        overlayView.setPointingDebugOverlayEnabled(shouldEnablePointingDebugOverlay())
+        if (!shouldShowLivePointingDebug()) {
+            overlayView.updatePointingLiveSnapshot(null)
+        }
+        if (!isHandObserveMode()) {
+            overlayView.updatePointingPanelSnapshot(null)
+        }
         updateHandOverlayMode()
         videoFeeder?.isPoseMode = AppSettings.isPoseModeEnabled
         if (!isVideoMode) { unbindCamera(); startCameraMode() }
+    }
+
+    private fun shouldEnablePointingDebugOverlay(): Boolean {
+        return AppSettings.isPointingDebugOverlayEnabled &&
+            AppSettings.pointingDebugDisplayMode != AppSettings.POINTING_DEBUG_DISPLAY_NEVER
+    }
+
+    private fun shouldShowLivePointingDebug(): Boolean {
+        if (!shouldEnablePointingDebugOverlay()) return false
+        return when (AppSettings.pointingDebugDisplayMode) {
+            AppSettings.POINTING_DEBUG_DISPLAY_ALWAYS -> true
+            AppSettings.POINTING_DEBUG_DISPLAY_WINDOW_ONLY -> pendingVoicePointingFeedback
+            AppSettings.POINTING_DEBUG_DISPLAY_NEVER -> false
+            else -> false
+        }
     }
 
     private fun refreshEventMarkerUi() {
@@ -2775,6 +2936,7 @@ class MainActivity : ComponentActivity() {
     private fun refreshDebugPanelMode() {
         if (!isDebugPanelEnabled || !isHandObserveMode()) {
             overlayView.setDebugPanelOverride(null, null)
+            overlayView.setHandDebugPanelExtraLines(emptyList())
             return
         }
         val currentFrame = currentEstimatedFrameIndex()
@@ -2791,7 +2953,8 @@ class MainActivity : ComponentActivity() {
             "当前帧事件=无"
         }
         lines += "操作=记录后点击设备，跳转/删除沿用时间线"
-        overlayView.setDebugPanelOverride("看手调试面板", lines)
+        overlayView.setDebugPanelOverride(null, null)
+        overlayView.setHandDebugPanelExtraLines(lines)
     }
 
     private fun resetEventValidationTracking(clearRuntimeEvents: Boolean) {
@@ -3103,7 +3266,7 @@ class MainActivity : ComponentActivity() {
             val delta = runtime.timestampMs - chosen.timestampMs
             val eventRef = markedEventRef(chosen, markedEvents)
             val message = "事件类型:${eventTypeLabel(runtime.type)} ${runtimeEvent.fromName}->${runtimeEvent.toName} (已经匹配 $eventRef, 偏差=${formatSignedOffsetMs(delta)})"
-            overlayView.showUnlockBanner(message)
+            showCenterBanner(message, CenterBannerDomain.ROOM)
             Log.i("EventValidation", "runtime_matched $message")
             return false
         }
@@ -3221,7 +3384,7 @@ class MainActivity : ComponentActivity() {
             val pauseButton = findViewById<Button>(R.id.btnPause)
             togglePause(pauseButton)
         }
-        overlayView.showUnlockBanner(message)
+        showCenterBanner(message, CenterBannerDomain.ROOM)
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 

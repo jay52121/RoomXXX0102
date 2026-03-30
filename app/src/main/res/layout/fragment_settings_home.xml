@@ -212,6 +212,27 @@
                     android:paddingVertical="8dp" />
 
                 <TextView
+                    android:id="@+id/tv_pointing_display_mode_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="手势识别线显示时机"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#333333"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="4dp"/>
+
+                <Spinner
+                    android:id="@+id/spn_pointing_display_mode"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="#FFFFFF"
+                    android:popupBackground="#FFFFFF"
+                    android:theme="@style/ThemeOverlay.MaterialComponents.Light"
+                    android:spinnerMode="dropdown"
+                    android:entries="@array/pointing_debug_display_mode_labels" />
+
+                <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="漏检自动暂停窗口 (ms)"

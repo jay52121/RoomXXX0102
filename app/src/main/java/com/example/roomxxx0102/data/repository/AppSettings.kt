@@ -25,6 +25,7 @@ object AppSettings {
     private const val KEY_STILL_STANDARD_FRAME = "still_standard_frame"
     private const val KEY_CLIPBOARD_DEBUG_ON_STEP = "clipboard_debug_on_step"
     private const val KEY_POINTING_DEBUG_OVERLAY_ENABLED = "pointing_debug_overlay_enabled"
+    private const val KEY_POINTING_DEBUG_DISPLAY_MODE = "pointing_debug_display_mode"
     private const val KEY_PRESENCE_ALGO_VERSION = "presence_algorithm_version"
     private const val KEY_PAUSE_ON_ROOM_SWITCH = "pause_on_room_switch"
     private const val KEY_PAUSE_DECISION_LOG_ON_SWITCH = "pause_decision_log_on_switch"
@@ -61,6 +62,8 @@ object AppSettings {
         private set
     var isPointingDebugOverlayEnabled: Boolean = false
         private set
+    var pointingDebugDisplayMode: Int = POINTING_DEBUG_DISPLAY_WINDOW_ONLY
+        private set
     var presenceAlgorithmVersion: String = PRESENCE_ALGO_AUTO
         private set
     var isPauseOnRoomSwitchEnabled: Boolean = false
@@ -82,6 +85,9 @@ object AppSettings {
     const val POSE_ROI_SIZE_640 = 2
     const val POSE_ROI_SIZE_480 = 3
     const val PRESENCE_ALGO_AUTO = "AUTO_LATEST"
+    const val POINTING_DEBUG_DISPLAY_ALWAYS = 0
+    const val POINTING_DEBUG_DISPLAY_WINDOW_ONLY = 1
+    const val POINTING_DEBUG_DISPLAY_NEVER = 2
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -100,6 +106,10 @@ object AppSettings {
         isStillStandardFrameEnabled = prefs.getBoolean(KEY_STILL_STANDARD_FRAME, false)
         isClipboardDebugOnStepEnabled = prefs.getBoolean(KEY_CLIPBOARD_DEBUG_ON_STEP, false)
         isPointingDebugOverlayEnabled = prefs.getBoolean(KEY_POINTING_DEBUG_OVERLAY_ENABLED, false)
+        pointingDebugDisplayMode = prefs.getInt(
+            KEY_POINTING_DEBUG_DISPLAY_MODE,
+            POINTING_DEBUG_DISPLAY_WINDOW_ONLY
+        ).coerceIn(POINTING_DEBUG_DISPLAY_ALWAYS, POINTING_DEBUG_DISPLAY_NEVER)
         presenceAlgorithmVersion = prefs.getString(KEY_PRESENCE_ALGO_VERSION, PRESENCE_ALGO_AUTO) ?: PRESENCE_ALGO_AUTO
         isPauseOnRoomSwitchEnabled = prefs.getBoolean(KEY_PAUSE_ON_ROOM_SWITCH, false)
         isPauseDecisionLogOnSwitchEnabled = prefs.getBoolean(KEY_PAUSE_DECISION_LOG_ON_SWITCH, false)
@@ -220,6 +230,14 @@ object AppSettings {
     fun setPointingDebugOverlayEnabled(enable: Boolean) {
         isPointingDebugOverlayEnabled = enable
         prefs.edit().putBoolean(KEY_POINTING_DEBUG_OVERLAY_ENABLED, enable).apply()
+    }
+
+    fun setPointingDebugDisplayMode(mode: Int) {
+        pointingDebugDisplayMode = mode.coerceIn(
+            POINTING_DEBUG_DISPLAY_ALWAYS,
+            POINTING_DEBUG_DISPLAY_NEVER
+        )
+        prefs.edit().putInt(KEY_POINTING_DEBUG_DISPLAY_MODE, pointingDebugDisplayMode).apply()
     }
 
     fun setPresenceAlgorithmVersion(version: String) {

@@ -13,6 +13,12 @@
         <item>480</item>
     </string-array>
 
+    <string-array name="pointing_debug_display_mode_labels">
+        <item>永远显示</item>
+        <item>识别窗口显示</item>
+        <item>永不显示</item>
+    </string-array>
+
     <string-array name="presence_algorithm_labels">
         <item>自动(最新)</item>
         <item>V1.0.0(B03011413)</item>

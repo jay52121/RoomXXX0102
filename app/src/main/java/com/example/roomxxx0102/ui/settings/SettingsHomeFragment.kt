@@ -537,6 +537,8 @@ class SettingsHomeFragment : Fragment() {
         binding.switchStillStandardFrame.isChecked = AppSettings.isStillStandardFrameEnabled
         binding.switchClipboardDebug.isChecked = AppSettings.isClipboardDebugOnStepEnabled
         binding.switchPointingDebugOverlay.isChecked = AppSettings.isPointingDebugOverlayEnabled
+        binding.spnPointingDisplayMode.setSelection(AppSettings.pointingDebugDisplayMode)
+        syncPointingDisplayModeVisibility(AppSettings.isPointingDebugOverlayEnabled)
         binding.switchNewTracker.isChecked = AppSettings.isNewTrackerPredictionEnabled
         binding.switchPauseOnRoomSwitch.isChecked = AppSettings.isPauseOnRoomSwitchEnabled
         binding.switchPauseDecisionLogOnSwitch.isChecked = AppSettings.isPauseDecisionLogOnSwitchEnabled
@@ -559,6 +561,14 @@ class SettingsHomeFragment : Fragment() {
         binding.spnPoseRoiSizeMode.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 AppSettings.setPoseRoiSizeMode(position)
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+
+        binding.spnPointingDisplayMode.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                AppSettings.setPointingDebugDisplayMode(position)
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
@@ -618,6 +628,7 @@ class SettingsHomeFragment : Fragment() {
 
         binding.switchPointingDebugOverlay.setOnCheckedChangeListener { _, isChecked ->
             AppSettings.setPointingDebugOverlayEnabled(isChecked)
+            syncPointingDisplayModeVisibility(isChecked)
         }
 
         binding.switchNewTracker.setOnCheckedChangeListener { _, isChecked ->
@@ -749,6 +760,9 @@ class SettingsHomeFragment : Fragment() {
         syncPresenceSpinnerSelection()
         binding.spnPoseRoiSizeMode.setSelection(AppSettings.poseRoiSizeMode)
         syncPoseRoiSizeVisibility(AppSettings.isRoiRealCropEnabled)
+        binding.switchPointingDebugOverlay.isChecked = AppSettings.isPointingDebugOverlayEnabled
+        binding.spnPointingDisplayMode.setSelection(AppSettings.pointingDebugDisplayMode)
+        syncPointingDisplayModeVisibility(AppSettings.isPointingDebugOverlayEnabled)
         binding.switchSmartMatchPause.isChecked = AppSettings.isSmartMatchPauseEnabled
         val windowMs = AppSettings.eventMissPauseWindowMs
         binding.sbEventMissPauseWindow.progress = ((windowMs - 100) / 100).coerceIn(0, 9)
@@ -773,6 +787,12 @@ class SettingsHomeFragment : Fragment() {
         val visibility = if (enabled) View.VISIBLE else View.GONE
         binding.tvPoseRoiSizeLabel.visibility = visibility
         binding.spnPoseRoiSizeMode.visibility = visibility
+    }
+
+    private fun syncPointingDisplayModeVisibility(enabled: Boolean) {
+        val visibility = if (enabled) View.VISIBLE else View.GONE
+        binding.tvPointingDisplayModeLabel.visibility = visibility
+        binding.spnPointingDisplayMode.visibility = visibility
     }
 }
 

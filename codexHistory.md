@@ -1,5 +1,318 @@
 # Codex History
 
+## [340] 2026-03-31 03:25:48 - 看手模式下自动续上常驻指向会话
+
+**用户指令**：
+> 手势质量分和下面几行还是只有在窗口里面才会刷新。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复看手模式下 pointing resolver 会话结束后不再继续处理后续手势观测，导致质量分和下面几行仍然只在识别窗口内刷新的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.handleTriggeredPointingObservation、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `handleTriggeredPointingObservation()` 中，收到新的 `HandObservation` 时如果当前 resolver 不 active 且当前处于看手模式，则自动重新启动 `startTriggeredPointingSession()`。
+      *   启动后继续用当前这帧 observation 提交给 resolver，使看手常驻会话在结束后能够自动续上，不再只在语音触发窗口内刷新质量分、路径、Top3 等面板文字。
+      *   非看手模式保持原逻辑，resolver 不 active 时直接返回。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [339] 2026-03-31 03:20:53 - 让看手调试面板文字持续实时刷新
+
+**用户指令**：
+> 手势的质量分能够让它一直刷新吗？
+> 是的，包括下面还有其他的几个能一直刷新的都让它一直刷新。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：把看手调试面板里的文字数据源从灰线显示时机控制里拆开，让手势质量、分数、Top3 等实时文字持续刷新。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：DetectionOverlayView.setPointingDebugOverlayEnabled、DetectionOverlayView.updatePointingPanelSnapshot、DetectionOverlayView.buildPointingPanelLines、MainActivity.handleTriggeredPointingObservation、MainActivity.applySettings、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `DetectionOverlayView` 新增 `pointingPanelSnapshot` 与 `updatePointingPanelSnapshot()`，专门作为看手调试面板的实时文字数据源。
+      *   `buildPointingPanelLines()` 改为优先读取 `pointingPanelSnapshot`，不再依赖灰线显示链路里的 `livePointingSnapshot`。
+      *   `MainActivity.handleTriggeredPointingObservation()` 改为每次观测都把 `latestDebugSnapshot()` 送进 `updatePointingPanelSnapshot()`，同时保留灰线仍由 `shouldShowLivePointingDebug()` 控制。
+      *   `applySettings()` 在离开看手模式时清空 `pointingPanelSnapshot`，避免其它模式残留上一次手势数据。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [338] 2026-03-31 03:14:59 - 新增手势识别线显示时机设置
+
+**用户指令**：
+> 我观察到了现在不管是刷新还是灰线都只有当。在识别窗口里面才会显示出来。平时不会显示出来。 去设置项里面加一个手势识别线。显示时机。第一个是永远显示，第二个是识别窗口显示，第三个是。永不显示。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：给看手里的灰色手势识别线和实时 pointing 调试增加显示时机选项，支持“永远显示 / 识别窗口显示 / 永不显示”。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/data/repository/AppSettings.kt、app/src/main/res/values/arrays.xml、app/src/main/res/layout/fragment_settings_home.xml、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：AppSettings.init、AppSettings.setPointingDebugDisplayMode、SettingsHomeFragment.onViewCreated、SettingsHomeFragment.onResume、SettingsHomeFragment.syncPointingDisplayModeVisibility、MainActivity.handleTriggeredPointingObservation、MainActivity.applySettings、MainActivity.shouldEnablePointingDebugOverlay、MainActivity.shouldShowLivePointingDebug、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `AppSettings` 新增 `pointingDebugDisplayMode`，持久化三种模式：永远显示、识别窗口显示、永不显示。
+      *   在设置页 `显示 pointing 调试 overlay` 下面新增 `手势识别线显示时机` 下拉框，并在开关关闭时自动隐藏。
+      *   `MainActivity.applySettings()` 改为按新模式控制 overlay 总开关，并在不该显示实时灰线时主动清空 `liveSnapshot`。
+      *   `handleTriggeredPointingObservation()` 改为仅在当前显示模式允许时，才把实时 pointing 快照送进 overlay；“识别窗口显示”沿用语音触发窗口期，“永远显示”则看手模式下持续更新。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [337] 2026-03-31 03:06:14 - 取消看手调试面板整块覆盖并合并标注信息
+
+**用户指令**：
+> 打开这个现在看手面板里面什么东西都没加进去。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复看手右侧调试面板被设备命中事件标注信息整块覆盖，导致 pointing 调试内容完全看不到的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：DetectionOverlayView.setHandDebugPanelExtraLines、DetectionOverlayView.buildHandPanelLines、DetectionOverlayView.drawDebugPanel、MainActivity.refreshDebugPanelMode、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `DetectionOverlayView` 新增 `handDebugPanelExtraLines` 与 `setHandDebugPanelExtraLines()`，专门用于给看手调试面板追加附加文本。
+      *   `buildHandPanelLines()` 改为先显示设备命中事件标注附加内容，再显示 pointing 调试内容与 ROI 相关项。
+      *   `drawDebugPanel()` 在看手模式下默认标题改为 `看手调试面板`，不再依赖整块 override 才能区分。
+      *   `MainActivity.refreshDebugPanelMode()` 改为不再调用 `setDebugPanelOverride("看手调试面板", lines)` 覆盖整块面板，而是改用 `setHandDebugPanelExtraLines(lines)` 并清掉 override。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [336] 2026-03-31 02:58:50 - 按观察模式拆分右侧调试面板内容
+
+**用户指令**：
+> 你得把这些东西拆分开不然耦合太强了都不知道怎么办。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将右侧可开关调试面板按观察模式拆分，避免看手模式继续混入看人的房间/Presence/Pose 大量内容。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：DetectionOverlayView.buildPointingPanelLines、DetectionOverlayView.buildPersonPanelLines、DetectionOverlayView.buildHandPanelLines、DetectionOverlayView.drawDebugPanel、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   新增 `buildPersonPanelLines()`，保留看人的原始调试面板内容：`debugInfo`、当前 Pose ROI 占比、`RoiLogAggregator.snapshotForPanel()`。
+      *   新增 `buildHandPanelLines()`，让看手模式的右侧调试面板只显示指向/手势相关信息，并补充手部 ROI 与少量 Pose ROI 关联项。
+      *   `drawDebugPanel()` 改为按当前模式选择数据源：看手显示 `buildHandPanelLines()`，其它模式显示 `buildPersonPanelLines()`。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [335] 2026-03-31 02:53:39 - 将左上角指向文字调试并入可开关面板
+
+**用户指令**：
+> 你现在有两个调试面板，一个是左上角的一个是可以开关的调试面板，把所有的东西都放到可以开关的调试面板里面去。而且现在很奇怪的是左上角那个很久才刷新一次。希望放进去之后就不会这样。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：移除左上角单独的 pointing 文字调试块，把指向状态、路径、分数、当前手势质量等信息统一并入右侧可开关调试面板，减少双面板割裂。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：DetectionOverlayView.drawPointingDebugOverlay、DetectionOverlayView.buildPointingPanelLines、DetectionOverlayView.drawDebugPanel、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   删除 `drawPointingDebugOverlay()` 末尾左上角 `drawDebugTextBlock()` 的 pointing 文字块。
+      *   新增 `buildPointingPanelLines()`，把指向状态、接受路径、最佳目标、次高分、当前手势质量、有效帧/无手帧、Top3 等统一整理成调试面板文本。
+      *   `drawDebugPanel()` 在原有 ROI/房间调试内容前追加这组 pointing 信息，使其随可开关调试面板一起显示。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [334] 2026-03-31 02:35:52 - 在看手调试面板显示当前手势质量
+
+**用户指令**：
+> 把frameQuality放到看手的调试面板.用中文
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在看手模式的指向调试面板中直接显示 `frameQuality`，方便观察灰色引导线显示条件，文案使用中文。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：DetectionOverlayView.drawPointingDebugOverlay、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在指向调试文本块里新增 `当前手势质量=xx` 一行，直接展示 `debugSnapshot.frameQuality`。
+      *   不改指向判定算法、不改灰色引导线绘制逻辑，只补充调试可观测信息。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [333] 2026-03-31 02:06:19 - 为语音触发设备窗口补超时兜底结果
+
+**用户指令**：
+> 1.有open命中,没有结果.
+> 这样命中设备和未命中都会更新进去吗
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复语音触发设备窗口只显示 `open命中...` 但没有后续结果的问题，为没有后续手势观测帧的情况补一个超时兜底结算，确保最终一定落到命中或未命中。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.startTriggeredPointingSession、MainActivity.handleTriggeredPointingDecision、MainActivity.triggerPointingSessionFromVoice、MainActivity.schedulePendingVoiceTimeout、MainActivity.cancelPendingVoiceTimeout、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   新增 `pendingVoiceTimeoutRunnable`，在语音触发设备窗口后按前向 `250ms` 安排一次超时兜底。
+      *   若窗口后半段没有新的 `HandObservation` 进入、resolver 仍处于 `active`，则主动调用 `pointingResolver.submitFrame(null)` 触发现有 timeout 判定，从而落出 `设备未命中`。
+      *   命中链路不变，仍由正常手势观测实时更新；成功/失败/启动失败时都会取消超时兜底，避免重复结算。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [332] 2026-03-31 01:53:36 - 恢复语音触发的 open/close 中间提示
+
+**用户指令**：
+> open命中，启动一次手势设备匹配 这套才是对的,弄哪里去了
+> ok，而且要持续更新
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：把语音触发设备识别时的中间设备提示从固定的“准备识别”改回 `open/close命中，启动一次手势设备匹配`，并确保每次新的语音命中都会覆盖更新中间窗。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.bindKwsCommandRelay、MainActivity.triggerPointingSessionFromVoice、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `bindKwsCommandRelay()` 向 `triggerPointingSessionFromVoice()` 传入当前命令类型，支持按 `OPEN/CLOSE` 区分中间提示文案。
+      *   `triggerPointingSessionFromVoice()` 在每次语音命中开始时直接显示 `${command}命中，启动一次手势设备匹配`，替代固定 `准备识别`。
+      *   语音触发文案使用 `lowercase(Locale.US)` 输出为 `open/close`，并继续由后续 `命中：... / 设备未命中 / 指向识别启动失败` 覆盖。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [331] 2026-03-31 01:43:41 - 统一设备中间提示只响应语音触发
+
+**用户指令**：
+> 还是不一样!
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让看手与听声音界面的中间设备提示彻底同源，只响应语音触发的设备窗口判定，不再被看手模式下持续手势会话的命中/未识别结果打扰。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.startTriggeredPointingSession、MainActivity.handleTriggeredPointingDecision、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   `startTriggeredPointingSession()` 里仅当 `pendingVoicePointingFeedback` 为真时才显示 `指向识别启动失败` 中间提示。
+      *   `handleTriggeredPointingDecision()` 里仅当本次为语音触发时才显示设备命中中间提示，避免看手模式下持续手势会话不断覆盖中间窗。
+      *   非语音触发的 `Unrecognized` 不再向中间窗写入 `未识别(...)`；语音触发失败继续统一显示 `设备未命中`，看手与听声音因此完全共用同一条设备提示链。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [330] 2026-03-31 01:37:33 - 统一看手与听声音的设备提示语义
+
+**用户指令**：
+> 听声音和看手的中央窗还是不一样.
+> ok,开始吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让看手与听声音界面的中间设备提示彻底统一，去掉看手独有文案，并统一语音触发时的准备态与未命中长驻行为。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.applyObserveMode、MainActivity.handleTriggeredPointingDecision、MainActivity.triggerPointingSessionFromVoice、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   移除看手模式独有的 `手点采样+指向识别中` 中间提示。
+      *   语音触发设备识别时，无论看手还是听声音，都统一显示 `准备识别`，不再在听声音侧显示 `open命中，启动一次手势设备匹配`。
+      *   语音触发失败时的 `设备未命中` 长驻提示统一到看手与听声音两边；手模式仍保留失败 Top3 调试快照展示。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [329] 2026-03-31 01:31:54 - 中间信息窗按观察模式分流
+
+**用户指令**：
+> 中间的信息窗全乱了,他在各个界面应该是一样的链路,而不是看手听声音不同.
+> 中间窗口目前到底承载了哪些东西
+> 那的确有点问题.这样,我们在听声音和看手界面只显示设备(声音属于设备)有关的.在看人界面只显示和房间以及人数pose那些.彻底分开
+> ok
+> 开始啊
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将中间信息窗按观察模式彻底分流为“设备类”和“房间/人数/presence 类”两条逻辑，避免看手/听声音与看人界面互相串消息。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.shouldShowCenterBanner、MainActivity.showCenterBanner、MainActivity.clearModeMismatchedCenterBanner、MainActivity.applyObserveMode、MainActivity.startTriggeredPointingSession、MainActivity.handleTriggeredPointingDecision、MainActivity.triggerPointingSessionFromVoice、DetectionOverlayView.clearUnlockBanner、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `MainActivity` 新增 `CenterBannerDomain`，把中间信息窗分成 `DEVICE` 与 `ROOM` 两类。
+      *   所有设备识别相关提示（准备识别、设备命中、设备未命中、指向识别启动失败、手点采样+指向识别中）统一走 `DEVICE` 分流，仅在看手/听声音模式放行。
+      *   房间切换、人数扣减、pose/presence 内部提示、事件匹配和校验异常等统一走 `ROOM` 分流，仅在看人模式放行。
+      *   在 `DetectionOverlayView` 增加 `clearUnlockBanner()`，观察模式切换时如果上一条提示不属于新模式，就立即清掉，避免旧的持久消息跨模式残留。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [328] 2026-03-31 01:11:12 - 修复听声音日志补写时序与设备未命中文案
+
+**用户指令**：
+> 现在中间的状态写的是未识别(以及原因),右边的也还是只有open 351ms
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复语音触发设备判定失败时顶部仍显示“未识别(原因)”的问题，并修复听声音面板右侧日志因时序竞争导致第二段设备结果耗时未补写的问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：KwsPanelScreen、appendLog、updateCommandLog、MainActivity.handleTriggeredPointingDecision、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `KwsPanelScreen` 增加 `pendingLogUpdates` 待补写缓存；当设备结果先于命中日志到达时，先按 token 暂存，待 `open 351ms` 这条日志真正插入后再自动补写 `设备 xxms / 未命中 xxms`。
+      *   将语音触发失败时的顶部文案统一收口为 `设备未命中`，不再回退到 `未识别(原因)`。
+      *   清空日志时同时清掉待补写缓存，避免旧 token 污染新日志。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [327] 2026-03-31 01:04:21 - 听声音日志补写设备结果耗时
+
+**用户指令**：
+> 在听声音面板里面。每一航日志除了。标题里面写多少毫秒命中之外，再把。多少毫秒后识别失败，也显示出来。 例如: open 351ms 设备命中 19ms 或者 open 351ms 设备未命中 250ms
+> 不用显示成功失败两个字. 另外第二段时间我会按“从语音命中事件到设备窗口判定结束”的耗时来算是错的. 命中应该是命中到的时间.未命中才应该是窗口 (此时理论上上方中间的实时信息窗口应该也正好显示设备未命中(以前的识别失败改一下文字))
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让听声音面板右侧日志在保留语音命中耗时的同时，补写设备命中/未命中耗时，并把顶部失败提示改成“设备未命中”。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/audio/KwsPanelScreen.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：KwsPanelScreen、appendLog、updateCommandLog、MainActivity.syncAudioScreenMode、MainActivity.bindKwsCommandRelay、MainActivity.triggerPointingSessionFromVoice、MainActivity.handleTriggeredPointingDecision、MainActivity.startTriggeredPointingSession、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   听声音面板日志项新增 `token` 概念，直接复用 `KWS CommandEvent.timestampMs`，保证同一次语音命中与后续设备结果可以精确关联到同一行日志。
+      *   新增 `AudioCommandLogUpdate` 与 `updateCommandLog()`，使声音面板可以在命中日志生成后，再补写第二段摘要为 `设备 xxms` 或 `未命中 xxms`。
+      *   主界面增加 `latestKwsAudioLogUpdate` 状态，把语音触发设备识别的最终结果回传给 `KwsPanelScreen`；命中时使用“设备真正命中的耗时”，未命中时使用“窗口结束耗时”。
+      *   语音触发设备识别改为以 `KWS event.timestampMs` 作为窗口中心，确保前后250ms窗口与日志耗时基准一致。
+      *   顶部中间提示文案由 `识别失败` 改为 `设备未命中`。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [326] 2026-03-31 00:00:00 - 语音触发手势识别支持前250ms回放
+
+**用户指令**：
+> 我们当前的方案,能不能回溯250ms?从准备识别的时间开始为中心,前后250ms作为窗口期.
+> 1.这整个500ms的内容全部判断完估计需要多久?10ms? 2.250ms喂进去之后已经可以开始判断,不一定要吃满500ms,准确说是只要250里面满足了,后面的都不需要吃
+> 让你开始
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将语音触发的一次手势设备识别改成“以准备识别时刻为中心，前250ms历史回放 + 后250ms实时补齐”的窗口模式，并支持在前250ms历史帧中提前命中后立即结束。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.startTriggeredPointingSession、MainActivity.handleTriggeredPointingObservation、MainActivity.triggerPointingSessionFromVoice、MainActivity.rememberPointingObservation、MainActivity.replayRecentPointingObservations、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `MainActivity` 中增加最近手势观测的环形缓冲，长期保留约 1.2s，供语音触发时回溯读取。
+      *   语音触发时以 `SystemClock.uptimeMillis()` 为中心，将 session 起点回拨 250ms，并先按时间顺序回放这 250ms 内的历史 `HandObservation`。
+      *   如果历史帧回放过程中已经满足快接受/正常接受，则立即结束，不再继续吃后 250ms 的实时帧；否则继续沿用现有 500ms resolver 窗口接收后续实时帧。
+      *   普通“进入看手模式”的连续会话保持原样，不启用历史回放。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
 ## [325] 2026-03-31 00:00:00 - 手势设备识别窗口收紧为500ms
 
 **用户指令**：

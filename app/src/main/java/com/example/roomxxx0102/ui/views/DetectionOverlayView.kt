@@ -63,6 +63,7 @@ class DetectionOverlayView @JvmOverloads constructor(
     private var showPointingDebugOverlay = false
     private var livePointingSnapshot: PointingDebugSnapshot? = null
     private var pointingDebugSnapshot: PointingDebugSnapshot? = null
+    private var pointingPanelSnapshot: PointingDebugSnapshot? = null
     private var pointingDebugVisibleUntilMs = 0L
     // 🔥 新增：是否处于编辑模式
     private var isEditMode = false
@@ -75,6 +76,7 @@ class DetectionOverlayView @JvmOverloads constructor(
     private var showDeviceHitMarkers = false
     private var debugPanelOverrideTitle: String? = null
     private var debugPanelOverrideLines: List<String>? = null
+    private var handDebugPanelExtraLines: List<String> = emptyList()
     private var onDeviceTapListener: ((DeviceConfig) -> Boolean)? = null
     private var onDeviceSelectionCancelListener: (() -> Boolean)? = null
     private var deviceSelectionModeActive = false
@@ -515,6 +517,11 @@ class DetectionOverlayView @JvmOverloads constructor(
         postInvalidate()
     }
 
+    fun updatePointingPanelSnapshot(snapshot: PointingDebugSnapshot?) {
+        pointingPanelSnapshot = snapshot
+        postInvalidate()
+    }
+
     fun updatePointingDebugSnapshot(snapshot: PointingDebugSnapshot?, holdMs: Long = 0L) {
         if (!showPointingDebugOverlay) return
         pointingDebugSnapshot = snapshot
@@ -529,6 +536,14 @@ class DetectionOverlayView @JvmOverloads constructor(
     fun showUnlockBanner(message: String, durationMs: Long = 5000L) {
         unlockBannerText = message
         unlockBannerUntil = System.currentTimeMillis() + durationMs.coerceAtLeast(0L)
+        postInvalidate()
+    }
+
+    fun clearUnlockBanner() {
+        unlockBannerText = null
+        unlockBannerUntil = 0L
+        unlockBannerRect = null
+        cancelBannerLongPressTracking()
         postInvalidate()
     }
 
@@ -547,6 +562,11 @@ class DetectionOverlayView @JvmOverloads constructor(
     fun setDebugPanelOverride(title: String?, lines: List<String>?) {
         debugPanelOverrideTitle = title
         debugPanelOverrideLines = lines?.toList()
+        postInvalidate()
+    }
+
+    fun setHandDebugPanelExtraLines(lines: List<String>) {
+        handDebugPanelExtraLines = lines.toList()
         postInvalidate()
     }
 
@@ -942,13 +962,6 @@ class DetectionOverlayView @JvmOverloads constructor(
             )
         }
 
-        val lines = listOf(
-            "pointing=${if (debugSnapshot.isActive) "active" else "inactive"} elapsed=${debugSnapshot.elapsedMs}ms",
-            "path=${debugSnapshot.acceptPath} best=${debugSnapshot.bestTargetId ?: "-"} score=${String.format("%.2f", debugSnapshot.bestScore)}",
-            "second=${String.format("%.2f", debugSnapshot.secondScore)} margin=${String.format("%.2f", debugSnapshot.bestScore - debugSnapshot.secondScore)} quality=${String.format("%.2f", debugSnapshot.frameQuality)}",
-            "valid=${debugSnapshot.validFrames} noHand=${debugSnapshot.noHandFrames} top3=${debugSnapshot.top3Targets.joinToString { "${it.first}:${String.format("%.2f", it.second)}" }}"
-        )
-        drawDebugTextBlock(canvas, lines)
     }
 
     private fun drawPointingLine(
@@ -1028,6 +1041,41 @@ class DetectionOverlayView @JvmOverloads constructor(
         canvas.drawRoundRect(left, top, left + widthPx, top + heightPx, 12f, 12f, pointingTextBgPaint)
         lines.forEachIndexed { index, text ->
             canvas.drawText(text, left + 12f, top + 28f + index * lineHeight, pointingTextPaint)
+        }
+    }
+
+    private fun buildPointingPanelLines(): List<String> {
+        val heldSnapshot = pointingDebugSnapshot
+        val panelSnapshot = pointingPanelSnapshot
+        val debugSnapshot = panelSnapshot ?: heldSnapshot ?: return emptyList()
+        return listOf(
+            "指向状态=${if (debugSnapshot.isActive) "进行中" else "已结束"} elapsed=${debugSnapshot.elapsedMs}ms",
+            "接受路径=${debugSnapshot.acceptPath} 最佳目标=${debugSnapshot.bestTargetId ?: "-"} 分数=${String.format("%.2f", debugSnapshot.bestScore)}",
+            "次高分=${String.format("%.2f", debugSnapshot.secondScore)} 分差=${String.format("%.2f", debugSnapshot.bestScore - debugSnapshot.secondScore)}",
+            "当前手势质量=${String.format("%.2f", debugSnapshot.frameQuality)}",
+            "有效帧=${debugSnapshot.validFrames} 无手帧=${debugSnapshot.noHandFrames}",
+            "Top3=${debugSnapshot.top3Targets.joinToString { "${it.first}:${String.format("%.2f", it.second)}" }}"
+        )
+    }
+
+    private fun buildPersonPanelLines(): List<String> {
+        return mutableListOf<String>().apply {
+            add(debugInfo)
+            roiRatio?.let { ratio ->
+                add("当前Pose ROI占比=${String.format("%.2f", ratio)}")
+            }
+            addAll(RoiLogAggregator.snapshotForPanel())
+        }
+    }
+
+    private fun buildHandPanelLines(): List<String> {
+        val handLines = RoiLogAggregator.snapshotForPanel().filter { line ->
+            line.startsWith("手部ROI") || line.startsWith("Pose ROI框") || line.startsWith("当前Pose ROI占比")
+        }
+        return mutableListOf<String>().apply {
+            addAll(handDebugPanelExtraLines)
+            addAll(buildPointingPanelLines())
+            addAll(handLines)
         }
     }
 
@@ -1201,15 +1249,13 @@ class DetectionOverlayView @JvmOverloads constructor(
         val maxLines = ((panelBottom - panelTop - 56f) / lineHeight).toInt().coerceAtLeast(1)
 
         var y = panelTop + paddingTop + 24f
-        canvas.drawText(debugPanelOverrideTitle ?: "调试信息面板", panelLeft + paddingLeft, y, debugPanelTitlePaint)
+        val panelTitle = debugPanelOverrideTitle ?: if (showHandOnly) "看手调试面板" else "调试信息面板"
+        canvas.drawText(panelTitle, panelLeft + paddingLeft, y, debugPanelTitlePaint)
         y += 34f
 
-        val lines = debugPanelOverrideLines?.toMutableList() ?: mutableListOf<String>().apply {
-            add(debugInfo)
-            roiRatio?.let { ratio ->
-                add("当前Pose ROI占比=${String.format("%.2f", ratio)}")
-            }
-            addAll(RoiLogAggregator.snapshotForPanel())
+        val lines = debugPanelOverrideLines?.toMutableList() ?: when {
+            showHandOnly -> buildHandPanelLines().toMutableList()
+            else -> buildPersonPanelLines().toMutableList()
         }
 
         var drawn = 0
