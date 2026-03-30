@@ -21,12 +21,14 @@ object AppSettings {
     private const val KEY_NO_ROOM_CONFIG_SELECTED = "no_room_config_selected"
     private const val KEY_ENABLE_NEW_TRACKER = "enable_new_tracker"
     private const val KEY_ROI_LOG_MODE = "roi_log_mode"
+    private const val KEY_POSE_ROI_SIZE_MODE = "pose_roi_size_mode"
     private const val KEY_STILL_STANDARD_FRAME = "still_standard_frame"
     private const val KEY_CLIPBOARD_DEBUG_ON_STEP = "clipboard_debug_on_step"
     private const val KEY_POINTING_DEBUG_OVERLAY_ENABLED = "pointing_debug_overlay_enabled"
     private const val KEY_PRESENCE_ALGO_VERSION = "presence_algorithm_version"
     private const val KEY_PAUSE_ON_ROOM_SWITCH = "pause_on_room_switch"
     private const val KEY_PAUSE_DECISION_LOG_ON_SWITCH = "pause_decision_log_on_switch"
+    private const val KEY_PAUSE_ON_VOICE_RECOGNIZE_FAIL = "pause_on_voice_recognize_fail"
     private const val KEY_EVENT_MISS_PAUSE_WINDOW_MS = "event_miss_pause_window_ms"
     private const val KEY_SMART_MATCH_PAUSE_ENABLED = "smart_match_pause_enabled"
 
@@ -51,6 +53,8 @@ object AppSettings {
         private set
     var roiLogMode: Int = ROI_LOG_MODE_TIME
         private set
+    var poseRoiSizeMode: Int = POSE_ROI_SIZE_DYNAMIC
+        private set
     var isStillStandardFrameEnabled: Boolean = false
         private set
     var isClipboardDebugOnStepEnabled: Boolean = false
@@ -63,6 +67,8 @@ object AppSettings {
         private set
     var isPauseDecisionLogOnSwitchEnabled: Boolean = false
         private set
+    var isPauseOnVoiceRecognizeFailEnabled: Boolean = false
+        private set
     var eventMissPauseWindowMs: Int = 500
         private set
     var isSmartMatchPauseEnabled: Boolean = true
@@ -71,6 +77,10 @@ object AppSettings {
     const val ROI_LOG_MODE_TIME = 0
     const val ROI_LOG_MODE_MOVE = 1
     const val ROI_LOG_MODE_OFF = 2
+    const val POSE_ROI_SIZE_DYNAMIC = 0
+    const val POSE_ROI_SIZE_960 = 1
+    const val POSE_ROI_SIZE_640 = 2
+    const val POSE_ROI_SIZE_480 = 3
     const val PRESENCE_ALGO_AUTO = "AUTO_LATEST"
 
     fun init(context: Context) {
@@ -85,12 +95,15 @@ object AppSettings {
         isNoRoomConfigSelected = prefs.getBoolean(KEY_NO_ROOM_CONFIG_SELECTED, false)
         isNewTrackerPredictionEnabled = prefs.getBoolean(KEY_ENABLE_NEW_TRACKER, false)
         roiLogMode = prefs.getInt(KEY_ROI_LOG_MODE, ROI_LOG_MODE_TIME)
+        poseRoiSizeMode = prefs.getInt(KEY_POSE_ROI_SIZE_MODE, POSE_ROI_SIZE_DYNAMIC)
+            .coerceIn(POSE_ROI_SIZE_DYNAMIC, POSE_ROI_SIZE_480)
         isStillStandardFrameEnabled = prefs.getBoolean(KEY_STILL_STANDARD_FRAME, false)
         isClipboardDebugOnStepEnabled = prefs.getBoolean(KEY_CLIPBOARD_DEBUG_ON_STEP, false)
         isPointingDebugOverlayEnabled = prefs.getBoolean(KEY_POINTING_DEBUG_OVERLAY_ENABLED, false)
         presenceAlgorithmVersion = prefs.getString(KEY_PRESENCE_ALGO_VERSION, PRESENCE_ALGO_AUTO) ?: PRESENCE_ALGO_AUTO
         isPauseOnRoomSwitchEnabled = prefs.getBoolean(KEY_PAUSE_ON_ROOM_SWITCH, false)
         isPauseDecisionLogOnSwitchEnabled = prefs.getBoolean(KEY_PAUSE_DECISION_LOG_ON_SWITCH, false)
+        isPauseOnVoiceRecognizeFailEnabled = prefs.getBoolean(KEY_PAUSE_ON_VOICE_RECOGNIZE_FAIL, false)
         eventMissPauseWindowMs = prefs.getInt(KEY_EVENT_MISS_PAUSE_WINDOW_MS, 500).coerceIn(100, 1000)
         isSmartMatchPauseEnabled = prefs.getBoolean(KEY_SMART_MATCH_PAUSE_ENABLED, true)
     }
@@ -189,6 +202,11 @@ object AppSettings {
         prefs.edit().putInt(KEY_ROI_LOG_MODE, mode).apply()
     }
 
+    fun setPoseRoiSizeMode(mode: Int) {
+        poseRoiSizeMode = mode.coerceIn(POSE_ROI_SIZE_DYNAMIC, POSE_ROI_SIZE_480)
+        prefs.edit().putInt(KEY_POSE_ROI_SIZE_MODE, poseRoiSizeMode).apply()
+    }
+
     fun setStillStandardFrameEnabled(enable: Boolean) {
         isStillStandardFrameEnabled = enable
         prefs.edit().putBoolean(KEY_STILL_STANDARD_FRAME, enable).apply()
@@ -217,6 +235,11 @@ object AppSettings {
     fun setPauseDecisionLogOnSwitchEnabled(enable: Boolean) {
         isPauseDecisionLogOnSwitchEnabled = enable
         prefs.edit().putBoolean(KEY_PAUSE_DECISION_LOG_ON_SWITCH, enable).apply()
+    }
+
+    fun setPauseOnVoiceRecognizeFailEnabled(enable: Boolean) {
+        isPauseOnVoiceRecognizeFailEnabled = enable
+        prefs.edit().putBoolean(KEY_PAUSE_ON_VOICE_RECOGNIZE_FAIL, enable).apply()
     }
 
     fun setEventMissPauseWindowMs(windowMs: Int) {

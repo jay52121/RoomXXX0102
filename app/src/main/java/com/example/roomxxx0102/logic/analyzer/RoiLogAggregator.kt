@@ -27,6 +27,10 @@ object RoiLogAggregator {
     private var roiTracking = false
     private var roiSparse = false
     private var roiStable = false
+    private var handRoiBox: RectF? = null
+    private var handRoiTracking = false
+    private var handRoiStable = false
+    private var humanRoiRatio: Float? = null
 
     private var dxPx = 0f
     private var dyPx = 0f
@@ -54,7 +58,8 @@ object RoiLogAggregator {
     private var frameDigestPosMs: Int? = null
     private var frameDigestTemporalAdvanced: Boolean = false
 
-    private var sizeChange: String? = null
+    private var humanSizeChange: String? = null
+    private var handSizeChange: String? = null
 
     private var presenceAlgoVersion: String = "-"
     private var presenceLastEvent: String = "-"
@@ -102,6 +107,20 @@ object RoiLogAggregator {
         roiTracking = tracking
         roiSparse = sparse
         roiStable = stable
+        maybeLog()
+    }
+
+    @Synchronized
+    fun updateHandRoiVisual(box: RectF?, tracking: Boolean, stable: Boolean) {
+        handRoiBox = box
+        handRoiTracking = tracking
+        handRoiStable = stable
+        maybeLog()
+    }
+
+    @Synchronized
+    fun updateHumanRoiRatio(ratio: Float?) {
+        humanRoiRatio = ratio
         maybeLog()
     }
 
@@ -171,8 +190,21 @@ object RoiLogAggregator {
     }
 
     @Synchronized
-    fun updateRoiSizeChange(prevSize: Float, newSize: Float, ratio: Float, maxSide: Float) {
-        sizeChange = "size=${fmt(prevSize)}->${fmt(newSize)} ratio=${fmt(ratio)} maxSide=${fmt(maxSide)}"
+    fun updateRoiSizeChange(
+        source: String,
+        prevSize: Float,
+        newSize: Float,
+        ratio: Float,
+        maxSide: Float,
+        reason: String
+    ) {
+        val text =
+            "size=${fmt(prevSize)}->${fmt(newSize)} ratio=${fmt(ratio)} maxSide=${fmt(maxSide)} 原因=$reason"
+        if (source == "手部ROI") {
+            handSizeChange = text
+        } else {
+            humanSizeChange = text
+        }
         maybeLog()
     }
 
@@ -215,7 +247,11 @@ object RoiLogAggregator {
         val lines = mutableListOf<String>()
         lines.add("frame=$frameId raw=$rawCount nms=$nmsCount tracked=$trackedCount roi=$roiEnabled")
         lines.add("box=${fmt(box)}")
-        lines.add("roiBox=${fmt(roiBox)} track=$roiTracking sparse=$roiSparse stable=$roiStable")
+        lines.add("Pose ROI框=${fmt(roiBox)} track=$roiTracking sparse=$roiSparse stable=$roiStable")
+        lines.add("当前Pose ROI占比=${humanRoiRatio?.let { fmt(it) } ?: "-"}")
+        lines.add("Pose ROI尺寸变化=${humanSizeChange ?: "-"}")
+        lines.add("手部ROI框=${fmt(handRoiBox)} track=$handRoiTracking stable=$handRoiStable")
+        lines.add("手部ROI尺寸变化=${handSizeChange ?: "-"}")
         lines.add("pose update=$poseUpdateCount results=$poseResultsCount ms=$poseTimeMs bmp=$poseHasBmp")
         lines.add("presence algo=$presenceAlgoVersion")
         lines.add("presence event=$presenceLastEvent")
@@ -277,16 +313,16 @@ object RoiLogAggregator {
 
         Log.d(
             TAG,
-            "frame=$frameId raw=$rawCount nms=$nmsCount tracked=$trackedCount roi=$roiEnabled " +
-                "roiPx=${fmt(roiPx)} box=${fmt(box)} roiBox=${fmt(roiBox)} " +
-                "track=$roiTracking sparse=$roiSparse stable=$roiStable " +
+                "frame=$frameId raw=$rawCount nms=$nmsCount tracked=$trackedCount roi=$roiEnabled " +
+                "roiPx=${fmt(roiPx)} box=${fmt(box)} humanRoiBox=${fmt(roiBox)} handRoiBox=${fmt(handRoiBox)} " +
+                "track=$roiTracking sparse=$roiSparse stable=$roiStable handTrack=$handRoiTracking handStable=$handRoiStable " +
                 "dx=${fmt(dxPx)} dy=${fmt(dyPx)} max=${fmt(maxOffsetPx)} dead=${fmt(deadZone)} " +
                 "inDead=$inDeadZone topMove=${fmt(topMove)} roiCy=${fmt(roiCy)} roiSize=${fmt(roiSize)} " +
                 "clampL=$clampL clampR=$clampR clampT=$clampT clampB=$clampB " +
                 "lastTL=$lastTL lastTR=$lastTR currTL=$currTL currTR=$currTR " +
                 "digest=${frameDigest ?: "null"} posMs=${frameDigestPosMs ?: -1} ta=$frameDigestTemporalAdvanced " +
                 "poseUpdate=$poseUpdateCount poseResults=$poseResultsCount poseMs=$poseTimeMs bmp=$poseHasBmp " +
-                "sizeChange=${sizeChange ?: "-"}"
+                "humanSizeChange=${humanSizeChange ?: "-"} handSizeChange=${handSizeChange ?: "-"}"
         )
     }
 

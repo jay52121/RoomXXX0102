@@ -26,6 +26,7 @@ class KwsControllerImpl(
     private val appContext = context.applicationContext
 
     private var listener: KwsListener? = null
+    private var extraCommandListener: ((CommandEvent) -> Unit)? = null
     // 状态回调：用于把“开始/停止/静音重置/冷却开始/冷却结束”等信息主动抛给 UI。
     private var statusListener: ((String) -> Unit)? = null
     // 音频帧回调：用于 UI 侧实时展示电平表，避免与监听争用麦克风。
@@ -82,6 +83,10 @@ class KwsControllerImpl(
 
     override fun setListener(listener: KwsListener?) {
         this.listener = listener
+    }
+
+    fun setExtraCommandListener(listener: ((CommandEvent) -> Unit)?) {
+        this.extraCommandListener = listener
     }
 
     /**
@@ -359,9 +364,9 @@ class KwsControllerImpl(
                     } else {
                         -1L
                     }
-                    listener?.onCommand(
-                        CommandEvent(cmd, nowMs, hit.keywordRaw, hit.score)
-                    )
+                    val commandEvent = CommandEvent(cmd, nowMs, hit.keywordRaw, hit.score)
+                    listener?.onCommand(commandEvent)
+                    extraCommandListener?.invoke(commandEvent)
                     // 命中后进入冷却，并重置流上下文，避免重复触发。
                     cooldownUntilMs = nowMs + config.cooldownMs
                     engine.resetStream()

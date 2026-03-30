@@ -439,6 +439,7 @@ class DetectionOverlayView @JvmOverloads constructor(
         handRoiBox = box
         prevHandRoiBox = box
         isHandRoiTracking = isTracking
+        RoiLogAggregator.updateHandRoiVisual(box, isTracking, isHandRoiStable)
         postInvalidate()
     }
 
@@ -506,9 +507,9 @@ class DetectionOverlayView @JvmOverloads constructor(
         postInvalidate()
     }
 
-    fun showUnlockBanner(message: String) {
+    fun showUnlockBanner(message: String, durationMs: Long = 5000L) {
         unlockBannerText = message
-        unlockBannerUntil = System.currentTimeMillis() + 5000L
+        unlockBannerUntil = System.currentTimeMillis() + durationMs.coerceAtLeast(0L)
         postInvalidate()
     }
 
@@ -1162,7 +1163,7 @@ class DetectionOverlayView @JvmOverloads constructor(
         val lines = debugPanelOverrideLines?.toMutableList() ?: mutableListOf<String>().apply {
             add(debugInfo)
             roiRatio?.let { ratio ->
-                add("roiRatio=${String.format("%.2f", ratio)}")
+                add("当前Pose ROI占比=${String.format("%.2f", ratio)}")
             }
             addAll(RoiLogAggregator.snapshotForPanel())
         }

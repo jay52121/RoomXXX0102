@@ -65,6 +65,7 @@ import com.example.roomxxx0102.logic.pointing.DevicePointingTarget
 import com.example.roomxxx0102.logic.pointing.DeviceTriggeredPointingResolver
 import com.example.roomxxx0102.logic.pointing.HandObservation
 import com.example.roomxxx0102.logic.pointing.PointingDecision
+import com.example.roomxxx0102.logic.pointing.PointingDebugSnapshot
 import com.example.roomxxx0102.logic.pointing.PointingConfidenceStatus
 import com.example.roomxxx0102.logic.presence.PresenceOutsideMode
 import com.example.roomxxx0102.logic.presence.PresenceKeypoint
@@ -94,6 +95,7 @@ import com.example.roomxxx0102.ui.views.TacticalMapView
 import com.example.roomxxx0102.utils.AppLog
 import com.example.roomxxx0102.utils.BitmapTransfer
 import com.example.roomxxx0102.utils.GeometryUtils
+import com.example.roomxxx_vocie.Command
 import com.example.roomxxx_vocie.KwsControllerImpl
 import com.example.roomxxx_vocie.audio.AudioInputMode
 import com.example.roomxxx_vocie.audio.AudioRecordSource
@@ -132,8 +134,13 @@ class MainActivity : ComponentActivity() {
     private val btnAddDevice: Button by lazy { findViewById(R.id.btnAddDevice) }
 
     // 🔥 ROI Tracker
-    private val roiTracker = RoiTracker()
-    private val handRoiTracker = RoiTracker(baseRoiSizePx = 224f, adaptiveResizeEnabled = false)
+    private var roiTracker = createPoseRoiTracker()
+    private val handRoiTracker = RoiTracker(
+        baseRoiSizePx = 224f,
+        adaptiveResizeEnabled = false,
+        logSource = "手部ROI"
+    )
+    private var lastPoseRoiSizeMode = AppSettings.poseRoiSizeMode
     private var roiMissingFrameCount = 0
     private var handRoiMissingFrameCount = 0
 
@@ -148,6 +155,8 @@ class MainActivity : ComponentActivity() {
     private val pointingResolver = DeviceTriggeredPointingResolver()
     private val pointingGuideMinQuality = 0.45f
     private var pointingTargetLabelById: Map<String, String> = emptyMap()
+    private var pendingVoicePointingFeedback = false
+    private val persistentHandBannerDurationMs = 60 * 60 * 1000L
     private val kwsAudioSource by lazy {
         SwitchableAudioSource(
             microphoneSource = AudioRecordSource(applicationContext),
@@ -163,6 +172,34 @@ class MainActivity : ComponentActivity() {
     private val kwsController by lazy { KwsControllerImpl(applicationContext, kwsAudioSource) }
     private var isAudioScreenBound = false
     private val kwsLogClearSignal = mutableIntStateOf(0)
+
+    private fun createPoseRoiTracker(): RoiTracker {
+        return when (AppSettings.poseRoiSizeMode) {
+            AppSettings.POSE_ROI_SIZE_960 -> RoiTracker(
+                baseRoiSizePx = 960f,
+                adaptiveResizeEnabled = false,
+                logSource = "人体ROI"
+            )
+            AppSettings.POSE_ROI_SIZE_640 -> RoiTracker(
+                baseRoiSizePx = 640f,
+                adaptiveResizeEnabled = false,
+                logSource = "人体ROI"
+            )
+            AppSettings.POSE_ROI_SIZE_480 -> RoiTracker(
+                baseRoiSizePx = 480f,
+                adaptiveResizeEnabled = false,
+                logSource = "人体ROI"
+            )
+            else -> RoiTracker(logSource = "人体ROI")
+        }
+    }
+
+    private fun syncPoseRoiTrackerConfig() {
+        val mode = AppSettings.poseRoiSizeMode
+        if (mode == lastPoseRoiSizeMode) return
+        lastPoseRoiSizeMode = mode
+        roiTracker = createPoseRoiTracker()
+    }
 
     private var isVideoMode = true
     private var currentLivingRoomBoundary: List<PointF> = emptyList()
@@ -575,6 +612,7 @@ class MainActivity : ComponentActivity() {
                 overlayView.updateRoiBox(roi, isTracking, isSparse)
                 overlayView.updateHandRoiBox(handRoi, isHandTracking)
                 overlayView.setRoiRatio(roiRatio)
+                RoiLogAggregator.updateHumanRoiRatio(roiRatio)
                 poseAnalyzer?.consumeUnlockMessage()?.let { msg ->
                     Log.i("RoomLockDiag", "ui_consume $msg")
                     overlayView.showUnlockBanner(msg)
@@ -606,6 +644,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setupButtons()
+        bindKwsCommandRelay()
         refreshEventMarkerUi()
         checkPermissionsAndStart()
         refreshOverlayDisplay()
@@ -794,6 +833,7 @@ class MainActivity : ComponentActivity() {
         val bitmap = textureView.bitmap
         if (bitmap == null) {
             overlayView.showUnlockBanner("指向识别启动失败")
+            pendingVoicePointingFeedback = false
             return
         }
         val (targets, labels) = buildPointingDeviceTargets()
@@ -847,16 +887,46 @@ class MainActivity : ComponentActivity() {
                     pointingResolver.latestDebugSnapshot(),
                     holdMs = 1000L
                 )
+                pendingVoicePointingFeedback = false
             }
             is PointingDecision.Unrecognized -> {
-                val message = "未识别(${decision.reason})"
+                val message = if (pendingVoicePointingFeedback && isHandObserveMode()) {
+                    "识别失败"
+                } else {
+                    "未识别(${decision.reason})"
+                }
                 overlayView.showUnlockBanner(message)
                 Log.i(
                     "DevicePointingJudge",
                     "DEVICE_POINTING|UNRECOGNIZED|reason=${decision.reason}|score=${String.format(Locale.US, "%.3f", decision.score)}|elapsed=${decision.elapsedMs}|path=${decision.diagnostics.acceptPath}|confidence=${decision.diagnostics.confidenceStatus}|lead=${String.format(Locale.US, "%.3f", decision.diagnostics.finalLeadRatio)}|threshold=${String.format(Locale.US, "%.3f", decision.diagnostics.dynamicFinalThreshold)}|top3=${decision.diagnostics.top3Targets}"
                 )
+                if (pendingVoicePointingFeedback && isHandObserveMode()) {
+                    overlayView.showUnlockBanner(message, persistentHandBannerDurationMs)
+                    overlayView.updatePointingDebugSnapshot(
+                        buildTop3FailureSnapshot(pointingResolver.latestDebugSnapshot()),
+                        holdMs = 0L
+                    )
+                }
+                if (pendingVoicePointingFeedback &&
+                    AppSettings.isPauseOnVoiceRecognizeFailEnabled &&
+                    isVideoMode &&
+                    currentPlayState != PlayState.STILL
+                ) {
+                    val pauseButton = findViewById<Button>(R.id.btnPause)
+                    togglePause(pauseButton)
+                }
+                pendingVoicePointingFeedback = false
             }
         }
+    }
+
+    private fun buildTop3FailureSnapshot(snapshot: PointingDebugSnapshot?): PointingDebugSnapshot? {
+        if (snapshot == null) return null
+        val topIds = snapshot.top3Targets.map { it.first }.toSet()
+        if (topIds.isEmpty()) return snapshot.copy(targets = emptyList())
+        return snapshot.copy(
+            targets = snapshot.targets.filter { it.id in topIds }
+        )
     }
 
     private fun buildPresenceEventText(
@@ -1991,7 +2061,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun syncAudioScreenMode(active: Boolean) {
-        if (active && !isAudioScreenBound) {
+        if (!isAudioScreenBound) {
             composeAudioScreen.setViewCompositionStrategy(
                 ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
             )
@@ -2010,11 +2080,37 @@ class MainActivity : ComponentActivity() {
                 }
             }
             isAudioScreenBound = true
-        } else if (!active && isAudioScreenBound) {
-            composeAudioScreen.setContent { }
-            isAudioScreenBound = false
         }
         composeAudioScreen.visibility = if (active) View.VISIBLE else View.GONE
+    }
+
+    private fun bindKwsCommandRelay() {
+        kwsController.setExtraCommandListener { event ->
+            if (event.command != Command.OPEN && event.command != Command.CLOSE) return@setExtraCommandListener
+            runOnUiThread {
+                AppLog.i(
+                    "KwsOpenPointing",
+                    "${event.command}命中，立即触发一次手势设备匹配 score=${event.score ?: -1f}"
+                )
+                triggerPointingSessionFromVoice()
+            }
+        }
+    }
+
+    private fun triggerPointingSessionFromVoice() {
+        if (!isVideoMode) {
+            AppLog.i("KwsOpenPointing", "忽略OPEN触发：当前不是视频模式")
+            return
+        }
+        startTriggeredPointingSession()
+        if (pointingResolver.isActive()) {
+            pendingVoicePointingFeedback = true
+            if (isHandObserveMode()) {
+                overlayView.showUnlockBanner("准备识别", persistentHandBannerDurationMs)
+            } else {
+                overlayView.showUnlockBanner("open命中，启动一次手势设备匹配")
+            }
+        }
     }
 
     private fun updateHandOverlayMode() {
@@ -2062,6 +2158,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         ensurePresenceAlgorithmVersion()
+        syncPoseRoiTrackerConfig()
         applySettings()
         refreshOverlayDisplay()
         bindEventMarkersToVideo(resolveVideoSourceKey())
@@ -3319,9 +3416,11 @@ class MainActivity : ComponentActivity() {
         val oldState = currentPlayState
         val beforePos = videoFeeder?.getCurrentPositionMs()
         val beforePlaying = videoFeeder?.isPlaying()
+        // 暂时屏蔽“暂停中”入口，只保留“播放中 <-> 静止中”两态切换。
+        // 注意：PAUSED 状态及其处理逻辑仍保留，后面如需恢复三态，只需要改回这里的切换关系。
         currentPlayState = when (currentPlayState) {
             PlayState.PLAYING -> PlayState.STILL
-            PlayState.STILL -> PlayState.PAUSED
+            PlayState.STILL -> PlayState.PLAYING
             PlayState.PAUSED -> PlayState.PLAYING
         }
         when (currentPlayState) {
@@ -3329,6 +3428,7 @@ class MainActivity : ComponentActivity() {
                 btn.text = "[ 播放中 ]"
                 videoFeeder?.clearStepSeekTransientState()
                 videoFeeder?.setStillMode(false)
+                overlayView.updatePointingDebugSnapshot(null)
                 videoFeeder?.resume()
             }
             PlayState.STILL -> {

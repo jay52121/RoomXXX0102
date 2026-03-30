@@ -18,7 +18,8 @@ import kotlin.math.min
  */
 class RoiTracker(
     private val baseRoiSizePx: Float = 640f,
-    private val adaptiveResizeEnabled: Boolean = true
+    private val adaptiveResizeEnabled: Boolean = true,
+    private val logSource: String = "人体ROI"
 ) {
 
     // 上一次的 ROI 区域 (归一化坐标)
@@ -39,6 +40,7 @@ class RoiTracker(
     private var hasLastTop = false
     private var isFirstFrame = true
     private var lastTopMove = 0f
+    private var enlargePendingSinceMs = 0L
 
     // 🔥 是否正在跟踪 (Target is present)
     var isTracking: Boolean = false
@@ -60,8 +62,10 @@ class RoiTracker(
         targetBox: RectF?,
         targetRoiSizePx: Float? = null
     ): RectF {
+        val wasTracking = isTracking
         // 更新跟踪状态
         isTracking = (targetBox != null)
+        val matchedNewTarget = !wasTracking && isTracking
 
         // 1. 自动计算帧间隔 dt (秒)
         val now = System.currentTimeMillis()
@@ -76,21 +80,72 @@ class RoiTracker(
         var inDeadZone = false
         if (targetBox != null) {
             val minImageSide = min(imageWidth.toFloat(), imageHeight.toFloat())
+            val sizeBeforeReset = currentRoiSize
+            if (matchedNewTarget) {
+                enlargePendingSinceMs = 0L
+                currentRoiSize = baseRoiSizePx.coerceAtMost(minImageSide)
+                if (sizeBeforeReset != currentRoiSize) {
+                    RoiLogAggregator.updateRoiSizeChange(
+                        source = logSource,
+                        prevSize = sizeBeforeReset,
+                        newSize = currentRoiSize,
+                        ratio = 0f,
+                        maxSide = 0f,
+                        reason = "新匹配目标，先重置为基础ROI"
+                    )
+                }
+                lastRoiSize = currentRoiSize
+            }
             val prevSize = currentRoiSize
             if (targetRoiSizePx != null) {
+                enlargePendingSinceMs = 0L
                 currentRoiSize = targetRoiSizePx.coerceIn(baseRoiSizePx, minImageSide)
+                if (prevSize != currentRoiSize) {
+                    RoiLogAggregator.updateRoiSizeChange(
+                        source = logSource,
+                        prevSize = prevSize,
+                        newSize = currentRoiSize,
+                        ratio = 0f,
+                        maxSide = targetRoiSizePx,
+                        reason = "使用手动传入的ROI尺寸"
+                    )
+                    lastRoiSize = currentRoiSize
+                }
             } else if (adaptiveResizeEnabled) {
                 val personW = targetBox.width() * imageWidth
                 val personH = targetBox.height() * imageHeight
                 val maxPersonSide = max(personW, personH)
                 val ratio = if (currentRoiSize > 0f) maxPersonSide / currentRoiSize else 0f
+                var sizeChangeReason: String? = null
                 if (currentRoiSize <= baseRoiSizePx) {
-                    if (ratio > 0.85f) currentRoiSize = minImageSide
+                    if (ratio > 0.85f) {
+                        if (enlargePendingSinceMs == 0L) {
+                            enlargePendingSinceMs = now
+                        }
+                        if (now - enlargePendingSinceMs >= 1000L) {
+                            currentRoiSize = minImageSide
+                            sizeChangeReason = "当前占比连续超过0.85满1秒，扩到短边"
+                            enlargePendingSinceMs = 0L
+                        }
+                    } else {
+                        enlargePendingSinceMs = 0L
+                    }
                 } else {
-                    if (ratio < 0.35f) currentRoiSize = baseRoiSizePx
+                    enlargePendingSinceMs = 0L
+                    if (ratio < 0.35f) {
+                        currentRoiSize = baseRoiSizePx
+                        sizeChangeReason = "当前占比低于0.35，缩回基础ROI"
+                    }
                 }
                 if (prevSize != currentRoiSize) {
-                    RoiLogAggregator.updateRoiSizeChange(prevSize, currentRoiSize, ratio, maxPersonSide)
+                    RoiLogAggregator.updateRoiSizeChange(
+                        source = logSource,
+                        prevSize = prevSize,
+                        newSize = currentRoiSize,
+                        ratio = ratio,
+                        maxSide = maxPersonSide,
+                        reason = sizeChangeReason ?: "倍率状态切换"
+                    )
                     lastRoiSize = currentRoiSize
                 }
             }
@@ -196,6 +251,7 @@ class RoiTracker(
                 }
             }
         } else {
+            enlargePendingSinceMs = 0L
             // 目标丢失，不更新 roiCenter，直接返回 lastRoi
             if (lastRoi != null) return lastRoi!!
         }
@@ -269,5 +325,6 @@ class RoiTracker(
         isFirstFrame = true
         lastUpdateTs = 0L
         hasLastTop = false
+        enlargePendingSinceMs = 0L
     }
 }

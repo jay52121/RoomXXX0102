@@ -2,8 +2,15 @@
 <resources>
     <string-array name="roi_log_mode_labels">
         <item>1秒一次</item>
-        <item>ROI每次移动一次</item>
+        <item>Pose ROI每次移动一次</item>
         <item>关闭</item>
+    </string-array>
+
+    <string-array name="pose_roi_size_labels">
+        <item>动态（目前）</item>
+        <item>960</item>
+        <item>640</item>
+        <item>480</item>
     </string-array>
 
     <string-array name="presence_algorithm_labels">

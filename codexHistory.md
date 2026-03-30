@@ -1,5 +1,276 @@
 # Codex History
 
+## [321] 2026-03-30 22:46:43 - 识别失败时显示Top3设备分数并保持到下次播放
+
+**用户指令**：
+> 识别失败的时候，把。嗯，评分最高的前三名。的分数显示在。对应的设备里面。
+> 由于这个时候是暂停了，所以就让它一直显示着。直到下次播放。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在语音触发的一次设备窗口判定最终失败时，仅显示评分最高前三名设备的分数，并保持显示到下一次重新播放。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.handleTriggeredPointingDecision、MainActivity.buildTop3FailureSnapshot、MainActivity.togglePause、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在失败分支中，将 `pointingResolver.latestDebugSnapshot()` 裁成只包含 Top3 设备的快照，再交给 overlay 持续显示。
+      *   失败快照使用 `holdMs=0L` 长驻保留，不再自动消失。
+      *   在从 `STILL` 切回 `PLAYING` 时，主动清掉这份失败快照，确保“保持到下次播放”为止。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [320] 2026-03-30 22:36:33 - 新增识别失败暂停开关
+
+**用户指令**：
+> 加一个开关:识别失败暂停
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：增加 `识别失败暂停` 开关，并在语音触发的一次设备窗口判定最终失败时按配置自动切到 `STILL`。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/data/repository/AppSettings.kt、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/res/layout/fragment_settings_home.xml、codexHistory.md、dialogueHistory.md
+    *   涉及方法：AppSettings.init、AppSettings.setPauseOnVoiceRecognizeFailEnabled、SettingsHomeFragment.onViewCreated、MainActivity.handleTriggeredPointingDecision、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `AppSettings` 中新增 `isPauseOnVoiceRecognizeFailEnabled` 配置并完成持久化。
+      *   在设置页增加 `识别失败暂停` 开关，并接通到 `AppSettings`。
+      *   在语音触发且本次窗口判定最终显示 `识别失败` 时，若开关打开、当前处于视频模式且播放状态不是 `STILL`，则自动调用现有暂停入口切到 `STILL`。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [319] 2026-03-30 05:26:47 - 语音触发手势识别时补充准备识别与识别失败提示
+
+**用户指令**：
+> 当语音那边识别到一次命中(不管是open还是cloase)的时候。在看手界面上方中部提示框显示:准备识别.然后窗口期内未识别到设备要显示:识别失败. 类似的状态要保留到下一次刷新的时候.
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在看手界面中，为语音触发的设备窗口判定补充 `准备识别` 与 `识别失败` 状态提示，并让这类提示保留到下一次状态覆盖。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：DetectionOverlayView.showUnlockBanner、MainActivity.startTriggeredPointingSession、MainActivity.handleTriggeredPointingDecision、MainActivity.bindKwsCommandRelay、MainActivity.triggerPointingSessionFromVoice、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   为 `DetectionOverlayView.showUnlockBanner()` 增加可选 `durationMs` 参数，允许设置长驻提示。
+      *   将语音侧 `OPEN/CLOSE` 都接入一次设备窗口判定触发，不再只处理 `OPEN`。
+      *   在语音触发且当前处于看手模式时，窗口启动后顶部中部提示显示 `准备识别`，并使用长时长保留。
+      *   在本次语音触发的窗口期内若最终未识别到设备，则显示 `识别失败`，同样使用长时长保留；成功识别后清除这次语音反馈标记。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [318] 2026-03-30 05:18:57 - 新增多人指向手归属与Firebase分发待办
+
+**用户指令**：
+> 写2个todo,1 同一时间识别到多个人的手,应该以哪个人的手为指向手目前有问题. 2Firebase分发.
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将“多人同时识别到手时的指向手归属问题”以及“Firebase 分发接入”记录为正式待办项。
+    *   修改文件：todo.md、codexHistory.md、dialogueHistory.md
+    *   涉及方法：TODO-005新增、TODO-006新增、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `todo.md` 中新增 `TODO-005`，记录多人同时出现时的指向手归属判定问题。
+      *   在 `todo.md` 中新增 `TODO-006`，记录 Firebase 分发接入事项。
+      *   历史与对话归档同步更新。
+
+---
+
+## [317] 2026-03-30 05:17:24 - 在真实裁剪开关下增加Pose ROI比例选项
+
+**用户指令**：
+> 设置项里面增加一个ROI比例选项:选项如下:动态,(目前的),960,640,480.
+> 这个加在启用真实剪裁里面作为他的选项
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在“启用 Pose ROI 真实裁剪”开关下面增加 `Pose ROI比例` 子选项，并让 `roiTracker` 按该配置生效。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/data/repository/AppSettings.kt、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/res/layout/fragment_settings_home.xml、app/src/main/res/values/arrays.xml、codexHistory.md、dialogueHistory.md
+    *   涉及方法：AppSettings.init、AppSettings.setPoseRoiSizeMode、SettingsHomeFragment.onViewCreated、SettingsHomeFragment.onResume、SettingsHomeFragment.syncPoseRoiSizeVisibility、MainActivity.createPoseRoiTracker、MainActivity.syncPoseRoiTrackerConfig、MainActivity.onResume、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `AppSettings` 中新增 `poseRoiSizeMode` 配置及四档常量：`动态（目前）/960/640/480`，并完成持久化。
+      *   在设置页 `switch_roi_crop` 下方增加 `Pose ROI比例` 标签和下拉框；开关打开时显示，关闭时隐藏。
+      *   在 `SettingsHomeFragment` 中接通下拉选择与配置保存，并在进入页面、返回页面时同步选中值与显隐状态。
+      *   在 `MainActivity` 中把 `roiTracker` 改成可按配置重建：动态档保持现有自适应逻辑，`960/640/480` 三档使用固定基础 Pose ROI 尺寸并关闭自适应扩缩。
+      *   在 `onResume()` 中同步 `roiTracker` 配置，确保从设置页返回后立即生效。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [316] 2026-03-30 05:09:40 - 将人体ROI标题统一收口为Pose ROI
+
+**用户指令**：
+> 好的,标题改成Pose ROI,设置项里面的也检查下,需要改的都改成这个Pose Roi,开始吧
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：把人体 ROI 相关标题统一收口为 `Pose ROI`，并同步设置页里的对应文案。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、app/src/main/res/layout/fragment_settings_home.xml、app/src/main/res/values/arrays.xml、codexHistory.md、dialogueHistory.md
+    *   涉及方法：RoiLogAggregator.snapshotForPanel、DetectionOverlayView.drawDebugPanel、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将调试面板中的 `人体ROI框`、`当前人体ROI占比`、`人体ROI尺寸变化` 分别改为 `Pose ROI框`、`当前Pose ROI占比`、`Pose ROI尺寸变化`。
+      *   将 `DetectionOverlayView` 顶部补充行里的 `当前人体ROI占比` 同步改成 `当前Pose ROI占比`。
+      *   将设置页开关文案 `启用 ROI 真实裁剪 (Beta)` 改为 `启用 Pose ROI 真实裁剪 (Beta)`。
+      *   将 ROI 日志模式下拉项里的 `ROI每次移动一次` 改为 `Pose ROI每次移动一次`。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [315] 2026-03-30 05:02:49 - 临时屏蔽暂停中入口仅保留播放与静止两态
+
+**用户指令**：
+> 暂时屏蔽掉，暂停中那个。功能滞留播放和静止。记住，只是注释掉后面还会可能启用的。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：临时停用“暂停中”入口，只保留 `播放中 <-> 静止中` 两态切换，同时保留 `PAUSED` 状态与相关代码以便后续恢复三态。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.togglePause、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `togglePause()` 中加入中文注释，明确说明“暂停中”入口为临时屏蔽，后续可能恢复。
+      *   将按钮切换关系从 `PLAYING -> STILL -> PAUSED -> PLAYING` 改为 `PLAYING -> STILL -> PLAYING`；如果当前已经处于 `PAUSED`，下一次切换仍回到 `PLAYING`。
+      *   保留 `PlayState.PAUSED` 枚举与 `PAUSED` 分支处理代码不删除，仅关闭当前入口。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [314] 2026-03-30 04:57:59 - 调试面板补当前人体ROI占比并给扩到短边加1秒延迟
+
+**用户指令**：
+> 另外把这两个ROI搬家上面的ROI里面去。
+> 要注意看一下最上面的ratio那个在我看来才是对的。
+> 好.这个历史值来自于哪里？我从头到尾都没看到这个。这样你先。设计一个。遇到了。被撑大的情况？先延迟一秒再被撑大。刚才说的这些东西一起改掉。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：把 ROI 相关信息在面板里排成一组，明确“当前人体ROI占比”和“历史触发占比”的区别，并让人体 ROI 只有连续超阈值 1 秒后才扩到短边。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiTracker.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：RoiLogAggregator.updateHumanRoiRatio、RoiLogAggregator.snapshotForPanel、RoiTracker.calculate、RoiTracker.resetSmoothing、MainActivity.pose UI更新链、DetectionOverlayView.drawDebugPanel、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `RoiLogAggregator` 中新增 `humanRoiRatio`，并在调试面板里把 ROI 相关信息重排为：`人体ROI框`、`当前人体ROI占比`、`人体ROI尺寸变化`、`手部ROI框`、`手部ROI尺寸变化`。
+      *   在 `MainActivity` 中将当前实时 `roiRatio` 同步给 `RoiLogAggregator`，并把 `DetectionOverlayView` 顶部 `roiRatio` 文案改为中文 `当前人体ROI占比`。
+      *   在 `RoiTracker` 中新增 `enlargePendingSinceMs`；人体 ROI 从 `640` 扩到短边时，不再一旦超过 `0.85` 就立刻扩容，而是要求连续超过 `0.85` 满 1 秒才扩到短边；中途回落或目标丢失会取消这次待扩容计时。
+      *   缩回 `640` 的 `0.35` 阈值保持立即生效，ROI 其他行为不变。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [313] 2026-03-30 04:48:28 - 将人体ROI与手部ROI在调试面板中彻底拆开
+
+**用户指令**：
+> 我看到现在有两个ROI1个是ROI radio，一个是ROI尺寸变化你是把刚才那个东西写到。尺寸变化那儿了吗？尺寸变化指的是手部的?
+> 这里的size写的291,明显不可能是pose roi,pose的roi现在和屏幕短边一样
+> 我的意思是写到日志面板里面去改好
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复调试面板里“人体 ROI”和“手部 ROI”混用同一条尺寸变化字段的问题，避免手部 `size=291...` 被误读成 pose ROI。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiTracker.kt、app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：RoiLogAggregator.updateHandRoiVisual、RoiLogAggregator.updateRoiSizeChange、RoiLogAggregator.snapshotForPanel、RoiTracker.calculate、DetectionOverlayView.updateHandRoiBox、MainActivity.roiTracker/handRoiTracker 初始化、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `RoiLogAggregator` 中新增手部 ROI 框状态和手部 ROI 尺寸变化字段，调试面板改为分别显示：`人体ROI框`、`手部ROI框`、`人体ROI尺寸变化`、`手部ROI尺寸变化`。
+      *   `RoiTracker` 新增 `logSource` 标识，人体 `roiTracker` 写入“人体ROI”，手部 `handRoiTracker` 写入“手部ROI”，不再共用同一个 `sizeChange` 字段。
+      *   在 `DetectionOverlayView.updateHandRoiBox()` 中把手部 ROI 框状态同步进日志聚合器，确保调试面板能同时看到手部 ROI 框。
+      *   保持 ROI 行为与阈值逻辑不变，只修复日志面板的来源混淆问题。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [312] 2026-03-30 04:35:54 - 将ROI尺寸变化及中文原因补进调试面板
+
+**用户指令**：
+> 后面没有更信息，一来就是。数字没有显示过什么，后面跟着中文信息。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复“ROI 尺寸变化中文原因只进入日志、没有进入调试面板”的显示链问题。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：RoiLogAggregator.snapshotForPanel、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   保留原有 `sizeChange=... 原因=...` 日志格式不变。
+      *   在 `snapshotForPanel()` 中新增 `roi尺寸变化=` 行，把现有 `sizeChange` 文本明确输出到调试面板。
+      *   这样面板里会直接看到“尺寸变化 + 中文原因”，而不是只在 logcat 中存在。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [311] 2026-03-30 04:33:02 - 在ROI尺寸变化日志中补充中文原因
+
+**用户指令**：
+> 我们的ROI默认是六百四对吧？现在他还是不缩小。你在这个日志后面加一下他为什么会变,写在那个日志里面去。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在现有 ROI 尺寸变化日志后面直接补出中文原因，方便定位是重匹配重置、扩容到短边、缩回 640，还是手动尺寸覆盖导致的变化。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiTracker.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：RoiLogAggregator.updateRoiSizeChange、RoiTracker.calculate、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `RoiLogAggregator.updateRoiSizeChange()` 扩展为接收 `reason` 参数，并把中文原因直接拼到原有 `size=... ratio=... maxSide=...` 日志后面。
+      *   在 `RoiTracker.calculate()` 中针对四种来源补充具体原因文本：`新匹配目标，先重置为基础ROI`、`当前占比超过0.85，扩到短边`、`当前占比低于0.35，缩回基础ROI`、`使用手动传入的ROI尺寸`。
+      *   保持 ROI 行为与倍率阈值不变，只增强日志可解释性。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [310] 2026-03-30 04:28:02 - 停用GeminiHistory强制读取并在ROI重新匹配时重算倍率
+
+**用户指令**：
+> 1.AGENTS.md里面还有要求读 GeminiHistory.md ?
+> 2.roi在这个视频里面一直没到过0.85
+> 1.注释掉这个要求. 2.这个视频从来没到过0.85 3.我们进行一次修改吧,每当ROI新匹配一个人时,就要重新计算倍率.
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：停用 AGENTS 中强制读取 `GeminiHistory.md` 的执行要求，并修复 ROI 在重新匹配到新目标时沿用上一人倍率状态的问题。
+    *   修改文件：AGENTS.md、app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiTracker.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：AGENTS 项目规则第1条、RoiTracker.calculate、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `AGENTS.md` 中“每次改代码前读取 GeminiHistory.md”的规则改为停用说明，不再作为当前执行要求。
+      *   在 `RoiTracker.calculate()` 中新增“重新匹配目标”判定：当 ROI 从未跟踪/丢失状态切回有目标状态时，先将 ROI 物理尺寸重置回 `baseRoiSizePx`，再按当前这个新目标重新执行倍率判断。
+      *   这样新匹配到的人不会继承上一个人的“大ROI/短边ROI”状态，只有当前新目标自身满足阈值时才会再次扩容。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [309] 2026-03-30 04:11:30 - OPEN命中后常驻触发一次手势设备匹配
+
+**用户指令**：
+> 我们开始做下一件事情每一次，当我们open被识别的时候(很奇怪的是现在日志里面如果不打开听声音,就没有这个日志)。嗯。立即触发一次手势设备匹配。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让 `open` 口令在不打开“听声音”界面时也能被常驻接收，并在每次命中后立即触发一次现有设备手势匹配。
+    *   修改文件：kws-sdk/src/main/java/com/example/roomxxx_vocie/KwsControllerImpl.kt、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：KwsControllerImpl.setExtraCommandListener、KwsControllerImpl.onAudioFrame、MainActivity.onCreate、MainActivity.syncAudioScreenMode、MainActivity.bindKwsCommandRelay、MainActivity.triggerPointingSessionFromVoice、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `KwsControllerImpl` 中新增附加命中监听，保留原有 UI `setListener` 的同时，将口令事件额外转发给主界面常驻逻辑，避免声音界面日志监听覆盖主链监听。
+      *   在 `MainActivity` 启动时常驻绑定 `OPEN` 命中回调；每次识别到 `Command.OPEN` 时，立即复用现有 `startTriggeredPointingSession()` 触发一次设备手势匹配。
+      *   调整 `syncAudioScreenMode()`，不再在离开“听声音”界面时销毁 `ComposeView` 内容，从而保证 KWS 在界面隐藏时也持续运行；这样不打开声音界面时同样会有 `open` 命中和手势匹配触发。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
 ## [308] 2026-03-30 03:57:52 - 听声音界面默认开启电平表并上移左栏控件
 
 **用户指令**：

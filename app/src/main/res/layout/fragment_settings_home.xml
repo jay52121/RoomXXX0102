@@ -69,10 +69,35 @@
                     android:id="@+id/switch_roi_crop"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="启用 ROI 真实裁剪 (Beta)"
+                    android:text="启用 Pose ROI 真实裁剪 (Beta)"
                     android:textSize="16sp"
                     android:textColor="#FF9800"
                     android:paddingVertical="8dp" />
+
+                <TextView
+                    android:id="@+id/tv_pose_roi_size_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Pose ROI比例"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#333333"
+                    android:layout_marginStart="12dp"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="4dp"
+                    android:visibility="gone"/>
+
+                <Spinner
+                    android:id="@+id/spn_pose_roi_size_mode"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:background="#FFFFFF"
+                    android:popupBackground="#FFFFFF"
+                    android:theme="@style/ThemeOverlay.MaterialComponents.Light"
+                    android:spinnerMode="dropdown"
+                    android:entries="@array/pose_roi_size_labels"
+                    android:visibility="gone" />
 
                 <androidx.appcompat.widget.SwitchCompat
                     android:id="@+id/switch_still_standard_frame"
@@ -173,6 +198,15 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="切换时记录暂停判定日志"
+                    android:textSize="16sp"
+                    android:textColor="#333333"
+                    android:paddingVertical="8dp" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switch_pause_on_voice_recognize_fail"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="识别失败暂停"
                     android:textSize="16sp"
                     android:textColor="#333333"
                     android:paddingVertical="8dp" />

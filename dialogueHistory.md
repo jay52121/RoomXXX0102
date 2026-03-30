@@ -3278,3 +3278,288 @@ ok
 
 ---
 
+## [118] 2026-03-30 04:11:30 - OPEN命中触发一次设备匹配
+
+**用户原文**：
+```text
+我们开始做下一件事情每一次，当我们open被识别的时候(很奇怪的是现在日志里面如果不打开听声音,就没有这个日志)。嗯。立即触发一次手势设备匹配。
+ok
+```
+
+**助手原文**：
+```text
+已经接好了。现在KWS不会再依赖“听声音”界面是否打开：我把OPEN命中监听挂到了MainActivity常驻链路上，每次识别到open都会立即复用现有入口触发一次设备手势匹配；同时保留声音界面的日志显示，不再互相覆盖。并且离开“听声音”界面时不再销毁那套Compose内容，所以KWS在界面隐藏时也会继续运行。编译验证通过：:app:compileDebugKotlin。
+```
+
+---
+
+## [119] 2026-03-30 04:28:02 - 停用GeminiHistory强制读取并重算ROI倍率
+
+**用户原文**：
+```text
+1.AGENTS.md里面还有要求读 GeminiHistory.md ? 2.不用管刚才的ROI改动了,但是我想知道,最开始只有0.5左右的比例,为什么会变成短边?
+1.注释掉这个要求. 2.这个视频从来没到过0.85 3.我们进行一次修改吧,每当ROI新匹配一个人时,就要重新计算倍率.
+ok
+```
+
+**助手原文**：
+```text
+已经改好了。AGENTS 里强制读取 GeminiHistory 的要求已经注释停用；同时 RoiTracker 现在在“从未跟踪/丢失状态重新匹配到目标”时，会先把 ROI 尺寸重置回 baseRoiSizePx，再按当前这个新目标重新计算倍率，不再继承上一人的大 ROI 状态。编译验证通过：:app:compileDebugKotlin。
+```
+
+---
+
+## [120] 2026-03-30 04:33:02 - ROI尺寸变化日志补充中文原因
+
+**用户原文**：
+```text
+我们的ROI默认是六百四对吧？现在他还是不缩小。你在这个日志后面加一下他为什么会变,写在那个日志里面去。 
+ok
+```
+
+**助手原文**：
+```text
+已经补上了。现在 ROI 尺寸变化的那条日志后面会直接带中文原因，例如：新匹配目标先重置、超过0.85扩到短边、低于0.35缩回640、或使用手动传入尺寸。行为没有改，只增强了日志说明。编译验证通过：:app:compileDebugKotlin。
+```
+
+---
+
+## [121] 2026-03-30 04:35:54 - ROI尺寸变化中文原因补进调试面板
+
+**用户原文**：
+```text
+后面没有更信息，一来就是。数字没有显示过什么，后面跟着中文信息。 
+ok
+```
+
+**助手原文**：
+```text
+已经修好了。问题不是中文原因没生成，而是 `snapshotForPanel()` 没把 `sizeChange` 这一行加进调试面板。现在调试面板里已经会显示 `roi尺寸变化=...`，里面包含原来的尺寸数字和后面的中文原因。编译验证通过：:app:compileDebugKotlin。
+```
+
+---
+
+## [122] 2026-03-30 04:48:28 - 人体ROI与手部ROI日志面板拆分
+
+**用户原文**：
+```text
+我看到现在有两个ROI1个是ROI radio，一个是ROI尺寸变化你是把刚才那个东西写到。尺寸变化那儿了吗？尺寸变化指的是手部的?
+这里的size写的291,明显不可能是pose roi,pose的roi现在和屏幕短边一样
+我的意思是写到日志面板里面去改好
+ok
+```
+
+**助手原文**：
+```text
+已经改好了。现在调试面板里的人体 ROI 和手部 ROI 已经彻底拆开：会分别显示 `人体ROI框`、`手部ROI框`、`人体ROI尺寸变化`、`手部ROI尺寸变化`。因此像你刚才看到的 `size=291...` 这种内容，后面只会出现在“手部ROI尺寸变化”里，不会再混到 pose ROI 上。编译验证通过：:app:compileDebugKotlin。
+```
+
+---
+
+## [123] 2026-03-30 04:57:59 - 调试面板补当前人体ROI占比并延迟扩容
+
+**用户原文**：
+```text
+另外把这两个ROI搬家上面的ROI里面去。 
+要注意看一下最上面的ratio那个在我看来才是对的。 
+好.这个历史值来自于哪里？我从头到尾都没看到这个。这样你先。设计一个。遇到了。被撑大的情况？先延迟一秒再被撑大。刚才说的这些东西一起改掉。 
+ok
+```
+
+**助手原文**：
+```text
+已经改好了。现在调试面板里 ROI 相关内容会按一组显示：人体ROI框、当前人体ROI占比、人体ROI尺寸变化、手部ROI框、手部ROI尺寸变化；顶部原来的 `roiRatio` 也改成了中文 `当前人体ROI占比`。同时，人体 ROI 现在只有连续超过 0.85 满 1 秒后才会扩到短边，不会一瞬间被撑大；缩回 640 的逻辑保持不变。编译验证通过：:app:compileDebugKotlin。
+```
+
+---
+
+## [124] 2026-03-30 05:02:49 - 临时屏蔽暂停中入口
+
+**用户原文**：
+```text
+暂时屏蔽掉，暂停中那个。功能滞留播放和静止。记住，只是注释掉后面还会可能启用的。
+ok
+```
+
+**助手原文**：
+```text
+已经改好了。现在播放状态切换入口里已经临时屏蔽了“暂停中”，只保留 `播放中 <-> 静止中` 两态循环；`PAUSED` 状态和对应处理代码没有删除，只在 `togglePause()` 里加了中文注释并关闭当前入口，后面随时可以恢复三态。编译验证通过：:app:compileDebugKotlin。
+```
+
+---
+
+## [125] 2026-03-30 05:09:40 - 统一Pose ROI标题与设置文案
+
+**用户原文**：
+```text
+好的,标题改成Pose ROI,设置项里面的也检查下,需要改的都改成这个Pose Roi,开始吧
+```
+
+**助手原文**：
+```text
+已经改好了。
+
+现在：
+- 调试面板里原来的人体 ROI 标题已经统一收口成 `Pose ROI`
+- 设置页里对应的 ROI 文案也一起同步成了 `Pose ROI`
+- 手部 ROI 维持原来的名字，不混改
+
+这次改了：
+- [RoiLogAggregator.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/logic/analyzer/RoiLogAggregator.kt)
+- [DetectionOverlayView.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt)
+- [fragment_settings_home.xml](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/res/layout/fragment_settings_home.xml)
+- [arrays.xml](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/res/values/arrays.xml)
+
+验证结果：
+- `:app:compileDebugKotlin` 已通过
+```
+
+---
+
+## [126] 2026-03-30 05:17:24 - 在真实裁剪下增加Pose ROI比例选项
+
+**用户原文**：
+```text
+设置项里面增加一个ROI比例选项:选项如下:动态,(目前的),960,640,480.
+  这个没改吗?
+这个加在启用真实剪裁里面作为他的选项
+ok
+```
+
+**助手原文**：
+```text
+已经改好了。
+
+现在：
+- `启用 Pose ROI 真实裁剪 (Beta)` 下面多了一个 `Pose ROI比例` 子选项
+- 选项是：`动态（目前） / 960 / 640 / 480`
+- 这个子选项只在真实裁剪开关打开时显示，关闭时隐藏
+- 从设置页返回主界面后会立即同步到 `roiTracker`
+
+行为上：
+- `动态（目前）`：保持现在的自适应 Pose ROI 逻辑
+- `960 / 640 / 480`：使用固定基础 Pose ROI 尺寸，并关闭自适应扩缩
+- 手部 ROI 不受影响
+
+这次改了：
+- [AppSettings.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/data/repository/AppSettings.kt)
+- [SettingsHomeFragment.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt)
+- [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt)
+- [fragment_settings_home.xml](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/res/layout/fragment_settings_home.xml)
+- [arrays.xml](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/res/values/arrays.xml)
+
+验证结果：
+- `:app:compileDebugKotlin` 已通过
+```
+
+---
+
+## [127] 2026-03-30 05:18:57 - 新增多人手归属与Firebase分发待办
+
+**用户原文**：
+```text
+写2个todo,1 同一时间识别到多个人的手,应该以哪个人的手为指向手目前有问题. 2Firebase分发.
+```
+
+**助手原文**：
+```text
+已经记到 [todo.md](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/todo.md) 里了，新增两条：
+
+- `TODO-005`：多人同时识别到手时的指向手归属判定问题
+- `TODO-006`：Firebase 分发接入
+
+两条目前都已标为 `待实现`，内容也按现有格式补成了正式待办。
+```
+
+---
+
+## [128] 2026-03-30 05:26:47 - 语音触发手势识别时显示准备识别与识别失败
+
+**用户原文**：
+```text
+当语音那边识别到一次命中(不管是open还是cloase)的时候。在看手界面上方中部提示框显示:准备识别.然后窗口期内未识别到设备要显示:识别失败. 类似的状态要保留到下一次刷新的时候. 
+ok
+```
+
+**助手原文**：
+```text
+已经改好了。
+
+现在：
+- 语音识别到一次命中时，不管是 `open` 还是 `close`，都会触发一次设备窗口判定
+- 如果当前在 `看手` 界面，上方中部提示会先显示：`准备识别`
+- 如果这次窗口期内最终没有识别到设备，会显示：`识别失败`
+- 这两类状态会以长驻提示方式保留，直到下一次新的状态提示覆盖它
+
+这次改了：
+- [DetectionOverlayView.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/views/DetectionOverlayView.kt)
+- [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt)
+
+验证结果：
+- `:app:compileDebugKotlin` 已通过
+```
+
+---
+
+## [129] 2026-03-30 22:36:33 - 新增识别失败暂停开关
+
+**用户原文**：
+```text
+加一个开关:识别失败暂停
+ok
+```
+
+**助手原文**：
+```text
+已经改好了。
+
+现在设置页里多了一个开关：
+- `识别失败暂停`
+
+行为是：
+- 语音触发的一次设备窗口判定如果最终显示 `识别失败`
+- 且这个开关打开
+- 且当前是视频模式并且还不在 `STILL`
+- 就会自动切到 `STILL`
+
+这次改了：
+- [AppSettings.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/data/repository/AppSettings.kt)
+- [fragment_settings_home.xml](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/res/layout/fragment_settings_home.xml)
+- [SettingsHomeFragment.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt)
+- [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt)
+
+验证结果：
+- `:app:compileDebugKotlin` 已通过
+```
+
+---
+
+## [130] 2026-03-30 22:46:43 - 识别失败时显示Top3设备分数并保持到下次播放
+
+**用户原文**：
+```text
+识别失败的时候，把。嗯，评分最高的前三名。的分数显示在。对应的设备里面。
+由于这个时候是暂停了，所以就让它一直显示着。直到下次播放。
+ok
+```
+
+**助手原文**：
+```text
+已经改好了。
+
+现在：
+- 语音触发的一次设备窗口判定如果最终失败
+- 会把评分最高的前三名设备分数显示在对应设备上
+- 只显示 Top3，不再把所有设备都打分显示出来
+- 因为这时会停在 `STILL`，所以这组三甲分数会一直保留
+- 直到下一次重新播放时才会被清掉
+
+这次改了：
+- [MainActivity.kt](D:/Users/YZ/AndroidStudioProjects/RoomXXX0102/app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt)
+
+验证结果：
+- `:app:compileDebugKotlin` 已通过
+```
+
+---
+

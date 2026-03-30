@@ -532,12 +532,15 @@ class SettingsHomeFragment : Fragment() {
         binding.switchShowPoint.isChecked = AppSettings.isCenterPointShown
         binding.switchPoseMode.isChecked = AppSettings.isPoseModeEnabled
         binding.switchRoiCrop.isChecked = AppSettings.isRoiRealCropEnabled
+        binding.spnPoseRoiSizeMode.setSelection(AppSettings.poseRoiSizeMode)
+        syncPoseRoiSizeVisibility(AppSettings.isRoiRealCropEnabled)
         binding.switchStillStandardFrame.isChecked = AppSettings.isStillStandardFrameEnabled
         binding.switchClipboardDebug.isChecked = AppSettings.isClipboardDebugOnStepEnabled
         binding.switchPointingDebugOverlay.isChecked = AppSettings.isPointingDebugOverlayEnabled
         binding.switchNewTracker.isChecked = AppSettings.isNewTrackerPredictionEnabled
         binding.switchPauseOnRoomSwitch.isChecked = AppSettings.isPauseOnRoomSwitchEnabled
         binding.switchPauseDecisionLogOnSwitch.isChecked = AppSettings.isPauseDecisionLogOnSwitchEnabled
+        binding.switchPauseOnVoiceRecognizeFail.isChecked = AppSettings.isPauseOnVoiceRecognizeFailEnabled
         binding.switchSmartMatchPause.isChecked = AppSettings.isSmartMatchPauseEnabled
         val initialWindowMs = AppSettings.eventMissPauseWindowMs
         binding.sbEventMissPauseWindow.progress = ((initialWindowMs - 100) / 100).coerceIn(0, 9)
@@ -548,6 +551,14 @@ class SettingsHomeFragment : Fragment() {
         binding.spnRoiLogMode.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 AppSettings.setRoiLogMode(position)
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+
+        binding.spnPoseRoiSizeMode.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                AppSettings.setPoseRoiSizeMode(position)
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
@@ -591,6 +602,7 @@ class SettingsHomeFragment : Fragment() {
 
         binding.switchRoiCrop.setOnCheckedChangeListener { _, isChecked ->
             AppSettings.setRoiRealCropEnabled(isChecked)
+            syncPoseRoiSizeVisibility(isChecked)
         }
 
         binding.switchStillStandardFrame.setOnCheckedChangeListener { _, isChecked ->
@@ -620,6 +632,10 @@ class SettingsHomeFragment : Fragment() {
 
         binding.switchPauseDecisionLogOnSwitch.setOnCheckedChangeListener { _, isChecked ->
             AppSettings.setPauseDecisionLogOnSwitchEnabled(isChecked)
+        }
+
+        binding.switchPauseOnVoiceRecognizeFail.setOnCheckedChangeListener { _, isChecked ->
+            AppSettings.setPauseOnVoiceRecognizeFailEnabled(isChecked)
         }
 
         binding.switchSmartMatchPause.setOnCheckedChangeListener { _, isChecked ->
@@ -731,6 +747,8 @@ class SettingsHomeFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         syncPresenceSpinnerSelection()
+        binding.spnPoseRoiSizeMode.setSelection(AppSettings.poseRoiSizeMode)
+        syncPoseRoiSizeVisibility(AppSettings.isRoiRealCropEnabled)
         binding.switchSmartMatchPause.isChecked = AppSettings.isSmartMatchPauseEnabled
         val windowMs = AppSettings.eventMissPauseWindowMs
         binding.sbEventMissPauseWindow.progress = ((windowMs - 100) / 100).coerceIn(0, 9)
@@ -749,6 +767,12 @@ class SettingsHomeFragment : Fragment() {
         super.onDestroyView()
         stopTrackerStatusPolling()
         _binding = null
+    }
+
+    private fun syncPoseRoiSizeVisibility(enabled: Boolean) {
+        val visibility = if (enabled) View.VISIBLE else View.GONE
+        binding.tvPoseRoiSizeLabel.visibility = visibility
+        binding.spnPoseRoiSizeMode.visibility = visibility
     }
 }
 
