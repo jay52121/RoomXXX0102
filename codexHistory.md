@@ -1,5 +1,31 @@
 # Codex History
 
+## [344] 2026-06-05 00:00:00 - 固化项目 debug keystore 以支持覆盖安装
+
+**用户指令**：
+> 请在 Windows 项目 D:\Users\YZ\AndroidStudioProjects\RoomXXX0102 中查找当前用于 debug 构建的旧 debug keystore。
+> 目标：
+> 1. 找到旧 debug keystore
+> 2. 将它复制到项目内：keystores/debug.keystore
+> 3. 修改 app/build.gradle.kts，让 debug 构建显式使用这个 keystore
+> 4. 确认 keystores/debug.keystore 被 git 跟踪。
+> 5. 运行：.\gradlew.bat :app:assembleDebug
+> 6. 提交并推送到当前分支“设备与语音匹配”。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：把当前机器已有的旧 debug keystore 固化到项目内，并让 debug 构建显式使用该签名，保证后续调试安装可覆盖。
+    *   修改文件：keystores/debug.keystore、app/build.gradle.kts、codexHistory.md、dialogueHistory.md
+    *   涉及方法：android.signingConfigs.debug、android.buildTypes.debug、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在当前机器上查找到旧调试签名 `C:\Users\YZ\.android\debug.keystore`，并复制到项目内 `keystores/debug.keystore`。
+      *   在 `app/build.gradle.kts` 中新增 `signingConfigs.debug`，显式指定 `../keystores/debug.keystore`、`androiddebugkey` 及默认调试口令。
+      *   在 `buildTypes.debug` 中显式绑定该 debug 签名，不修改 release 配置。
+      *   执行 `:app:assembleDebug` 验证通过，确认显式 debug 签名配置可正常产出 APK。
+
+---
+
 ## [343] 2026-04-20 00:04:19 - 增加载入其他视频配置文件入口
 
 **用户指令**：

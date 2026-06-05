@@ -4918,3 +4918,55 @@ ok
 
 ---
 
+## [154] 2026-06-05 00:00:00 - 固化项目debug keystore
+
+**用户原文**：
+```text
+请在 Windows 项目 D:\Users\YZ\AndroidStudioProjects\RoomXXX0102 中查找当前用于 debug 构建的旧 debug keystore。
+
+目标：
+1. 找到旧 debug keystore，通常可能在：
+   - C:\Users\YZ\.android\debug.keystore
+   - D:\Users\YZ\.android\debug.keystore
+   - 项目目录下已有 keystore
+2. 将它复制到项目内：
+   - keystores/debug.keystore
+3. 修改 app/build.gradle.kts，让 debug 构建显式使用这个 keystore：
+   - storeFile = file("../keystores/debug.keystore")
+   - storePassword = "android"
+   - keyAlias = "androiddebugkey"
+   - keyPassword = "android"
+4. 确认 keystores/debug.keystore 被 git 跟踪。
+5. 运行：
+   - .\gradlew.bat :app:assembleDebug
+6. 提交并推送到当前分支“设备与语音匹配”。
+
+注意：
+- 这是 debug keystore，只用于本项目调试覆盖安装。
+- 不要动 release 签名。
+- 不要提交其它无关本机文件。
+- 完成后告诉我提交 hash。
+
+好了吗
+```
+
+**助手原文**：
+```text
+已经完成了这批改动，并且构建验证通过。
+
+结果：
+- 已找到旧 debug keystore：`C:\Users\YZ\.android\debug.keystore`
+- 已复制到项目内：`keystores/debug.keystore`
+- 已修改 `app/build.gradle.kts`，让 `debug` 显式使用：
+  - `storeFile = file("../keystores/debug.keystore")`
+  - `storePassword = "android"`
+  - `keyAlias = "androiddebugkey"`
+  - `keyPassword = "android"`
+- 没有改动 release 签名
+- `:app:assembleDebug` 已通过
+
+接下来我会只把这次相关文件加入提交并推送到 `设备与语音匹配`，不会带上 `.codex`、`.idea`、临时对话文件和截图。
+```
+
+---
+
