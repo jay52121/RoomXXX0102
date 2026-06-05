@@ -1,30 +1,43 @@
 package com.example.roomxxx0102.logic.pointing
 
 import android.graphics.PointF
+import android.graphics.RectF
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
 object DevicePointingGeometry {
+    fun point(x: Float, y: Float): PointF = PointF().apply {
+        this.x = x
+        this.y = y
+    }
+
+    fun rect(left: Float, top: Float, right: Float, bottom: Float): RectF = RectF().apply {
+        this.left = left
+        this.top = top
+        this.right = right
+        this.bottom = bottom
+    }
+
     fun clamp(value: Float, minValue: Float, maxValue: Float): Float {
         return min(max(value, minValue), maxValue)
     }
 
     fun dot(a: PointF, b: PointF): Float = a.x * b.x + a.y * b.y
 
-    fun subtract(a: PointF, b: PointF): PointF = PointF(a.x - b.x, a.y - b.y)
+    fun subtract(a: PointF, b: PointF): PointF = point(a.x - b.x, a.y - b.y)
 
-    fun add(a: PointF, b: PointF): PointF = PointF(a.x + b.x, a.y + b.y)
+    fun add(a: PointF, b: PointF): PointF = point(a.x + b.x, a.y + b.y)
 
-    fun scale(a: PointF, factor: Float): PointF = PointF(a.x * factor, a.y * factor)
+    fun scale(a: PointF, factor: Float): PointF = point(a.x * factor, a.y * factor)
 
     fun distance(a: PointF, b: PointF): Float = hypot(a.x - b.x, a.y - b.y)
 
     fun normalize(v: PointF): PointF {
         val length = hypot(v.x, v.y)
-        if (length < 1e-6f) return PointF(1f, 0f)
-        return PointF(v.x / length, v.y / length)
+        if (length < 1e-6f) return point(1f, 0f)
+        return point(v.x / length, v.y / length)
     }
 
     fun pointToRayDistance(point: PointF, rayOrigin: PointF, rayDirection: PointF): Float {
@@ -36,6 +49,15 @@ object DevicePointingGeometry {
         }
         val closest = add(rayOrigin, scale(dir, projection))
         return distance(point, closest)
+    }
+
+    fun polygonBounds(polygon: List<PointF>): RectF {
+        return rect(
+            polygon.minOf { it.x },
+            polygon.minOf { it.y },
+            polygon.maxOf { it.x },
+            polygon.maxOf { it.y }
+        )
     }
 
     fun rayIntersectsPolygon(rayOrigin: PointF, rayDirection: PointF, polygon: List<PointF>): Boolean {
@@ -113,7 +135,7 @@ object DevicePointingGeometry {
         val abLen2 = dot(ab, ab)
         if (abLen2 < 1e-6f) return distance(point, a)
         val t = clamp(dot(subtract(point, a), ab) / abLen2, 0f, 1f)
-        val projection = PointF(a.x + ab.x * t, a.y + ab.y * t)
+        val projection = point(a.x + ab.x * t, a.y + ab.y * t)
         return distance(point, projection)
     }
 

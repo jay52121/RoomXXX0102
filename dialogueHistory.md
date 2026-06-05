@@ -4697,3 +4697,224 @@ ok
 
 ---
 
+## [150] 2026-03-31 04:05:00 - 收口设备窗口级指向判定新链
+
+**用户原文**：
+```text
+下面是一个AI的参考意见,结合实际额情况给方案:现在开始把“设备窗口级指向判定算法”的所有最终补丁，合并成一套唯一的、完整的实现。
+不要再保留分散的局部 patch 风格逻辑，不要再继续做新的理论扩展。
+目标是：把当前已经定稿的算法收口成一个清晰、可调试、可测试、可直接接入现有项目的最终版模块。
+
+这个收口方案可以，按这条线开始做。
+
+但我这里补两个约束，请按这个修正版顺序来：
+
+1. 第一阶段先不要大面积搬空旧 TriggeredPointingResolver.kt。
+   先新增并收口设备链自己的：
+   - DevicePointingGeometry.kt
+   - DevicePointingScoringConfig.kt
+   - DevicePointingDebugModels.kt
+   - DevicePointingModels.kt
+   让新设备链先独立站稳。
+   旧 TriggeredPointingResolver.kt 先保留兼容壳，不要在这一步做激进抽离，避免牵连旧链。
+
+2. DevicePreparedTarget 必须成为静态预计算承载体。
+   所有只依赖设备本身、不依赖帧的量都提前算进去，至少包括：
+   - 短边长度
+   - 热点命中半径
+   - 四边形辅助半径
+   - 近场豁免距离
+   - 后向容忍距离
+   - 穿透归一长度
+   - 基础近场裁剪距离
+   - 极近绝对豁免距离
+   - 近场设备距离阈值
+
+按下面顺序实施：
+
+第一步：
+新增并收口
+- DevicePointingGeometry.kt
+- DevicePointingScoringConfig.kt
+- DevicePointingDebugModels.kt
+- DevicePointingModels.kt
+
+第二步：
+重写 DevicePointingScorer.kt，完整落最终几何规则，并输出帧级 debug metrics。
+
+第三步：
+收口 DevicePointingWindowJudge.kt，完整落窗口统计、动态阈值、置信状态，并输出窗口级 debug metrics。
+
+第四步：
+让 DeviceTriggeredPointingResolver.kt 只做 session / adapter，设备模式不再回退旧 RectF 链。
+
+第五步：
+补 DevicePointingScorerTest 和 DevicePointingWindowJudgeTest。
+
+另外，调试输出不要只做日志拼字符串，先做结构化 debug model：
+- DeviceFrameDebugMetrics
+- DeviceWindowDebugMetrics
+
+ok
+```
+
+**助手原文**：
+```text
+这轮我先把设备指向链的收口做到可验证：先读取最近对话归档、检查当前未提交改动，然后优先修单测样例并重跑 :app:testDebugUnitTest。测试稳定后，再补 codexHistory.md 和对话归档。
+
+最终结果：
+1. 按用户要求新增并收口了 DevicePointingGeometry.kt、DevicePointingScoringConfig.kt、DevicePointingDebugModels.kt、DevicePointingModels.kt。
+2. DevicePreparedTarget 已承载全部静态预计算量：短边长度、热点命中半径、四边形辅助半径、近场豁免距离、后向容忍距离、穿透归一长度、基础近场裁剪距离、极近绝对豁免距离、近场设备距离阈值。
+3. 已重写 DevicePointingScorer.kt，完整落下最终几何规则，并产出 DeviceFrameDebugMetrics。
+4. 已重写 DevicePointingWindowJudge.kt，完整落下窗口统计、动态阈值、置信状态，并产出 DeviceWindowDebugMetrics。
+5. DeviceTriggeredPointingResolver.kt 已收口为 session/adapter，设备模式改走新设备链；旧 TriggeredPointingResolver.kt 仍保留兼容壳，没有做激进抽空。
+6. 已补 DevicePointingScorerTest 和 DevicePointingWindowJudgeTest，并补上 testImplementation(libs.junit)。
+7. 为了让 JVM 单测稳定，通过 DevicePointingGeometry.point/rect 和 scorer 预计算路径消除了 PointF/RectF 参数构造在本地单测中的退化问题。
+8. 验证通过：:app:testDebugUnitTest 成功。
+```
+
+---
+
+## [151] 2026-03-31 23:59:00 - 新增手部检测参数调节折叠区
+
+**用户原文**：
+```text
+在说什么呀？重新阅读我最后的话。在 
+
+
+是的，这个选项区是可以折叠起来的。展开之后才可以调节，开始吧。
+ok
+```
+
+**助手原文**：
+```text
+我开始接这个折叠区，只动设置页、配置持久化和手部检测器初始化，不去扩热更新链路。先补齐设置页绑定点和 HandSmokeTester 初始化读取。
+
+最终结果：
+1. 在设置页新增了一个可折叠区域：手部检测参数调节，默认折叠，点击标题可展开/收起。
+2. 展开后有 3 条中文拖拽项：
+- 手部检测置信度
+- 手部存在置信度
+- 手部跟踪置信度
+3. 三项参数已经接入 AppSettings 持久化，默认值均为 0.5。
+4. HandSmokeTester 现在会在 detect() 前检查这三项参数是否变化，如果变化就自动重建 HandLandmarker，因此新阈值在下一次检测前即可生效，不需要额外重启页面。
+5. 编译验证通过：:app:compileDebugKotlin。
+```
+
+---
+
+## [152] 2026-03-31 00:00:00 - 新增放大手预览待办
+
+**用户原文**：
+```text
+加个todo,在左侧空白区域加一个按钮,放大手.点击后,其他地方不再绘制,将手部roi区域放大4倍居中显示.但是不要影响任何识别流程,只是相当于copy一份放大显示,你觉得怎么做比较好.(关键技术方案)
+
+ok
+```
+
+**助手原文**：
+```text
+方案建议这样做，风险最小，也最不影响现有识别链：
+
+1. 不去改 `TextureView` 本身，不做真正缩放播放层。  
+2. 只在 overlay 层上新增一个“手部放大预览态”。
+3. 触发后：
+- 正常视频仍照常播放、识别也照常跑
+- 只是不再绘制原本那些框、线、提示
+- 改为从当前画面的 `hand ROI` 区域截一份“预览源”，按 4 倍等比例放大，居中画到屏幕上
+- 本质是“复制一份显示”，不是改识别输入
+
+关键技术方案：
+- 数据来源用现成的 `hand ROI`，不要自己再算一套。
+- 显示层放在 `DetectionOverlayView.kt` 里做“预览绘制状态”最稳。
+- 预览内容不要重新走识别，只取当前帧已经存在的位图源或当前显示帧做一次局部裁剪后绘制。
+- 为了不影响性能，建议只在按钮开启后才生成这块放大预览，不常态运行。
+- 按钮放在左侧空白区域，单独做一个轻量 View/Button，不和黑边长按隐藏那套手势复用，避免冲突。
+- 需要一个状态机：
+  - `isHandZoomPreviewEnabled`
+  - 开启时隐藏普通 overlay 元素
+  - 关闭时恢复原样
+- 如果当前没有有效 `hand ROI`，就显示“未检测到手部区域”或保持空白，不做兜底乱放大。
+
+这样做的优点：
+- 不改播放层
+- 不改识别输入
+- 不改 ROI 算法
+- 只是显示层加一个“手部局部放大镜”
+- 出问题也容易回退
+
+我建议先把这个记进 `todo.md`，描述成：
+- 左侧空白区增加“放大手”按钮
+- 开启后隐藏其它绘制，仅居中显示 4 倍放大的手部 ROI 预览
+- 不影响任何识别流程，仅为显示层复制放大
+
+已经写进 `todo.md`：
+- `TODO-007` 左侧空白区增加放大手预览按钮
+- 内容包含需求摘要和关键技术方案
+
+这次只改了：
+- `D:\Users\YZ\AndroidStudioProjects\RoomXXX0102\todo.md`
+
+没有动业务代码，也没有改识别链。
+```
+
+---
+
+## [153] 2026-04-20 00:04:19 - 增加载入其他视频配置入口
+
+**用户原文**：
+```text
+新需求:在设置房间配置管理中,增加一个button- 载入其他视频的配置文件.
+然后扫描我们目录中的所有配置文件,在弹出的窗口中选择,然后把那个配置文件另存一份应用到当前视频,需求清晰吗?
+
+ok
+```
+
+**助手原文**：
+```text
+需求清晰，我理解成这样：
+
+1. 在“设置 > 房间配置管理”区域新增一个按钮：
+- `载入其他视频的配置文件`
+
+2. 点击后：
+- 扫描我们配置目录里的**所有房间配置文件**
+- 弹窗列表让用户选择一个
+
+3. 选择后，不是直接切过去用原文件，而是：
+- 先把这个“其他视频的配置”**复制另存一份**
+- 保存到**当前视频**自己的配置名空间里
+- 再把这份新副本应用到当前视频
+
+这样做的好处是：
+- 不会污染原始来源视频的配置
+- 当前视频后续改动也不会反向影响来源文件
+- 逻辑上就是“导入一份模板到当前视频”
+
+我准备的最小实现方案：
+1. 在 `fragment_settings_home.xml` 增加按钮
+2. 在 `SettingsHomeFragment.kt` 增加：
+- 扫描所有配置文件
+- 过滤掉当前视频自己的配置
+- 弹出选择框
+- 选中后复制为当前视频新文件并应用
+3. 视需要在 `VideoRoomConfigManager.kt` 补一个“列出所有配置文件”的辅助方法
+4. 如果 `RoomRepository.kt` 已有现成的“另存为并切换”能力，就复用，不重写保存链
+
+已经实现完成：
+- 在房间配置管理卡片中新增了按钮 `载入其他视频的配置文件`
+- 点击后会扫描 `room_configs` 下所有**非当前视频**的配置文件，并弹窗列表选择
+- 选中后会先复制为当前视频目录下的一份新副本，再立即切换应用
+- 不会直接引用原文件，避免跨视频共用同一份配置
+- 编译验证已通过：`:app:compileDebugKotlin`
+
+这次改动文件：
+- `app/src/main/java/com/example/roomxxx0102/data/repository/VideoRoomConfigManager.kt`
+- `app/src/main/res/layout/fragment_settings_home.xml`
+- `app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt`
+- `codexHistory.md`
+- `dialogueHistory.md`
+```
+
+---
+

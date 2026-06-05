@@ -43,6 +43,16 @@ object VideoRoomConfigManager {
         return File(context.folder, context.baseName + CONFIG_EXTENSION)
     }
 
+    fun listAllConfigFiles(): List<File> {
+        val rootDir = File(appContext.filesDir, ROOT_DIR_NAME)
+        if (!rootDir.exists() || !rootDir.isDirectory) return emptyList()
+        return rootDir.walkTopDown()
+            .maxDepth(2)
+            .filter { it.isFile && it.name.endsWith(CONFIG_EXTENSION, ignoreCase = true) }
+            .sortedBy { it.absolutePath.lowercase(Locale.getDefault()) }
+            .toList()
+    }
+
     fun listConfigFilesForCurrentVideo(): List<File> {
         val context = currentVideoContext() ?: return emptyList()
         val folder = context.folder
@@ -57,6 +67,20 @@ object VideoRoomConfigManager {
         val context = currentVideoContext() ?: return null
         val fileStem = sanitizeFileStem(displayName)
         return File(context.folder, fileStem + CONFIG_EXTENSION)
+    }
+
+    fun buildImportedConfigFileForCurrentVideo(sourceFile: File): File? {
+        val context = currentVideoContext() ?: return null
+        val sourceFolderName = sourceFile.parentFile?.name?.takeIf { it.isNotBlank() } ?: "import"
+        val sourceName = sourceFile.nameWithoutExtension.ifBlank { "config" }
+        val baseName = sanitizeFileStem("${sourceFolderName}_$sourceName")
+        var candidate = File(context.folder, "$baseName$CONFIG_EXTENSION")
+        var suffix = 2
+        while (candidate.exists()) {
+            candidate = File(context.folder, "${baseName}_$suffix$CONFIG_EXTENSION")
+            suffix += 1
+        }
+        return candidate
     }
 
     fun isCurrentVideoConfigFile(file: File?): Boolean {

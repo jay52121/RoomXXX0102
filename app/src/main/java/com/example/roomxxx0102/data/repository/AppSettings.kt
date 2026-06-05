@@ -26,6 +26,9 @@ object AppSettings {
     private const val KEY_CLIPBOARD_DEBUG_ON_STEP = "clipboard_debug_on_step"
     private const val KEY_POINTING_DEBUG_OVERLAY_ENABLED = "pointing_debug_overlay_enabled"
     private const val KEY_POINTING_DEBUG_DISPLAY_MODE = "pointing_debug_display_mode"
+    private const val KEY_HAND_DETECTION_CONFIDENCE = "hand_detection_confidence"
+    private const val KEY_HAND_PRESENCE_CONFIDENCE = "hand_presence_confidence"
+    private const val KEY_HAND_TRACKING_CONFIDENCE = "hand_tracking_confidence"
     private const val KEY_PRESENCE_ALGO_VERSION = "presence_algorithm_version"
     private const val KEY_PAUSE_ON_ROOM_SWITCH = "pause_on_room_switch"
     private const val KEY_PAUSE_DECISION_LOG_ON_SWITCH = "pause_decision_log_on_switch"
@@ -63,6 +66,12 @@ object AppSettings {
     var isPointingDebugOverlayEnabled: Boolean = false
         private set
     var pointingDebugDisplayMode: Int = POINTING_DEBUG_DISPLAY_WINDOW_ONLY
+        private set
+    var handDetectionConfidence: Float = 0.5f
+        private set
+    var handPresenceConfidence: Float = 0.5f
+        private set
+    var handTrackingConfidence: Float = 0.5f
         private set
     var presenceAlgorithmVersion: String = PRESENCE_ALGO_AUTO
         private set
@@ -110,6 +119,9 @@ object AppSettings {
             KEY_POINTING_DEBUG_DISPLAY_MODE,
             POINTING_DEBUG_DISPLAY_WINDOW_ONLY
         ).coerceIn(POINTING_DEBUG_DISPLAY_ALWAYS, POINTING_DEBUG_DISPLAY_NEVER)
+        handDetectionConfidence = prefs.getFloat(KEY_HAND_DETECTION_CONFIDENCE, 0.5f).coerceIn(0f, 1f)
+        handPresenceConfidence = prefs.getFloat(KEY_HAND_PRESENCE_CONFIDENCE, 0.5f).coerceIn(0f, 1f)
+        handTrackingConfidence = prefs.getFloat(KEY_HAND_TRACKING_CONFIDENCE, 0.5f).coerceIn(0f, 1f)
         presenceAlgorithmVersion = prefs.getString(KEY_PRESENCE_ALGO_VERSION, PRESENCE_ALGO_AUTO) ?: PRESENCE_ALGO_AUTO
         isPauseOnRoomSwitchEnabled = prefs.getBoolean(KEY_PAUSE_ON_ROOM_SWITCH, false)
         isPauseDecisionLogOnSwitchEnabled = prefs.getBoolean(KEY_PAUSE_DECISION_LOG_ON_SWITCH, false)
@@ -238,6 +250,21 @@ object AppSettings {
             POINTING_DEBUG_DISPLAY_NEVER
         )
         prefs.edit().putInt(KEY_POINTING_DEBUG_DISPLAY_MODE, pointingDebugDisplayMode).apply()
+    }
+
+    fun setHandDetectionConfidence(value: Float) {
+        handDetectionConfidence = value.coerceIn(0f, 1f)
+        prefs.edit().putFloat(KEY_HAND_DETECTION_CONFIDENCE, handDetectionConfidence).apply()
+    }
+
+    fun setHandPresenceConfidence(value: Float) {
+        handPresenceConfidence = value.coerceIn(0f, 1f)
+        prefs.edit().putFloat(KEY_HAND_PRESENCE_CONFIDENCE, handPresenceConfidence).apply()
+    }
+
+    fun setHandTrackingConfidence(value: Float) {
+        handTrackingConfidence = value.coerceIn(0f, 1f)
+        prefs.edit().putFloat(KEY_HAND_TRACKING_CONFIDENCE, handTrackingConfidence).apply()
     }
 
     fun setPresenceAlgorithmVersion(version: String) {

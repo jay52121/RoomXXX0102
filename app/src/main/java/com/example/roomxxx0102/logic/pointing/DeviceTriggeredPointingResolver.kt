@@ -6,9 +6,10 @@ import kotlin.math.acos
 import kotlin.math.hypot
 
 class DeviceTriggeredPointingResolver(
-    private val config: PointingConfig = PointingConfig(),
-    private val scorer: DevicePointingScorer = DevicePointingScorer(),
-    private val windowJudge: DevicePointingWindowJudge = DevicePointingWindowJudge(forceOutputOnLowConfidence = false)
+    private val handConfig: PointingConfig = PointingConfig(),
+    private val deviceConfig: DevicePointingScoringConfig = DevicePointingScoringConfig(),
+    private val scorer: DevicePointingScorer = DevicePointingScorer(deviceConfig),
+    private val windowJudge: DevicePointingWindowJudge = DevicePointingWindowJudge(deviceConfig)
 ) {
     private var active = false
     private var baseTargets: List<DevicePointingTarget> = emptyList()
@@ -96,11 +97,11 @@ class DeviceTriggeredPointingResolver(
                 validFrames = validFrames.size,
                 noHandFrames = noHandFrames,
                 targets = preparedTargets.map {
-                    PointingTargetDebugInfo(it.id, RectF(it.boundsPx), RectF(it.boundsPx), 0f)
+                    PointingTargetDebugInfo(it.id, RectF(it.boundsPx), RectF(it.boundsPx), 0f, 0f)
                 },
                 top3Targets = emptyList()
             )
-            return if (elapsedMs >= config.timeoutMs) finalizeDecision(elapsedMs) else PointingDecision.Pending
+            return if (elapsedMs >= deviceConfig.timeoutMs) finalizeDecision(elapsedMs) else PointingDecision.Pending
         }
 
         ensurePreparedTargets(observation.imageWidth, observation.imageHeight)
@@ -119,29 +120,29 @@ class DeviceTriggeredPointingResolver(
         val pipCenter = midpoint(p6, p10)
         val mcpCenter = midpoint(p5, p9)
 
-        val originRaw = lerp(dipCenter, tipCenter, config.originLerpFactor)
+        val originRaw = lerp(dipCenter, tipCenter, handConfig.originLerpFactor)
         val dirDistal = normalizeOrNull(subtract(tipCenter, dipCenter))
         val dirProximal = normalizeOrNull(subtract(tipCenter, pipCenter))
         val dirOverall = normalizeOrNull(subtract(tipCenter, mcpCenter))
         val fingerDirRaw = normalizeOrNull(
             weightedSum(
-                config.distalWeight to dirDistal,
-                config.proximalWeight to dirProximal,
-                config.overallWeight to dirOverall
+                handConfig.distalWeight to dirDistal,
+                handConfig.proximalWeight to dirProximal,
+                handConfig.overallWeight to dirOverall
             )
         ) ?: prevDir ?: PointF(1f, 0f)
 
-        val smoothedOrigin = prevOrigin?.let { lerp(it, originRaw, config.smoothingAlpha) } ?: originRaw
+        val smoothedOrigin = prevOrigin?.let { lerp(it, originRaw, handConfig.smoothingAlpha) } ?: originRaw
         val smoothedDir = prevDir?.let {
-            normalizeOrNull(add(scale(fingerDirRaw, config.smoothingAlpha), scale(it, 1f - config.smoothingAlpha)))
+            normalizeOrNull(add(scale(fingerDirRaw, handConfig.smoothingAlpha), scale(it, 1f - handConfig.smoothingAlpha)))
         } ?: fingerDirRaw
 
-        val indexStraightScore = angleToStraightScore(angleDeg(p5, p6, p8), config.indexStraightLowDeg, config.indexStraightHighDeg)
-        val middleStraightScore = angleToStraightScore(angleDeg(p9, p10, p12), config.middleStraightLowDeg, config.middleStraightHighDeg)
-        val parallelScore = parallelScore(subtract(p8, p6), subtract(p12, p10), config.parallelHighDeg, config.parallelLowDeg)
+        val indexStraightScore = angleToStraightScore(angleDeg(p5, p6, p8), handConfig.indexStraightLowDeg, handConfig.indexStraightHighDeg)
+        val middleStraightScore = angleToStraightScore(angleDeg(p9, p10, p12), handConfig.middleStraightLowDeg, handConfig.middleStraightHighDeg)
+        val parallelScore = parallelScore(subtract(p8, p6), subtract(p12, p10), handConfig.parallelHighDeg, handConfig.parallelLowDeg)
         val palmWidth = distance(p5, p17).coerceAtLeast(1e-3f)
         val gapNorm = distance(p8, p12) / palmWidth
-        val gapScore = gapScore(gapNorm, config.gapKeepHighMax, config.gapDropLowMin)
+        val gapScore = gapScore(gapNorm, handConfig.gapKeepHighMax, handConfig.gapDropLowMin)
         val temporalStabilityScore = temporalStabilityScore(smoothedDir, prevDir)
         val frameQuality = (
             0.28f * indexStraightScore +
@@ -154,16 +155,19 @@ class DeviceTriggeredPointingResolver(
         prevOrigin = smoothedOrigin
         prevDir = smoothedDir
 
-        val frameScores = scorer.scoreFrame(smoothedOrigin, smoothedDir, frameQuality, preparedTargets)
-        scorer.logFrameScores(validFrames.size + 1, frameQuality, frameScores)
-        validFrames += DeviceFrameEvaluation(
+        val frameEvaluation = scorer.buildFrameEvaluation(
             timestampMs = timestampMs,
+            rayOrigin = smoothedOrigin,
+            rayDirection = smoothedDir,
             rayConfidence = frameQuality,
-            frameScores = frameScores
+            targets = preparedTargets
         )
+        scorer.logFrameScores(validFrames.size + 1, frameEvaluation)
+        validFrames += frameEvaluation
 
-        val best = frameScores.maxByOrNull { it.totalScore }
-        val second = frameScores.sortedByDescending { it.totalScore }.getOrNull(1)
+        val sortedFrameScores = frameEvaluation.frameScores.sortedByDescending { it.totalScore }
+        val best = sortedFrameScores.firstOrNull()
+        val second = sortedFrameScores.getOrNull(1)
         latestDebugSnapshot = PointingDebugSnapshot(
             isActive = active,
             elapsedMs = elapsedMs,
@@ -185,13 +189,13 @@ class DeviceTriggeredPointingResolver(
             validFrames = validFrames.size,
             noHandFrames = noHandFrames,
             targets = preparedTargets.map { target ->
-                val score = frameScores.firstOrNull { it.deviceId == target.id }?.totalScore ?: 0f
-                PointingTargetDebugInfo(target.id, RectF(target.boundsPx), RectF(target.boundsPx), score)
+                val score = frameEvaluation.frameScores.firstOrNull { it.deviceId == target.id }?.totalScore ?: 0f
+                PointingTargetDebugInfo(target.id, RectF(target.boundsPx), RectF(target.boundsPx), score, score)
             },
-            top3Targets = frameScores.sortedByDescending { it.totalScore }.take(3).map { it.deviceId to it.totalScore }
+            top3Targets = sortedFrameScores.take(3).map { it.deviceId to it.totalScore }
         )
 
-        return if (elapsedMs >= config.timeoutMs) finalizeDecision(elapsedMs) else PointingDecision.Pending
+        return if (elapsedMs >= deviceConfig.timeoutMs) finalizeDecision(elapsedMs) else PointingDecision.Pending
     }
 
     fun latestDebugSnapshot(): PointingDebugSnapshot? = latestDebugSnapshot
@@ -223,8 +227,16 @@ class DeviceTriggeredPointingResolver(
             validFrames = validFrames.size,
             noHandFrames = noHandFrames,
             targets = preparedTargets.map { target ->
-                val score = result.sortedStats.firstOrNull { it.deviceId == target.id }?.finalScore ?: 0f
-                PointingTargetDebugInfo(target.id, RectF(target.boundsPx), RectF(target.boundsPx), score)
+                val stats = result.sortedStats.firstOrNull { it.deviceId == target.id }
+                val finalScore = stats?.finalScore ?: 0f
+                val peakScore = stats?.temporalPeakFrameScore ?: 0f
+                PointingTargetDebugInfo(
+                    target.id,
+                    RectF(target.boundsPx),
+                    RectF(target.boundsPx),
+                    finalScore,
+                    peakScore
+                )
             },
             top3Targets = top3
         )
@@ -277,7 +289,7 @@ class DeviceTriggeredPointingResolver(
         preparedTargets = scorer.prepareTargets(baseTargets, imageWidth, imageHeight)
     }
 
-    private fun fallbackTimestampMs(): Long = if (startTimestampMs == 0L) 0L else startTimestampMs + config.timeoutMs
+    private fun fallbackTimestampMs(): Long = if (startTimestampMs == 0L) 0L else startTimestampMs + deviceConfig.timeoutMs
 
     private fun midpoint(a: PointF, b: PointF): PointF = PointF((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f)
 
@@ -346,7 +358,7 @@ class DeviceTriggeredPointingResolver(
     private fun temporalStabilityScore(current: PointF, prev: PointF?): Float {
         val p = prev ?: return 1f
         val angle = angleBetweenDeg(current, p)
-        return inverseSmoothStep(config.temporalStableHighDeg, config.temporalStableLowDeg, angle)
+        return inverseSmoothStep(handConfig.temporalStableHighDeg, handConfig.temporalStableLowDeg, angle)
     }
 
     private fun smoothStep(low: Float, high: Float, x: Float): Float {

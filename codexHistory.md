@@ -1,5 +1,77 @@
 # Codex History
 
+## [343] 2026-04-20 00:04:19 - 增加载入其他视频配置文件入口
+
+**用户指令**：
+> 新需求:在设置房间配置管理中,增加一个button- 载入其他视频的配置文件.
+> 然后扫描我们目录中的所有配置文件,在弹出的窗口中选择,然后把那个配置文件另存一份应用到当前视频,需求清晰吗?
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在房间配置管理中新增“载入其他视频的配置文件”入口，实现跨视频配置扫描、选择、复制为当前视频副本并立即应用。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/data/repository/VideoRoomConfigManager.kt、app/src/main/res/layout/fragment_settings_home.xml、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：VideoRoomConfigManager.listAllConfigFiles、VideoRoomConfigManager.buildImportedConfigFileForCurrentVideo、SettingsHomeFragment.showImportOtherVideoConfigDialog、SettingsHomeFragment.confirmImportOtherVideoConfig、SettingsHomeFragment.importOtherVideoConfig、SettingsHomeFragment.onViewCreated、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `VideoRoomConfigManager` 新增全量扫描 `room_configs` 目录的能力，并新增“为当前视频生成唯一导入副本文件名”的辅助方法。
+      *   在设置页“房间配置管理”卡片中新增按钮 `载入其他视频的配置文件`。
+      *   在 `SettingsHomeFragment` 中新增跨视频配置导入链路：扫描所有非当前视频的配置文件、弹窗列表选择、确认后复制到当前视频目录、再通过 `RoomRepository.switchToConfigFile()` 立即应用。
+      *   导入逻辑采用“复制后应用”，不直接引用源文件，避免不同视频之间共享同一份配置文件。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [342] 2026-03-31 23:59:00 - 新增手部检测参数调节折叠区
+
+**用户指令**：
+> 在说什么呀？重新阅读我最后的话。在
+> 是的，这个选项区是可以折叠起来的。展开之后才可以调节，开始吧。
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在设置页新增一个可折叠的“手部检测参数调节”区域，并把手部检测置信度、手部存在置信度、手部跟踪置信度三项做成中文拖拽调节。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/data/repository/AppSettings.kt、app/src/main/res/layout/fragment_settings_home.xml、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/java/com/example/roomxxx0102/logic/analyzer/HandSmokeTester.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：AppSettings.init、AppSettings.setHandDetectionConfidence、AppSettings.setHandPresenceConfidence、AppSettings.setHandTrackingConfidence、SettingsHomeFragment.setHandDetectionParamsExpanded、SettingsHomeFragment.syncHandDetectionConfidenceViews、SettingsHomeFragment.onViewCreated、SettingsHomeFragment.onResume、HandSmokeTester.detect、HandSmokeTester.setupHandLandmarker、HandSmokeTester.ensureHandLandmarkerConfig、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 `AppSettings` 新增三项浮点配置并持久化：`handDetectionConfidence`、`handPresenceConfidence`、`handTrackingConfidence`，默认均为 `0.5`。
+      *   在设置页布局新增一个可折叠区域 `手部检测参数调节`，展开后显示三组 `SeekBar + 当前值`：`手部检测置信度`、`手部存在置信度`、`手部跟踪置信度`。
+      *   在 `SettingsHomeFragment` 新增折叠状态控制、数值格式化、进度与置信度互转，以及三条 `SeekBar` 的持久化绑定；默认折叠，展开后可调。
+      *   `HandSmokeTester` 改为在每次 `detect()` 前检查这三项设置是否变化，若变化则自动重建 `HandLandmarker`，使新阈值在下一次检测前即可生效。
+      *   初始化日志补充输出当前使用的三项阈值，便于调试确认。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [341] 2026-03-31 04:05:00 - 收口设备窗口级指向判定新链并补齐回归测试
+
+**用户指令**：
+> 下面是一个AI的参考意见,结合实际额情况给方案:现在开始把“设备窗口级指向判定算法”的所有最终补丁，合并成一套唯一的、完整的实现。
+> 不要再保留分散的局部 patch 风格逻辑，不要再继续做新的理论扩展。
+> 目标是：把当前已经定稿的算法收口成一个清晰、可调试、可测试、可直接接入现有项目的最终版模块。
+> （后续补充约束：第一阶段先不要大面积搬空旧 TriggeredPointingResolver.kt；先新增并收口 DevicePointingGeometry.kt、DevicePointingScoringConfig.kt、DevicePointingDebugModels.kt、DevicePointingModels.kt；DevicePreparedTarget 必须承载所有静态预计算量；调试输出先做结构化 debug model。）
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：按设备链独立收口的顺序，把设备窗口级指向判定的新几何打分链、窗口统计链和结构化调试模型落成唯一真相版本，并补齐最小可跑回归测试。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/logic/pointing/DevicePointingGeometry.kt、app/src/main/java/com/example/roomxxx0102/logic/pointing/DevicePointingScoringConfig.kt、app/src/main/java/com/example/roomxxx0102/logic/pointing/DevicePointingDebugModels.kt、app/src/main/java/com/example/roomxxx0102/logic/pointing/DevicePointingModels.kt、app/src/main/java/com/example/roomxxx0102/logic/pointing/DevicePointingScorer.kt、app/src/main/java/com/example/roomxxx0102/logic/pointing/DevicePointingWindowJudge.kt、app/src/main/java/com/example/roomxxx0102/logic/pointing/DeviceTriggeredPointingResolver.kt、app/src/test/java/com/example/roomxxx0102/logic/pointing/DevicePointingScorerTest.kt、app/src/test/java/com/example/roomxxx0102/logic/pointing/DevicePointingWindowJudgeTest.kt、app/build.gradle.kts、codexHistory.md、dialogueHistory.md
+    *   涉及方法：DevicePointingGeometry.point、DevicePointingGeometry.rect、DevicePointingScorer.prepareTargets、DevicePointingScorer.buildFrameEvaluation、DevicePointingScorer.scoreTarget、DevicePointingScorer.logFrameScores、DevicePointingWindowJudge.judge、DevicePointingWindowJudge.logWindowResult、DeviceTriggeredPointingResolver.submitFrame、DeviceTriggeredPointingResolver.finalizeDecision、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   新增 `DevicePointingScoringConfig`，把热点半径、四边形辅助半径、近场豁免、后向容忍、近场裁剪、极近豁免、窗口阈值和输出策略等设备链参数集中到一处。
+      *   新增 `DevicePointingDebugModels`，定义 `DeviceFrameDebugMetrics` 和 `DeviceWindowDebugMetrics`，让逐帧/整窗调试输出先结构化再映射成日志和调试快照。
+      *   扩展 `DevicePreparedTarget`，把短边长度、热点命中半径、四边形辅助半径、近场豁免距离、后向容忍距离、穿透归一长度、基础近场裁剪距离、极近绝对豁免距离、近场设备距离阈值全部作为静态预计算量承载。
+      *   重写 `DevicePointingScorer`：完整实现极近豁免、热点方向一致因子、近场方向一致因子、前向因子、热点得分、近场目标支持因子、裁剪后射线、四边形得分、纯几何得分和单帧总分，并输出帧级 debug metrics。
+      *   重写 `DevicePointingWindowJudge`：完整实现时间权重、峰值时间因子、加权平均项、时序峰值项、加权命中比例、加权领先比例、动态最终阈值以及高置信/低置信/未定输出，并输出窗口级 debug metrics。
+      *   收口 `DeviceTriggeredPointingResolver`：设备模式改为只接新 `DevicePointingScorer` / `DevicePointingWindowJudge`，旧 `TriggeredPointingResolver.kt` 先保留兼容壳和共享类型，不做激进抽空。
+      *   新增 `DevicePointingScorerTest` 与 `DevicePointingWindowJudgeTest`，并补 `testImplementation(libs.junit)`；同时把新设备链里的 `PointF/RectF` 参数构造改为稳定 helper，解决 JVM 单测下 Android 图形对象构造退化问题。
+      *   验证通过：`:app:testDebugUnitTest` 成功，设备链最小回归测试可跑通。
+
+---
+
 ## [340] 2026-03-31 03:25:48 - 看手模式下自动续上常驻指向会话
 
 **用户指令**：

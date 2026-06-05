@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import com.example.roomxxx0102.data.repository.AppSettings
 import com.example.roomxxx0102.logic.pointing.HandLandmarkerPointingAdapter
 import com.example.roomxxx0102.logic.pointing.HandObservation
 import com.google.mediapipe.framework.image.BitmapImageBuilder
@@ -101,6 +102,9 @@ class HandSmokeTester(context: Context) {
     private var confidenceProbeSession: ConfidenceProbeSession? = null
     private val pendingFrameContexts = LinkedHashMap<Long, FrameContext>()
     private val finishProbeRunnable = Runnable { finishConfidenceProbeSession() }
+    private var configuredDetectionConfidence = -1f
+    private var configuredPresenceConfidence = -1f
+    private var configuredTrackingConfidence = -1f
     var onHandsResult: ((List<List<HandPoint>>, Int?) -> Unit)? = null
     var onPointingObservation: ((HandObservation) -> Unit)? = null
 
@@ -109,6 +113,7 @@ class HandSmokeTester(context: Context) {
     }
 
     fun detect(bitmap: Bitmap, roi: RectF? = null) {
+        ensureHandLandmarkerConfig()
         val detector = handLandmarker ?: return
         val timestampMs = nextTimestampMs()
         val inputBitmap = cropBitmapIfNeeded(bitmap, roi)
@@ -164,6 +169,9 @@ class HandSmokeTester(context: Context) {
 
     private fun setupHandLandmarker() {
         try {
+            val detectionConfidence = AppSettings.handDetectionConfidence
+            val presenceConfidence = AppSettings.handPresenceConfidence
+            val trackingConfidence = AppSettings.handTrackingConfidence
             val baseOptions = BaseOptions.builder()
                 .setModelAssetPath(MODEL_ASSET_PATH)
                 .build()
@@ -171,18 +179,46 @@ class HandSmokeTester(context: Context) {
                 .setBaseOptions(baseOptions)
                 .setRunningMode(RunningMode.LIVE_STREAM)
                 .setNumHands(2)
-                .setMinHandDetectionConfidence(0.5f)
-                .setMinHandPresenceConfidence(0.5f)
-                .setMinTrackingConfidence(0.5f)
+                .setMinHandDetectionConfidence(detectionConfidence)
+                .setMinHandPresenceConfidence(presenceConfidence)
+                .setMinTrackingConfidence(trackingConfidence)
                 .setResultListener(this::onLiveStreamResult)
                 .setErrorListener(this::onLiveStreamError)
                 .build()
             handLandmarker = HandLandmarker.createFromOptions(appContext, options)
-            Log.i(TAG, "HSMOKE|INIT|model=$MODEL_ASSET_PATH|runningMode=LIVE_STREAM|numHands=2")
+            configuredDetectionConfidence = detectionConfidence
+            configuredPresenceConfidence = presenceConfidence
+            configuredTrackingConfidence = trackingConfidence
+            Log.i(
+                TAG,
+                "HSMOKE|INIT|model=$MODEL_ASSET_PATH|runningMode=LIVE_STREAM|numHands=2" +
+                    "|detect=${format2(detectionConfidence)}" +
+                    "|presence=${format2(presenceConfidence)}" +
+                    "|tracking=${format2(trackingConfidence)}"
+            )
         } catch (t: Throwable) {
             Log.e(TAG, "HSMOKE|ERROR|init failed|model=$MODEL_ASSET_PATH", t)
             handLandmarker = null
         }
+    }
+
+    private fun ensureHandLandmarkerConfig() {
+        val detectionConfidence = AppSettings.handDetectionConfidence
+        val presenceConfidence = AppSettings.handPresenceConfidence
+        val trackingConfidence = AppSettings.handTrackingConfidence
+        val changed = handLandmarker == null ||
+            configuredDetectionConfidence != detectionConfidence ||
+            configuredPresenceConfidence != presenceConfidence ||
+            configuredTrackingConfidence != trackingConfidence
+        if (!changed) return
+        try {
+            handLandmarker?.close()
+        } catch (t: Throwable) {
+            Log.w(TAG, "close before reinit failed", t)
+        } finally {
+            handLandmarker = null
+        }
+        setupHandLandmarker()
     }
 
     private fun onLiveStreamResult(result: HandLandmarkerResult, inputImage: MPImage) {
@@ -466,6 +502,8 @@ class HandSmokeTester(context: Context) {
     private fun meanOrNull(sum: Float, count: Int): Float? = if (count > 0) sum / count.toFloat() else null
 
     private fun finiteOrNull(value: Float): Float? = if (value.isFinite()) value else null
+
+    private fun format2(value: Float): String = String.format(Locale.US, "%.2f", value)
 
     private fun format3(value: Float): String = String.format(Locale.US, "%.3f", value)
 

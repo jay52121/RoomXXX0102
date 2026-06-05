@@ -46,6 +46,7 @@ class SettingsHomeFragment : Fragment() {
     private var syncingPresenceSpinner = false
     private var isConfigListExpanded = false
     private var isVideoListExpanded = false
+    private var isHandDetectionParamsExpanded = false
 
     private fun buildPresenceOptionsInStableOrder(): List<PresenceAlgorithmRegistry.AlgorithmOption> {
         val options = mutableListOf(
@@ -267,6 +268,73 @@ class SettingsHomeFragment : Fragment() {
             }
             .setNegativeButton("取消", null)
             .show()
+    }
+
+    private fun showImportOtherVideoConfigDialog() {
+        val currentContext = VideoRoomConfigManager.currentVideoContext()
+        if (currentContext == null) {
+            Toast.makeText(context, "请先选择测试视频", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val candidates = VideoRoomConfigManager.listAllConfigFiles()
+            .filterNot { VideoRoomConfigManager.isCurrentVideoConfigFile(it) }
+        if (candidates.isEmpty()) {
+            Toast.makeText(context, "未找到其他视频的配置文件", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = candidates.mapIndexed { index, file ->
+            val sourceVideo = file.parentFile?.name ?: "未知视频"
+            "${index + 1}. ${file.nameWithoutExtension}（来源：$sourceVideo）"
+        }.toTypedArray()
+        AlertDialog.Builder(context)
+            .setTitle("选择其他视频配置")
+            .setItems(labels) { _, which ->
+                candidates.getOrNull(which)?.let(::confirmImportOtherVideoConfig)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun confirmImportOtherVideoConfig(sourceFile: File) {
+        val targetFile = VideoRoomConfigManager.buildImportedConfigFileForCurrentVideo(sourceFile)
+        if (targetFile == null) {
+            Toast.makeText(context, "请先选择测试视频", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val sourceVideo = sourceFile.parentFile?.name ?: "未知视频"
+        AlertDialog.Builder(context)
+            .setTitle("确认载入其他视频配置")
+            .setMessage(
+                "将配置 ${sourceFile.nameWithoutExtension}\n" +
+                    "（来源视频：$sourceVideo）\n\n" +
+                    "复制为当前视频配置 ${targetFile.nameWithoutExtension} 并立即应用，是否继续？"
+            )
+            .setPositiveButton("载入") { _, _ ->
+                importOtherVideoConfig(sourceFile, targetFile)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun importOtherVideoConfig(sourceFile: File, targetFile: File) {
+        try {
+            targetFile.parentFile?.mkdirs()
+            sourceFile.copyTo(targetFile, overwrite = false)
+            RoomRepository.switchToConfigFile(
+                file = targetFile,
+                persistSelection = true,
+                createIfMissing = false
+            )
+            Toast.makeText(
+                context,
+                "已载入其他视频配置: ${targetFile.nameWithoutExtension}",
+                Toast.LENGTH_SHORT
+            ).show()
+            refreshConfigListContent()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "载入失败: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun buildConfigRow(file: File, index: Int): View {
@@ -513,6 +581,27 @@ class SettingsHomeFragment : Fragment() {
     private val Int.dp: Int
         get() = (this * resources.displayMetrics.density).toInt()
 
+    private fun formatConfidence(value: Float): String = String.format(Locale.US, "%.2f", value)
+
+    private fun progressToConfidence(progress: Int): Float = (progress.coerceIn(0, 100) / 100f)
+
+    private fun confidenceToProgress(value: Float): Int = (value.coerceIn(0f, 1f) * 100f).toInt()
+
+    private fun setHandDetectionParamsExpanded(expanded: Boolean) {
+        isHandDetectionParamsExpanded = expanded
+        binding.layoutHandDetectionParams.visibility = if (expanded) View.VISIBLE else View.GONE
+        binding.tvHandDetectionParamsArrow.text = if (expanded) "收起" else "展开"
+    }
+
+    private fun syncHandDetectionConfidenceViews() {
+        binding.sbHandDetectionConfidence.progress = confidenceToProgress(AppSettings.handDetectionConfidence)
+        binding.tvHandDetectionConfidenceValue.text = formatConfidence(AppSettings.handDetectionConfidence)
+        binding.sbHandPresenceConfidence.progress = confidenceToProgress(AppSettings.handPresenceConfidence)
+        binding.tvHandPresenceConfidenceValue.text = formatConfidence(AppSettings.handPresenceConfidence)
+        binding.sbHandTrackingConfidence.progress = confidenceToProgress(AppSettings.handTrackingConfidence)
+        binding.tvHandTrackingConfidenceValue.text = formatConfidence(AppSettings.handTrackingConfidence)
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -526,6 +615,7 @@ class SettingsHomeFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         setConfigListExpanded(false)
         setVideoListExpanded(false)
+        setHandDetectionParamsExpanded(false)
 
         // 初始化开关状态
         binding.switchShowBox.isChecked = AppSettings.isDebugBoxShown
@@ -547,6 +637,7 @@ class SettingsHomeFragment : Fragment() {
         val initialWindowMs = AppSettings.eventMissPauseWindowMs
         binding.sbEventMissPauseWindow.progress = ((initialWindowMs - 100) / 100).coerceIn(0, 9)
         binding.tvEventMissPauseWindowValue.text = "${initialWindowMs} ms"
+        syncHandDetectionConfidenceViews()
         binding.tvTrackerStatus.text = if (AppSettings.isNewTrackerPredictionEnabled) "ByteTrack：检测中" else "ByteTrack：未启用"
 
         binding.spnRoiLogMode.setSelection(AppSettings.roiLogMode)
@@ -653,6 +744,49 @@ class SettingsHomeFragment : Fragment() {
             AppSettings.setSmartMatchPauseEnabled(isChecked)
         }
 
+        binding.layoutHandDetectionParamsHeader.setOnClickListener {
+            setHandDetectionParamsExpanded(!isHandDetectionParamsExpanded)
+        }
+
+        binding.sbHandDetectionConfidence.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val value = progressToConfidence(progress)
+                binding.tvHandDetectionConfidenceValue.text = formatConfidence(value)
+                if (fromUser) {
+                    AppSettings.setHandDetectionConfidence(value)
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+
+        binding.sbHandPresenceConfidence.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val value = progressToConfidence(progress)
+                binding.tvHandPresenceConfidenceValue.text = formatConfidence(value)
+                if (fromUser) {
+                    AppSettings.setHandPresenceConfidence(value)
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+
+        binding.sbHandTrackingConfidence.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val value = progressToConfidence(progress)
+                binding.tvHandTrackingConfidenceValue.text = formatConfidence(value)
+                if (fromUser) {
+                    AppSettings.setHandTrackingConfidence(value)
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+
         binding.sbEventMissPauseWindow.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 val windowMs = 100 + progress.coerceIn(0, 9) * 100
@@ -733,6 +867,10 @@ class SettingsHomeFragment : Fragment() {
             setConfigListExpanded(!isConfigListExpanded)
         }
 
+        binding.btnImportOtherVideoConfig.setOnClickListener {
+            showImportOtherVideoConfigDialog()
+        }
+
         // 测试视频选择
         binding.btnSelectVideo.setOnClickListener {
             setVideoListExpanded(!isVideoListExpanded)
@@ -764,6 +902,7 @@ class SettingsHomeFragment : Fragment() {
         binding.spnPointingDisplayMode.setSelection(AppSettings.pointingDebugDisplayMode)
         syncPointingDisplayModeVisibility(AppSettings.isPointingDebugOverlayEnabled)
         binding.switchSmartMatchPause.isChecked = AppSettings.isSmartMatchPauseEnabled
+        syncHandDetectionConfidenceViews()
         val windowMs = AppSettings.eventMissPauseWindowMs
         binding.sbEventMissPauseWindow.progress = ((windowMs - 100) / 100).coerceIn(0, 9)
         binding.tvEventMissPauseWindowValue.text = "${windowMs} ms"

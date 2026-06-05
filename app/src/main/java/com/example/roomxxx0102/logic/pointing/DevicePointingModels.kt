@@ -19,7 +19,10 @@ data class DevicePreparedTarget(
     val polygonAssistRadiusPx: Float,
     val nearFieldExemptDistancePx: Float,
     val backwardTolerancePx: Float,
-    val penetrationNormLengthPx: Float
+    val penetrationNormLengthPx: Float,
+    val baseNearFieldCropDistancePx: Float,
+    val absoluteNearExemptDistancePx: Float,
+    val nearFieldDeviceDistanceThresholdPx: Float
 )
 
 data class DeviceFrameScore(
@@ -27,19 +30,21 @@ data class DeviceFrameScore(
     val hotspotScore: Float,
     val polygonScore: Float,
     val geometricScore: Float,
-    val totalScore: Float
+    val totalScore: Float,
+    val debugMetrics: DeviceFrameDebugMetrics
 )
 
 data class DeviceFrameEvaluation(
     val timestampMs: Long,
     val rayConfidence: Float,
+    val usableConfidenceFactor: Float,
     val frameScores: List<DeviceFrameScore>
 )
 
 data class DeviceWindowDeviceStats(
     val deviceId: String,
-    var weightedAverageScore: Float = 0f,
-    var peakFrameScore: Float = 0f,
+    var weightedAverageFrameScore: Float = 0f,
+    var temporalPeakFrameScore: Float = 0f,
     var weightedHitRatio: Float = 0f,
     var weightedLeadRatio: Float = 0f,
     var finalScore: Float = 0f
@@ -54,5 +59,6 @@ data class DeviceWindowResult(
     val finalLeadRatio: Float,
     val dynamicFinalThreshold: Float,
     val weightedAverageRayConfidence: Float,
-    val sortedStats: List<DeviceWindowDeviceStats>
+    val sortedStats: List<DeviceWindowDeviceStats>,
+    val debugMetrics: DeviceWindowDebugMetrics
 )

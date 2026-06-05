@@ -74,4 +74,6 @@ dependencies {
     implementation(libs.litert.gpu)
     implementation(libs.tensorflow.lite.support)
     implementation("com.google.mediapipe:tasks-vision:0.10.33")
+
+    testImplementation(libs.junit)
 }
