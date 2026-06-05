@@ -1,6 +1,27 @@
 # Codex History
 
-## [344] 2026-06-05 00:00:00 - 固化项目 debug keystore 以支持覆盖安装
+## [344] 2026-06-05 20:54:00 - 修复测试视频选择 URI 授权链路
+
+**用户指令**：
+> 1. AS 没有能不能用其他的在线看输出？还是需要的吖 2.刚刚就是选视频的时候报错的，是不是该检查下权限申请相关链路？
+> ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复无 Android Studio 环境下通过 adb 捕获到的测试视频选择权限崩溃，稳定 ACTION_OPEN_DOCUMENT 视频 URI 的持久授权链路。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、app/src/main/java/com/example/roomxxx0102/data/repository/VideoRoomConfigManager.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：SettingsHomeFragment.selectVideoLauncher、SettingsHomeFragment.persistVideoUriPermission、SettingsHomeFragment.buildVideoPickerIntent、SettingsHomeFragment.launchVideoPicker、SettingsHomeFragment.refreshVideoListContent、SettingsHomeFragment.onViewCreated、VideoRoomConfigManager.resolveVideoDisplayName、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将测试视频选择入口从只返回 `Uri` 的 `OpenDocument` launcher 改为 `StartActivityForResult`，从返回 `Intent` 中读取真实授权 flags。
+      *   新增 `persistVideoUriPermission()`，统一执行 `takePersistableUriPermission()`，优先使用系统返回的 READ/WRITE 授权位，兜底保留 READ 权限。
+      *   新增 `buildVideoPickerIntent()` 与 `launchVideoPicker()`，让主按钮和“从文件中加载”入口共用同一套 ACTION_OPEN_DOCUMENT 权限配置。
+      *   `VideoRoomConfigManager.resolveVideoDisplayName()` 对 `contentResolver.query()` 增加 `SecurityException` 兜底，旧 URI 授权失效时不再因读取显示名直接崩溃。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [345] 2026-06-05 00:00:00 - 固化项目 debug keystore 以支持覆盖安装
 
 **用户指令**：
 > 请在 Windows 项目 D:\Users\YZ\AndroidStudioProjects\RoomXXX0102 中查找当前用于 debug 构建的旧 debug keystore。

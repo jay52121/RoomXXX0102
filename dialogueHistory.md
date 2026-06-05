@@ -4948,6 +4948,14 @@ ok
 - 完成后告诉我提交 hash。
 
 好了吗
+
+## [154] 2026-06-05 20:54:00 - 修复测试视频选择URI授权
+
+**用户原文**：
+```text
+1. AS 没有能不能用其他的在线看输出？还是需要的吖 2.刚刚就是选视频的时候报错的，是不是该检查下权限申请相关链路？
+
+ok
 ```
 
 **助手原文**：
@@ -4966,6 +4974,12 @@ ok
 - `:app:assembleDebug` 已通过
 
 接下来我会只把这次相关文件加入提交并推送到 `设备与语音匹配`，不会带上 `.codex`、`.idea`、临时对话文件和截图。
+
+可以，不需要 AS，也能用 adb logcat 或 VS Code 终端实时看输出。
+
+我已经按权限链路修复：测试视频选择入口改为 StartActivityForResult，使用返回 Intent 的真实授权 flags 调用 takePersistableUriPermission；主按钮和“从文件中加载”统一走同一个 ACTION_OPEN_DOCUMENT Intent；VideoRoomConfigManager.resolveVideoDisplayName 对 contentResolver.query 增加 SecurityException 兜底。
+
+验证：./gradlew :app:compileDebugKotlin 已通过。
 ```
 
 ---

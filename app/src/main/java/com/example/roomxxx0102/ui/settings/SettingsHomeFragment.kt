@@ -2,6 +2,7 @@ package com.example.roomxxx0102.ui.settings
 
 import android.app.AlertDialog
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -152,17 +153,38 @@ class SettingsHomeFragment : Fragment() {
         }
     }
 
-    private val selectVideoLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    private val selectVideoLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val uri = result.data?.data
         if (uri != null) {
             try {
-                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                requireContext().contentResolver.takePersistableUriPermission(uri, flags)
+                persistVideoUriPermission(uri, result.data?.flags ?: 0)
                 loadSelectedVideo(uri.toString(), addToHistory = true)
             } catch (e: Exception) {
                 e.printStackTrace()
                 Toast.makeText(context, "设置失败: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    private fun persistVideoUriPermission(uri: Uri, resultFlags: Int) {
+        val allowedFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        val persistFlags = resultFlags and allowedFlags
+        val readFlag = Intent.FLAG_GRANT_READ_URI_PERMISSION
+        val finalFlags = if (persistFlags and readFlag != 0) persistFlags else readFlag
+        requireContext().contentResolver.takePersistableUriPermission(uri, finalFlags)
+    }
+
+    private fun buildVideoPickerIntent(): Intent {
+        return Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "video/*"
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        }
+    }
+
+    private fun launchVideoPicker() {
+        selectVideoLauncher.launch(buildVideoPickerIntent())
     }
 
     private fun loadSelectedVideo(uriString: String, addToHistory: Boolean) {
@@ -551,7 +573,7 @@ class SettingsHomeFragment : Fragment() {
 
         val loadFromFileButton = com.google.android.material.button.MaterialButton(requireContext()).apply {
             text = "从文件中加载"
-            setOnClickListener { selectVideoLauncher.launch(arrayOf("video/*")) }
+            setOnClickListener { launchVideoPicker() }
         }
         container.addView(loadFromFileButton)
 
@@ -873,7 +895,11 @@ class SettingsHomeFragment : Fragment() {
 
         // 测试视频选择
         binding.btnSelectVideo.setOnClickListener {
-            setVideoListExpanded(!isVideoListExpanded)
+            if (isVideoListExpanded) {
+                setVideoListExpanded(false)
+            } else {
+                launchVideoPicker()
+            }
         }
 
         binding.btnClearRoomCounts.setOnClickListener {
@@ -934,4 +960,3 @@ class SettingsHomeFragment : Fragment() {
         binding.spnPointingDisplayMode.visibility = visibility
     }
 }
-

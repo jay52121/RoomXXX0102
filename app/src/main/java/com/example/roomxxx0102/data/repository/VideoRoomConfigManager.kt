@@ -3,10 +3,12 @@ package com.example.roomxxx0102.data.repository
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import java.io.File
 import java.util.Locale
 
 object VideoRoomConfigManager {
+    private const val TAG = "VideoRoomConfigManager"
     private const val ROOT_DIR_NAME = "room_configs"
     private const val CONFIG_EXTENSION = ".Room"
 
@@ -114,16 +116,20 @@ object VideoRoomConfigManager {
     private fun resolveVideoDisplayName(uriString: String): String {
         val uri = Uri.parse(uriString)
         if (uri.scheme.equals("content", ignoreCase = true)) {
-            appContext.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
-                ?.use { cursor ->
-                    val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (index >= 0 && cursor.moveToFirst()) {
-                        val displayName = cursor.getString(index)
-                        if (!displayName.isNullOrBlank()) {
-                            return displayName.substringBeforeLast('.')
+            try {
+                appContext.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                    ?.use { cursor ->
+                        val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (index >= 0 && cursor.moveToFirst()) {
+                            val displayName = cursor.getString(index)
+                            if (!displayName.isNullOrBlank()) {
+                                return displayName.substringBeforeLast('.')
+                            }
                         }
                     }
-                }
+            } catch (e: SecurityException) {
+                Log.w(TAG, "无法读取视频显示名，使用 URI 片段兜底: $uriString", e)
+            }
         }
         val lastSegment = uri.lastPathSegment
         if (!lastSegment.isNullOrBlank()) {
