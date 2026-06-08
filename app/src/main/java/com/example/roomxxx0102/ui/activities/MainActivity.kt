@@ -32,6 +32,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
@@ -122,6 +123,7 @@ class MainActivity : ComponentActivity() {
 
     private val previewView: PreviewView by lazy { findViewById(R.id.previewView) }
     private val textureView: android.view.TextureView by lazy { findViewById(R.id.textureView) }
+    private val liveFrozenFrameView: ImageView by lazy { findViewById(R.id.liveFrozenFrameView) }
     private val composeAudioScreen: ComposeView by lazy { findViewById(R.id.composeAudioScreen) }
     private val overlayView: DetectionOverlayView by lazy { findViewById(R.id.overlayView) }
     private val editorView: LivingRoomEditorView by lazy { findViewById(R.id.editorView) }
@@ -259,8 +261,11 @@ class MainActivity : ComponentActivity() {
     private var savedRadarVisibility: Int? = null
     private var savedEditorViewVisibility: Int? = null
     private val splashHideHandler = Handler(Looper.getMainLooper())
+    private val runtimeSwitchHandler = Handler(Looper.getMainLooper())
     private var splashLoadingAnimator: ValueAnimator? = null
     private var splashShownAtMs: Long = 0L
+    private var isMainStartupInitialized = false
+    private var isMainStartupInitializing = false
     private var lastPresenceCountsForPause: Map<String, Int>? = null
     private var lastPresenceAnomalyDumpKey: String? = null
     private val beijingTimeFormatter: SimpleDateFormat by lazy {
@@ -340,6 +345,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun initializeAfterSplashFirstFrame() {
+        if (isMainStartupInitialized || isMainStartupInitializing) return
+        isMainStartupInitializing = true
         AppSettings.init(applicationContext)
         RoomRepository.init(applicationContext)
         eventMarkerManager.init(applicationContext)
@@ -695,9 +702,12 @@ class MainActivity : ComponentActivity() {
 
         setupButtons()
         bindKwsCommandRelay()
+        syncRuntimeAnalyzerMode()
         refreshEventMarkerUi()
         checkPermissionsAndStart()
         refreshOverlayDisplay()
+        isMainStartupInitialized = true
+        isMainStartupInitializing = false
         hideMainSplashOverlayWhenReady()
     }
 
@@ -2392,6 +2402,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (!isMainStartupInitialized) {
+            hideSystemUI()
+            return
+        }
         ensurePresenceAlgorithmVersion()
         syncPoseRoiTrackerConfig()
         applySettings()
@@ -2601,10 +2615,14 @@ class MainActivity : ComponentActivity() {
         if (!isHandObserveMode()) {
             overlayView.updatePointingPanelSnapshot(null)
         }
-        updateHandOverlayMode()
-        videoFeeder?.isPoseMode = AppSettings.isPoseModeEnabled
+        syncRuntimeAnalyzerMode()
         refreshRuntimeModeButton()
         if (!isVideoMode) { unbindCamera(); startCameraMode() }
+    }
+
+    private fun syncRuntimeAnalyzerMode() {
+        updateHandOverlayMode()
+        videoFeeder?.isPoseMode = AppSettings.isPoseModeEnabled
     }
 
     private fun toggleRuntimeMode() {
@@ -2617,23 +2635,55 @@ class MainActivity : ComponentActivity() {
 
     private fun switchToCameraRuntimeMode() {
         if (!isVideoMode) return
+        showRuntimeSwitchLoading("正在进入 Live…")
         isVideoMode = false
         videoFeeder?.pause()
         textureView.visibility = View.GONE
         textureView.alpha = 1f
+        clearLiveFrozenFrame()
         startCameraMode()
         refreshRuntimeModeButton()
+        refreshPlayStateButton()
         refreshSeekButtons()
+        hideRuntimeSwitchLoadingSoon()
     }
 
     private fun switchToVideoRuntimeMode() {
         if (isVideoMode) return
+        showRuntimeSwitchLoading("正在进入回顾…")
         isVideoMode = true
+        clearLiveFrozenFrame()
         unbindCamera()
         previewView.visibility = View.GONE
         startVideoMode()
         refreshRuntimeModeButton()
+        refreshPlayStateButton()
         refreshSeekButtons()
+        hideRuntimeSwitchLoadingSoon()
+    }
+
+    private fun showRuntimeSwitchLoading(message: String) {
+        runtimeSwitchHandler.removeCallbacksAndMessages(null)
+        findViewById<TextView>(R.id.runtimeSwitchLoading).apply {
+            text = message
+            alpha = 1f
+            visibility = View.VISIBLE
+            bringToFront()
+        }
+    }
+
+    private fun hideRuntimeSwitchLoadingSoon(delayMs: Long = 700L) {
+        val loading = findViewById<TextView>(R.id.runtimeSwitchLoading)
+        runtimeSwitchHandler.postDelayed({
+            loading.animate()
+                .alpha(0f)
+                .setDuration(160L)
+                .withEndAction {
+                    loading.visibility = View.GONE
+                    loading.alpha = 1f
+                }
+                .start()
+        }, delayMs)
     }
 
     private fun refreshRuntimeModeButton() {
@@ -3847,6 +3897,14 @@ class MainActivity : ComponentActivity() {
     private fun refreshSeekButtons() {
         val btnRewind = findViewById<Button>(R.id.btnRewind)
         val btnForward = findViewById<Button>(R.id.btnForward)
+        if (!isVideoMode) {
+            btnRewind.visibility = View.INVISIBLE
+            btnForward.visibility = View.INVISIBLE
+            refreshEventMarkerControls()
+            return
+        }
+        btnRewind.visibility = View.VISIBLE
+        btnForward.visibility = View.VISIBLE
         if (currentPlayState == PlayState.STILL) {
             btnRewind.text = "-1帧"
             btnForward.text = "+1帧"
@@ -3872,6 +3930,10 @@ class MainActivity : ComponentActivity() {
 
     private fun togglePause(btn: Button) {
         stopSeekHold()
+        if (!isVideoMode) {
+            toggleLiveStillState(btn)
+            return
+        }
         val oldState = currentPlayState
         val beforePos = videoFeeder?.getCurrentPositionMs()
         val beforePlaying = videoFeeder?.isPlaying()
@@ -3910,10 +3972,37 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshPlayStateButton(btn: Button = findViewById(R.id.btnPause)) {
         btn.text = when (currentPlayState) {
-            PlayState.PLAYING -> "[ 播放中 ]"
+            PlayState.PLAYING -> if (isVideoMode) "[ 播放中 ]" else "[ Live 中 ]"
             PlayState.STILL -> "[ 静止中 ]"
-            PlayState.PAUSED -> "[ 播放中 ]"
+            PlayState.PAUSED -> if (isVideoMode) "[ 播放中 ]" else "[ Live 中 ]"
         }
+    }
+
+    private fun toggleLiveStillState(btn: Button) {
+        currentPlayState = when (currentPlayState) {
+            PlayState.PLAYING -> PlayState.STILL
+            PlayState.STILL -> PlayState.PLAYING
+            PlayState.PAUSED -> PlayState.PLAYING
+        }
+        if (currentPlayState == PlayState.STILL) {
+            freezeLivePreviewFrame()
+        } else {
+            clearLiveFrozenFrame()
+        }
+        refreshPlayStateButton(btn)
+        refreshSeekButtons()
+        refreshEventMarkerUi()
+    }
+
+    private fun freezeLivePreviewFrame() {
+        val frozen = previewView.bitmap ?: return
+        liveFrozenFrameView.setImageBitmap(frozen)
+        liveFrozenFrameView.visibility = View.VISIBLE
+    }
+
+    private fun clearLiveFrozenFrame() {
+        liveFrozenFrameView.setImageDrawable(null)
+        liveFrozenFrameView.visibility = View.GONE
     }
 
     private fun logPlayerDiag(message: String) {
@@ -3956,7 +4045,7 @@ class MainActivity : ComponentActivity() {
         tvRoomCount.text = getString(R.string.room_people_count, 0)
 
         currentPlayState = PlayState.PLAYING
-        findViewById<Button>(R.id.btnPause).text = "[ 播放中 ]"
+        refreshPlayStateButton()
         refreshSeekButtons()
 
         if (isVideoMode) {
@@ -3975,6 +4064,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         splashHideHandler.removeCallbacksAndMessages(null)
+        runtimeSwitchHandler.removeCallbacksAndMessages(null)
         splashLoadingAnimator?.cancel()
         splashLoadingAnimator = null
         super.onDestroy()

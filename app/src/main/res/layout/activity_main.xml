@@ -19,6 +19,14 @@
         android:layout_height="match_parent"
         android:visibility="gone" />
 
+    <ImageView
+        android:id="@+id/liveFrozenFrameView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:scaleType="centerCrop"
+        android:visibility="gone" />
+
     <androidx.compose.ui.platform.ComposeView
         android:id="@+id/composeAudioScreen"
         android:layout_width="match_parent"
@@ -430,6 +438,22 @@
             android:text="添加设备" />
             
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/runtimeSwitchLoading"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_sisp_loading_chip"
+        android:elevation="80dp"
+        android:includeFontPadding="false"
+        android:paddingHorizontal="18dp"
+        android:paddingVertical="10dp"
+        android:text="正在切换…"
+        android:textColor="#2E5EA8"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
 
     <FrameLayout
         android:id="@+id/mainSplashOverlay"

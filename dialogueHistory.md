@@ -5466,3 +5466,64 @@ APP 的名字改成 SISP，启动页的图改成这张，右下角有个简单�
 
 ---
 
+## [173] 2026-06-08 15:49:34 - 修复 MainActivity 启动阶段崩溃
+
+**用户原文**：
+```text
+不行了，撤销不了，我们直接在现在的基础上来修复 bug 吧。你先看一下 logcat，看一下为什么报错。现在 logcat 应该很多东西。你要注意筛选搜索是我们的这个应用 ,我刚刚关闭的+
+ok
+```
+
+**助手原文**：
+```text
+已通过 adb logcat crash buffer 定位到 MainActivity 启动阶段 NPE，根因是启动重排后生命周期在主初始化完成前访问 overlay/settings 链路。已为首帧后初始化增加防重入与完成标记，并让 onResume 在主初始化完成前提前返回。已构建 assembleDebug 成功并安装到手机，未主动启动 App。
+```
+
+---
+
+## [174] 2026-06-08 15:53:59 - 恢复启动后 Pose 分析链路同步
+
+**用户原文**：
+```text
+好的，这次没问题，但是进入之后明显有问题：
+首先，画面播放非常卡顿。
+其次，所有的框都没有绘制出来。
+你先分析一下。应该是整个模型都没有跑起来
+ok
+```
+
+**助手原文**：
+```text
+已分析 logcat：手部检测和 YoloAnalyzer 有运行，但没有 RoomPoseUiDiag poseCallback/poseUiUpdate，判断首次启动未把 VideoFeeder 切到 Pose 模式。已新增 syncRuntimeAnalyzerMode()，在 VideoFeeder 创建后、权限/播放启动前同步 overlay 模式和 videoFeeder.isPoseMode，并让 applySettings() 复用该方法。已构建并安装成功，未主动启动 App。
+```
+
+---
+
+## [175] 2026-06-08 16:03:38 - 调整实时模式左侧控制按钮
+
+**用户原文**：
+```text
+实时模式下，左侧应该没有+-5s，播放中和静止中也该改成（静止中和Live 中）
+```
+
+**助手原文**：
+```text
+已调整实时模式左侧控制：实时模式隐藏 btnRewind/btnForward，不再显示 -5s/+5s；播放状态按钮在实时模式显示 [ Live 中 ]，静止态显示 [ 静止中 ]，回顾模式保持 [ 播放中 ]。切换实时/回顾时同步刷新按钮。已构建并安装成功，未主动启动 App。
+```
+
+---
+
+## [176] 2026-06-08 16:26:08 - 实现 Live 静止冻结覆盖与模式切换 loading
+
+**用户原文**：
+```text
+回顾模式 -> Live 模式 Live 模式 -> 回顾模式加上吧，Live -> 静止中 先不要。开始吧。冻结 ImageView 覆盖 ok，听你的
+```
+
+**助手原文**：
+```text
+已实现 Live 静止冻结覆盖和实时/回顾切换 loading：新增 liveFrozenFrameView 覆盖 PreviewView，Live 点击静止时使用 previewView.bitmap 显示冻结画面，回到 Live 或切换模式时清除；新增 runtimeSwitchLoading，回顾到 Live 显示“正在进入 Live…”，Live 到回顾显示“正在进入回顾…”。未解绑 CameraX，未暂停 analyzer，未改模型链路。已构建并安装成功，未主动启动 App。
+```
+
+---
+

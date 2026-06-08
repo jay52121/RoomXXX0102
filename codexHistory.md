@@ -1,5 +1,86 @@
 # Codex History
 
+## [367] 2026-06-08 16:26:08 - 实现 Live 静止冻结覆盖与模式切换 loading
+
+**用户指令**：
+> 回顾模式 -> Live 模式 Live 模式 -> 回顾模式加上吧，Live -> 静止中 先不要。开始吧。冻结 ImageView 覆盖 ok，听你的
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让 Live 静止态用冻结画面覆盖当前预览，并为 Live/回顾模式切换提供轻量 loading 反馈。
+    *   修改文件：app/src/main/res/layout/activity_main.xml、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.togglePause、MainActivity.toggleLiveStillState、MainActivity.freezeLivePreviewFrame、MainActivity.clearLiveFrozenFrame、MainActivity.switchToCameraRuntimeMode、MainActivity.switchToVideoRuntimeMode、MainActivity.showRuntimeSwitchLoading、MainActivity.hideRuntimeSwitchLoadingSoon
+    *   关键改动：
+      *   在 `PreviewView` 上方、`DetectionOverlayView` 下方新增 `liveFrozenFrameView`，用于 Live 静止态显示最后一帧截图。
+      *   Live 模式点击状态按钮时走独立 `toggleLiveStillState()`，不再复用视频暂停/步进链路。
+      *   进入 Live 静止态时使用 `previewView.bitmap` 填充冻结层；回到 Live 中或切换模式时清除冻结层。
+      *   新增 `runtimeSwitchLoading` 中央胶囊提示，回顾 -> Live 显示“正在进入 Live…”，Live -> 回顾显示“正在进入回顾…”。
+      *   不解绑 CameraX、不暂停 analyzer、不改模型链路，避免 demo 引入相机恢复延迟和复杂生命周期问题。
+      *   已执行 `./gradlew :app:assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk`，构建和安装成功；未主动启动 App。
+
+---
+
+## [366] 2026-06-08 16:03:38 - 调整实时模式左侧控制按钮
+
+**用户指令**：
+> 实时模式下，左侧应该没有+-5s，播放中和静止中也该改成（静止中和Live 中）
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让实时模式左侧控制更符合 Live 场景，隐藏回顾专用快退/快进按钮并调整状态文案。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.switchToCameraRuntimeMode、MainActivity.switchToVideoRuntimeMode、MainActivity.refreshSeekButtons、MainActivity.refreshPlayStateButton
+    *   关键改动：
+      *   实时模式下将 `btnRewind` 与 `btnForward` 设为 `INVISIBLE`，不再显示 `-5s/+5s`。
+      *   回顾模式下继续按原逻辑显示 `-5s/+5s` 或静止态 `-1帧/+1帧`。
+      *   `refreshPlayStateButton()` 根据运行模式显示 `[ Live 中 ]` 或 `[ 播放中 ]`，静止态统一显示 `[ 静止中 ]`。
+      *   切换实时/回顾模式时同步刷新状态按钮和 seek 按钮。
+      *   已执行 `./gradlew :app:assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk`，构建和安装成功；未主动启动 App。
+
+---
+
+## [365] 2026-06-08 15:53:59 - 恢复启动后 Pose 分析链路同步
+
+**用户指令**：
+> 好的，这次没问题，但是进入之后明显有问题：首先，画面播放非常卡顿。其次，所有的框都没有绘制出来。你先分析一下。应该是整个模型都没有跑起来。ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：恢复启动后 `VideoFeeder` 的 Pose 分析模式与覆盖层显示模式同步，避免首次播放走旧 YOLO 链路导致人体框和 ROI 不绘制。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.initializeAfterSplashFirstFrame、MainActivity.applySettings、MainActivity.syncRuntimeAnalyzerMode
+    *   关键改动：
+      *   根据 logcat 判断手部检测和 YOLO 有运行，但 `RoomPoseUiDiag` 没有输出，说明首次启动未同步到 Pose 模式。
+      *   新增轻量 `syncRuntimeAnalyzerMode()`，统一同步 `updateHandOverlayMode()` 与 `videoFeeder?.isPoseMode = AppSettings.isPoseModeEnabled`。
+      *   在 `VideoFeeder` 创建后、启动权限/播放链路前主动调用该同步方法，确保首次回顾播放就走 Pose 链路。
+      *   `applySettings()` 改为复用该同步方法，减少设置链路与启动链路分叉。
+      *   已执行 `./gradlew :app:assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk`，构建和安装成功；未主动启动 App。
+
+---
+
+## [364] 2026-06-08 15:49:34 - 修复 MainActivity 启动阶段崩溃
+
+**用户指令**：
+> 不行了，撤销不了，我们直接在现在的基础上来修复 bug 吧。你先看一下 logcat，看一下为什么报错。现在 logcat 应该很多东西。你要注意筛选搜索是我们的这个应用，我刚刚关闭的。ok
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复启动重排后 `MainActivity` 启动阶段访问未完成初始化链路导致的崩溃。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.initializeAfterSplashFirstFrame、MainActivity.onResume
+    *   关键改动：
+      *   通过 crash buffer 定位到 `MainActivity.getOverlayView()` 在启动阶段触发 `NullPointerException`。
+      *   为首帧后初始化增加 `isMainStartupInitializing` 与 `isMainStartupInitialized` 防重入标记。
+      *   `onResume()` 在主初始化完成前只恢复沉浸式状态并提前返回，避免提前访问设置、仓库、覆盖层和视频链路。
+      *   已执行 `./gradlew :app:assembleDebug`，构建通过。
+      *   已执行 `adb install -r app/build/outputs/apk/debug/app-debug.apk`，安装成功；未主动启动 App。
+
+---
+
 ## [363] 2026-06-08 12:13:33 - 最小改动优化冷启动遮罩显示
 
 **用户指令**：
