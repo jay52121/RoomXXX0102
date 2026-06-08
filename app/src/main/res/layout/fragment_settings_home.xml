@@ -11,6 +11,176 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
+        <!-- SISP Core 服务端连接卡片 -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_sisp_core"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="2dp"
+            app:cardBackgroundColor="#FFFFFF">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <LinearLayout
+                    android:id="@+id/layout_sisp_header"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:minHeight="40dp"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:id="@+id/tv_sisp_core_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="SISP Core：未连接"
+                        android:textColor="#333333"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <ProgressBar
+                        android:id="@+id/progress_sisp_auto_search"
+                        style="?android:attr/progressBarStyleSmall"
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:layout_marginStart="8dp"
+                        android:indeterminate="true"
+                        android:indeterminateTint="#00BCD4"
+                        android:visibility="gone" />
+
+                    <Space
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <TextView
+                        android:id="@+id/tv_sisp_core_arrow"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="展开"
+                        android:textColor="#666666"
+                        android:textSize="13sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/layout_sisp_core_expanded"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/tv_sisp_core_detail"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="自动搜索中 · 场景及设备操控不可用"
+                        android:textColor="#666666"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/tv_tracker_status"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="ByteTrack 服务状态：未启用"
+                        android:textColor="#666666"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="终端标识"
+                        android:textColor="#333333"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tv_sisp_terminal_identity"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="Android 终端"
+                        android:textColor="#666666"
+                        android:textSize="13sp" />
+
+                    <Button
+                        android:id="@+id/btn_sisp_manual_connect"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="手动连接"
+                        android:backgroundTint="#455A64"
+                        android:textColor="#FFFFFF" />
+
+                    <LinearLayout
+                        android:id="@+id/layout_sisp_manual_form"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="服务端地址"
+                            android:textColor="#333333"
+                            android:textSize="13sp" />
+
+                        <EditText
+                            android:id="@+id/et_sisp_host"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="192.168.1.100"
+                            android:inputType="textUri"
+                            android:singleLine="true"
+                            android:textColor="#333333"
+                            android:textColorHint="#999999"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="端口"
+                            android:textColor="#333333"
+                            android:textSize="13sp" />
+
+                        <EditText
+                            android:id="@+id/et_sisp_port"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="number"
+                            android:singleLine="true"
+                            android:text="8080"
+                            android:textColor="#333333"
+                            android:textSize="14sp" />
+
+                        <Button
+                            android:id="@+id/btn_sisp_connect"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:text="连接"
+                            android:backgroundTint="#2196F3"
+                            android:textColor="#FFFFFF" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- 调试开关卡片 -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -164,16 +334,6 @@
                     android:popupBackground="#FFFFFF"
                     android:theme="@style/ThemeOverlay.MaterialComponents.Light"
                     android:spinnerMode="dropdown" />
-
-
-                <TextView
-                    android:id="@+id/tv_tracker_status"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="ByteTrack：未启用"
-                    android:textSize="14sp"
-                    android:textColor="#666666"
-                    android:paddingBottom="8dp"/>
 
                 <androidx.appcompat.widget.SwitchCompat
                     android:id="@+id/switch_new_tracker"

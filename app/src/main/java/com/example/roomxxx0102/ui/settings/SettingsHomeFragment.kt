@@ -3,9 +3,14 @@ package com.example.roomxxx0102.ui.settings
 import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
+import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -38,6 +43,12 @@ import java.util.Locale
  */
 class SettingsHomeFragment : Fragment() {
 
+    private enum class SispCoreConnectionState {
+        Disconnected,
+        Connecting,
+        Connected
+    }
+
     private var _binding: FragmentSettingsHomeBinding? = null
     private val statusHandler = Handler(Looper.getMainLooper())
     private var statusRunnable: Runnable? = null
@@ -48,6 +59,12 @@ class SettingsHomeFragment : Fragment() {
     private var isConfigListExpanded = false
     private var isVideoListExpanded = false
     private var isHandDetectionParamsExpanded = false
+    private var isSispCoreExpanded = false
+    private var isSispManualFormExpanded = false
+    private var sispCoreConnectionState = SispCoreConnectionState.Disconnected
+    private var sispConnectingHost = ""
+    private var sispConnectingPort = ""
+    private var sispConnectRunnable: Runnable? = null
 
     private fun buildPresenceOptionsInStableOrder(): List<PresenceAlgorithmRegistry.AlgorithmOption> {
         val options = mutableListOf(
@@ -100,14 +117,14 @@ class SettingsHomeFragment : Fragment() {
             .build()
         httpClient.newCall(request).enqueue(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
-                val label = "ByteTrack：不可用"
+                val label = "ByteTrack 服务状态：不可用"
                 statusHandler.post { _binding?.tvTrackerStatus?.text = label }
             }
 
             override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
                 response.use {
                     val ok = it.isSuccessful
-                    val label = if (ok) "ByteTrack：可用" else "ByteTrack：不可用"
+                    val label = if (ok) "ByteTrack 服务状态：可用" else "ByteTrack 服务状态：不可用"
                     statusHandler.post { _binding?.tvTrackerStatus?.text = label }
                 }
             }
@@ -615,6 +632,113 @@ class SettingsHomeFragment : Fragment() {
         binding.tvHandDetectionParamsArrow.text = if (expanded) "收起" else "展开"
     }
 
+    private fun setSispCoreExpanded(expanded: Boolean) {
+        isSispCoreExpanded = expanded
+        updateSispCoreUi()
+    }
+
+    private fun setSispManualFormExpanded(expanded: Boolean) {
+        isSispManualFormExpanded = expanded
+        updateSispCoreUi()
+    }
+
+    private fun buildSispTerminalIdentity(): String {
+        val version = Build.VERSION.RELEASE.orEmpty().trim()
+        val maker = Build.MANUFACTURER.orEmpty().trim()
+            .ifBlank { Build.BRAND.orEmpty().trim() }
+        val model = Build.MODEL.orEmpty().trim()
+        if (version.isBlank() || maker.isBlank() || model.isBlank()) {
+            return "Android 终端"
+        }
+        return "Android $version · $maker $model"
+    }
+
+    private fun updateSispCoreUi() {
+        if (_binding == null) return
+        val statusValue = when (sispCoreConnectionState) {
+            SispCoreConnectionState.Disconnected -> "未连接"
+            SispCoreConnectionState.Connecting -> "连接中"
+            SispCoreConnectionState.Connected -> "已连接"
+        }
+        val detailText = when (sispCoreConnectionState) {
+            SispCoreConnectionState.Disconnected -> "自动搜索中 · 未发现本地 Core 服务"
+            SispCoreConnectionState.Connecting -> "正在连接 $sispConnectingHost:$sispConnectingPort"
+            SispCoreConnectionState.Connected -> "已连接到 SISP Core"
+        }
+        val connecting = sispCoreConnectionState == SispCoreConnectionState.Connecting
+        val autoSearching = sispCoreConnectionState == SispCoreConnectionState.Disconnected
+        binding.tvSispCoreStatus.text = buildSispStatusText(statusValue)
+        binding.progressSispAutoSearch.visibility = if (autoSearching) View.VISIBLE else View.GONE
+        binding.tvSispCoreDetail.text = detailText
+        binding.tvSispCoreArrow.text = if (isSispCoreExpanded) "收起" else "展开"
+        binding.tvSispTerminalIdentity.text = buildSispTerminalIdentity()
+        binding.layoutSispCoreExpanded.visibility = if (isSispCoreExpanded) View.VISIBLE else View.GONE
+        binding.layoutSispManualForm.visibility = if (isSispManualFormExpanded) View.VISIBLE else View.GONE
+        binding.btnSispManualConnect.text = if (isSispManualFormExpanded) "收起手动连接" else "手动连接"
+        binding.btnSispConnect.text = if (connecting) "连接中…" else "连接"
+        binding.btnSispConnect.isEnabled = !connecting
+        binding.etSispHost.isEnabled = !connecting
+        binding.etSispPort.isEnabled = !connecting
+    }
+
+    private fun buildSispStatusText(statusValue: String): SpannableString {
+        val title = "SISP Core："
+        val fullText = "$title$statusValue"
+        return SpannableString(fullText).apply {
+            setSpan(
+                ForegroundColorSpan(Color.parseColor("#1976D2")),
+                0,
+                title.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            if (statusValue == "未连接") {
+                setSpan(
+                    ForegroundColorSpan(Color.parseColor("#D32F2F")),
+                    title.length,
+                    fullText.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+        }
+    }
+
+    private fun startSispManualConnection() {
+        val host = binding.etSispHost.text.toString().trim()
+        val portText = binding.etSispPort.text.toString().trim()
+        if (host.isBlank()) {
+            Toast.makeText(context, "请输入服务端地址", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (portText.isBlank()) {
+            Toast.makeText(context, "请输入端口", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val port = portText.toIntOrNull()
+        if (port == null || port !in 1..65535) {
+            Toast.makeText(context, "端口范围应为 1-65535", Toast.LENGTH_SHORT).show()
+            return
+        }
+        clearSispConnectionRunnable()
+        sispConnectingHost = host
+        sispConnectingPort = port.toString()
+        sispCoreConnectionState = SispCoreConnectionState.Connecting
+        updateSispCoreUi()
+        sispConnectRunnable = Runnable { finishSispConnectionFailure() }
+        statusHandler.postDelayed(sispConnectRunnable!!, 2500L)
+    }
+
+    private fun finishSispConnectionFailure() {
+        sispConnectRunnable = null
+        sispCoreConnectionState = SispCoreConnectionState.Disconnected
+        updateSispCoreUi()
+        Toast.makeText(context, "暂未连接成功，请检查地址与端口", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun clearSispConnectionRunnable() {
+        sispConnectRunnable?.let { statusHandler.removeCallbacks(it) }
+        sispConnectRunnable = null
+    }
+
     private fun syncHandDetectionConfidenceViews() {
         binding.sbHandDetectionConfidence.progress = confidenceToProgress(AppSettings.handDetectionConfidence)
         binding.tvHandDetectionConfidenceValue.text = formatConfidence(AppSettings.handDetectionConfidence)
@@ -635,6 +759,8 @@ class SettingsHomeFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        setSispCoreExpanded(false)
+        setSispManualFormExpanded(false)
         setConfigListExpanded(false)
         setVideoListExpanded(false)
         setHandDetectionParamsExpanded(false)
@@ -660,7 +786,7 @@ class SettingsHomeFragment : Fragment() {
         binding.sbEventMissPauseWindow.progress = ((initialWindowMs - 100) / 100).coerceIn(0, 9)
         binding.tvEventMissPauseWindowValue.text = "${initialWindowMs} ms"
         syncHandDetectionConfidenceViews()
-        binding.tvTrackerStatus.text = if (AppSettings.isNewTrackerPredictionEnabled) "ByteTrack：检测中" else "ByteTrack：未启用"
+        binding.tvTrackerStatus.text = if (AppSettings.isNewTrackerPredictionEnabled) "ByteTrack 服务状态：检测中" else "ByteTrack 服务状态：未启用"
 
         binding.spnRoiLogMode.setSelection(AppSettings.roiLogMode)
         binding.spnRoiLogMode.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -746,7 +872,7 @@ class SettingsHomeFragment : Fragment() {
 
         binding.switchNewTracker.setOnCheckedChangeListener { _, isChecked ->
             AppSettings.setNewTrackerPredictionEnabled(isChecked)
-            binding.tvTrackerStatus.text = if (isChecked) "ByteTrack：检测中" else "ByteTrack：未启用"
+            binding.tvTrackerStatus.text = if (isChecked) "ByteTrack 服务状态：检测中" else "ByteTrack 服务状态：未启用"
             if (isChecked) startTrackerStatusPolling() else stopTrackerStatusPolling()
         }
 
@@ -764,6 +890,18 @@ class SettingsHomeFragment : Fragment() {
 
         binding.switchSmartMatchPause.setOnCheckedChangeListener { _, isChecked ->
             AppSettings.setSmartMatchPauseEnabled(isChecked)
+        }
+
+        binding.layoutSispHeader.setOnClickListener {
+            setSispCoreExpanded(!isSispCoreExpanded)
+        }
+
+        binding.btnSispManualConnect.setOnClickListener {
+            setSispManualFormExpanded(!isSispManualFormExpanded)
+        }
+
+        binding.btnSispConnect.setOnClickListener {
+            startSispManualConnection()
         }
 
         binding.layoutHandDetectionParamsHeader.setOnClickListener {
@@ -945,6 +1083,7 @@ class SettingsHomeFragment : Fragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         stopTrackerStatusPolling()
+        clearSispConnectionRunnable()
         _binding = null
     }
 

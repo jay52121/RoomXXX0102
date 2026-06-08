@@ -16,7 +16,8 @@
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:visibility="gone" />
 
     <androidx.compose.ui.platform.ComposeView
         android:id="@+id/composeAudioScreen"
@@ -62,76 +63,168 @@
         android:layout_height="match_parent"
         android:visibility="gone" />
 
-    <!-- 5. 常规控制栏 (底部) -->
+    <!-- 5. 左侧控制键：上下分组，保留中间视频主体区域 -->
     <LinearLayout
         android:id="@+id/llNormalControls"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:layout_marginBottom="24dp"
+        android:layout_gravity="start|center_vertical"
+        android:layout_marginStart="0dp"
+        android:background="@drawable/bg_side_action_panel"
+        android:elevation="6dp"
         android:gravity="center"
-        android:orientation="horizontal"
-        android:background="#60000000"
-        android:padding="12dp">
+        android:orientation="vertical"
+        android:padding="5dp">
 
         <Button
             android:id="@+id/btnRadar"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="82dp"
+            android:layout_height="40dp"
+            android:layout_marginBottom="6dp"
             android:text="🗺️ 雷达"
-            android:backgroundTint="#673AB7"
+            android:background="@drawable/bg_side_action_button"
             android:textColor="@android:color/white"
-            android:layout_marginEnd="8dp" />
+            android:textAllCaps="false"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingHorizontal="4dp" />
 
         <Button
             android:id="@+id/btnPause"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/video_pause"
-            android:layout_marginEnd="8dp" />
+            android:layout_width="82dp"
+            android:layout_height="40dp"
+            android:text="[ 播放中 ]"
+            android:background="@drawable/bg_side_action_button"
+            android:textColor="@android:color/white"
+            android:textAllCaps="false"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingHorizontal="4dp" />
+
+        <Space
+            android:layout_width="1dp"
+            android:layout_height="96dp" />
 
         <Button
             android:id="@+id/btnRewind"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="82dp"
+            android:layout_height="40dp"
+            android:layout_marginBottom="6dp"
             android:text="-5s"
-            android:layout_marginEnd="8dp" />
+            android:background="@drawable/bg_side_action_button_dim"
+            android:textColor="@android:color/white"
+            android:textAllCaps="false"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingHorizontal="4dp" />
 
         <Button
             android:id="@+id/btnForward"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="82dp"
+            android:layout_height="40dp"
             android:text="+5s"
-            android:layout_marginEnd="24dp" />
-
-        <Button
-            android:id="@+id/btnSetupRoom"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/btn_setup_room"
-            android:backgroundTint="#FF9800"
+            android:background="@drawable/bg_side_action_button_dim"
             android:textColor="@android:color/white"
-            android:layout_marginEnd="8dp" />
+            android:textAllCaps="false"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingHorizontal="4dp" />
+    </LinearLayout>
+
+    <!-- 5.1 右侧功能键：利用 21:9 屏幕右侧空白区竖排显示 -->
+    <LinearLayout
+        android:id="@+id/llRightActionControls"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|center_vertical"
+        android:layout_marginEnd="0dp"
+        android:background="@drawable/bg_side_action_panel"
+        android:elevation="6dp"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="5dp">
 
         <Button
             android:id="@+id/btnSettings"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/btn_settings"
-            android:layout_marginEnd="8dp" />
+            android:layout_width="82dp"
+            android:layout_height="40dp"
+            android:layout_marginBottom="6dp"
+            android:background="@drawable/bg_side_action_button"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="4dp"
+            android:text="系统设置"
+            android:textAllCaps="false"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnSetupRoom"
+            android:layout_width="82dp"
+            android:layout_height="40dp"
+            android:layout_marginBottom="6dp"
+            android:background="@drawable/bg_side_action_button"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="4dp"
+            android:text="房间设置"
+            android:textAllCaps="false"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:textStyle="bold" />
 
         <Button
             android:id="@+id/btnDebugPanel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="调试面板:关"
-            android:layout_marginEnd="8dp" />
+            android:layout_width="82dp"
+            android:layout_height="40dp"
+            android:layout_marginBottom="6dp"
+            android:background="@drawable/bg_side_action_button_dim"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="4dp"
+            android:text="调试面板"
+            android:textAllCaps="false"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:textStyle="bold" />
 
         <Button
             android:id="@+id/btnHandOverlay"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="当前看人" />
+            android:layout_width="82dp"
+            android:layout_height="40dp"
+            android:background="@drawable/bg_side_action_button"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="4dp"
+            android:text="看人视图"
+            android:textAllCaps="false"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnRuntimeMode"
+            android:layout_width="82dp"
+            android:layout_height="40dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_side_action_button_active"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="4dp"
+            android:text="回顾模式"
+            android:textAllCaps="false"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
     <!-- 5.5 事件标注工具栏（仅静止/暂停 + 调试面板开启时显示） -->
@@ -337,5 +430,64 @@
             android:text="添加设备" />
             
     </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/mainSplashOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_sisp_splash"
+        android:clickable="true"
+        android:elevation="100dp"
+        android:focusable="true">
+
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@string/app_name"
+            android:scaleType="centerCrop"
+            android:src="@drawable/sisp_splash" />
+
+        <LinearLayout
+            android:id="@+id/mainSplashLoading"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="42dp"
+            android:layout_marginBottom="30dp"
+            android:background="@drawable/bg_sisp_loading_chip"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="10dp"
+                android:includeFontPadding="false"
+                android:text="进入 SISP"
+                android:textColor="#2E5EA8"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <View
+                android:id="@+id/mainSplashDotOne"
+                android:layout_width="6dp"
+                android:layout_height="6dp"
+                android:background="@drawable/bg_sisp_loading_dot" />
+
+            <View
+                android:id="@+id/mainSplashDotTwo"
+                android:layout_width="6dp"
+                android:layout_height="6dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_sisp_loading_dot" />
+
+            <View
+                android:id="@+id/mainSplashDotThree"
+                android:layout_width="6dp"
+                android:layout_height="6dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_sisp_loading_dot" />
+        </LinearLayout>
+    </FrameLayout>
 
 </FrameLayout>

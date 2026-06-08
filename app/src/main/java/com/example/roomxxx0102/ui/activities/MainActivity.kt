@@ -1,6 +1,7 @@
 package com.example.roomxxx0102.ui.activities
 
 import com.example.roomxxx0102.data.model.BoundaryVertex
+import android.animation.ValueAnimator
 import android.widget.CheckBox
 import android.Manifest
 import android.app.AlertDialog
@@ -24,6 +25,7 @@ import android.util.Size
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -114,6 +116,8 @@ import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
+private const val MAIN_SPLASH_MIN_DURATION_MS = 1_000L
+
 class MainActivity : ComponentActivity() {
 
     private val previewView: PreviewView by lazy { findViewById(R.id.previewView) }
@@ -122,6 +126,7 @@ class MainActivity : ComponentActivity() {
     private val overlayView: DetectionOverlayView by lazy { findViewById(R.id.overlayView) }
     private val editorView: LivingRoomEditorView by lazy { findViewById(R.id.editorView) }
     private val llNormalControls: View by lazy { findViewById(R.id.llNormalControls) }
+    private val llRightActionControls: View by lazy { findViewById(R.id.llRightActionControls) }
     private val llEventMarkerControls: View by lazy { findViewById(R.id.llEventMarkerControls) }
     private val llEditorControls: View by lazy { findViewById(R.id.llEditorControls) }
     private val tvRoomCount: TextView by lazy { findViewById(R.id.tvRoomCount) }
@@ -247,11 +252,15 @@ class MainActivity : ComponentActivity() {
     private val blankPreviewTouchSlop by lazy { ViewConfiguration.get(this).scaledTouchSlop.toFloat() }
     private var savedOverlayVisibility: Int? = null
     private var savedNormalControlsVisibility: Int? = null
+    private var savedRightActionControlsVisibility: Int? = null
     private var savedEventControlsVisibility: Int? = null
     private var savedEditorControlsVisibility: Int? = null
     private var savedCounterVisibility: Int? = null
     private var savedRadarVisibility: Int? = null
     private var savedEditorViewVisibility: Int? = null
+    private val splashHideHandler = Handler(Looper.getMainLooper())
+    private var splashLoadingAnimator: ValueAnimator? = null
+    private var splashShownAtMs: Long = 0L
     private var lastPresenceCountsForPause: Map<String, Int>? = null
     private var lastPresenceAnomalyDumpKey: String? = null
     private val beijingTimeFormatter: SimpleDateFormat by lazy {
@@ -321,14 +330,21 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        hideSystemUI()
+        setContentView(R.layout.activity_main)
+        startMainSplashOverlay()
+        findViewById<View>(R.id.mainSplashOverlay).post {
+            initializeAfterSplashFirstFrame()
+        }
+    }
+
+    private fun initializeAfterSplashFirstFrame() {
         AppSettings.init(applicationContext)
         RoomRepository.init(applicationContext)
         eventMarkerManager.init(applicationContext)
         deviceHitMarkerManager.init(applicationContext)
         ensurePresenceAlgorithmVersion()
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-        hideSystemUI()
-        setContentView(R.layout.activity_main)
 
         yoloAnalyzer = YoloAnalyzer(this, overlayView)
         poseAnalyzer = YoloPoseAnalyzer(this) { results, bitmap, time ->
@@ -682,6 +698,58 @@ class MainActivity : ComponentActivity() {
         refreshEventMarkerUi()
         checkPermissionsAndStart()
         refreshOverlayDisplay()
+        hideMainSplashOverlayWhenReady()
+    }
+
+    private fun startMainSplashOverlay() {
+        val overlay = findViewById<View>(R.id.mainSplashOverlay)
+        splashShownAtMs = SystemClock.uptimeMillis()
+        overlay.visibility = View.VISIBLE
+        overlay.alpha = 1f
+        startMainSplashLoading()
+    }
+
+    private fun hideMainSplashOverlayWhenReady() {
+        val overlay = findViewById<View>(R.id.mainSplashOverlay)
+        val elapsedMs = SystemClock.uptimeMillis() - splashShownAtMs
+        val delayMs = (MAIN_SPLASH_MIN_DURATION_MS - elapsedMs).coerceAtLeast(0L)
+        splashHideHandler.postDelayed({
+            overlay.animate()
+                .alpha(0f)
+                .setDuration(260L)
+                .withEndAction {
+                    overlay.visibility = View.GONE
+                    splashLoadingAnimator?.cancel()
+                    splashLoadingAnimator = null
+                }
+                .start()
+        }, delayMs)
+    }
+
+    private fun startMainSplashLoading() {
+        val dots = listOf<View>(
+            findViewById(R.id.mainSplashDotOne),
+            findViewById(R.id.mainSplashDotTwo),
+            findViewById(R.id.mainSplashDotThree)
+        )
+        splashLoadingAnimator?.cancel()
+        splashLoadingAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 900L
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener { animator ->
+                val progress = animator.animatedValue as Float
+                dots.forEachIndexed { index, dot ->
+                    val phase = ((progress * dots.size) - index).coerceIn(0f, 1f)
+                    val pulse = if (phase < 0.5f) phase * 2f else (1f - phase) * 2f
+                    dot.alpha = 0.35f + 0.65f * pulse
+                    val scale = 0.78f + 0.34f * pulse
+                    dot.scaleX = scale
+                    dot.scaleY = scale
+                }
+            }
+            start()
+        }
     }
 
     private fun buildLockedHandRoiTarget(
@@ -1311,6 +1379,7 @@ class MainActivity : ComponentActivity() {
         }
         btnRewind.setOnClickListener { onSeekBackwardRequested() }
         btnForward.setOnClickListener { onSeekForwardRequested() }
+        refreshPlayStateButton(btnPause)
         btnRewind.setOnTouchListener(createSeekHoldTouchListener(direction = -1))
         btnForward.setOnTouchListener(createSeekHoldTouchListener(direction = 1))
         val btnDebugPanel = findViewById<Button>(R.id.btnDebugPanel)
@@ -1336,6 +1405,9 @@ class MainActivity : ComponentActivity() {
         }
         btnHandOverlay?.setOnClickListener {
             cycleObserveMode()
+        }
+        findViewById<Button>(R.id.btnRuntimeMode).setOnClickListener {
+            toggleRuntimeMode()
         }
         overlayView.setOnUnlockBannerLongPressListener {
             onValidationBannerLongPressed()
@@ -1380,16 +1452,26 @@ class MainActivity : ComponentActivity() {
         refreshDebugPanelButton()
 
         findViewById<Button>(R.id.btnSetupRoom).setOnClickListener { enterEditMode() }
+        refreshRuntimeModeButton()
         
         findViewById<Button>(R.id.btnRadar).setOnClickListener {
             flRadarContainer.visibility = View.VISIBLE
             llNormalControls.visibility = View.GONE
+            llRightActionControls.visibility = View.GONE
             cardCounter.visibility = View.GONE
+            if (!RoomRepository.hasMeaningfulConfig()) {
+                Toast.makeText(
+                    this,
+                    "无房间信息，请下发房间户型信息或手动配置房间户型，当前仅显示人体识别。",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
         
         btnCloseRadar.setOnClickListener {
             flRadarContainer.visibility = View.GONE
             llNormalControls.visibility = View.VISIBLE
+            llRightActionControls.visibility = View.VISIBLE
             cardCounter.visibility = View.GONE
         }
         
@@ -2272,9 +2354,9 @@ class MainActivity : ComponentActivity() {
         overlayView.setAudioOnlyMode(audioMode)
         overlayView.setPoseState(AppSettings.isPoseModeEnabled && !handMode && !audioMode)
         btnHandOverlay?.text = when (currentObserveMode) {
-            ObserveMode.PERSON -> "当前看人"
-            ObserveMode.HAND -> "当前看手"
-            ObserveMode.AUDIO -> "当前听声音"
+            ObserveMode.PERSON -> "看人视图"
+            ObserveMode.HAND -> "看手视图"
+            ObserveMode.AUDIO -> "声音视图"
         }
         syncAudioScreenMode(audioMode)
         if (!handMode) {
@@ -2288,6 +2370,7 @@ class MainActivity : ComponentActivity() {
 
     private fun toggleEditModeUI(isEditing: Boolean) {
         llNormalControls.visibility = if (isEditing) View.GONE else View.VISIBLE
+        llRightActionControls.visibility = if (isEditing) View.GONE else View.VISIBLE
         llEventMarkerControls.visibility = View.GONE
         llEditorControls.visibility = if (isEditing) View.VISIBLE else View.GONE
         cardCounter.visibility = View.GONE
@@ -2333,9 +2416,6 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        if (handleBlankPreviewTouch(ev)) {
-            return true
-        }
         if (isAwaitingDeviceHitSelection) {
             Log.i(
                 "DeviceHitSelect",
@@ -2357,7 +2437,13 @@ class MainActivity : ComponentActivity() {
             }
             return true
         }
-        return super.dispatchTouchEvent(ev)
+        if (super.dispatchTouchEvent(ev)) {
+            return true
+        }
+        if (handleBlankPreviewTouch(ev)) {
+            return true
+        }
+        return false
     }
 
     private fun handleBlankPreviewTouch(ev: MotionEvent): Boolean {
@@ -2422,6 +2508,13 @@ class MainActivity : ComponentActivity() {
 
     private fun isBlankAreaTouch(rawX: Float, rawY: Float): Boolean {
         if (!textureView.isShown) return false
+        if (isTouchInsideView(rawX, rawY, llRightActionControls) ||
+            isTouchInsideView(rawX, rawY, llNormalControls) ||
+            isTouchInsideView(rawX, rawY, llEventMarkerControls)
+        ) {
+            AppLog.i("RoomBlankPreview", "hitTest raw=($rawX,$rawY) blank=false reason=control")
+            return false
+        }
         val rect = android.graphics.Rect()
         textureView.getGlobalVisibleRect(rect)
         val blank = !rect.contains(rawX.toInt(), rawY.toInt())
@@ -2432,12 +2525,20 @@ class MainActivity : ComponentActivity() {
         return blank
     }
 
+    private fun isTouchInsideView(rawX: Float, rawY: Float, view: View): Boolean {
+        if (view.visibility != View.VISIBLE || !view.isShown) return false
+        val rect = android.graphics.Rect()
+        view.getGlobalVisibleRect(rect)
+        return rect.contains(rawX.toInt(), rawY.toInt())
+    }
+
     private fun enterBlankPreviewMode() {
         if (blankPreviewActive) return
         blankPreviewActive = true
         AppLog.i("RoomBlankPreview", "enter preview")
         savedOverlayVisibility = overlayView.visibility
         savedNormalControlsVisibility = llNormalControls.visibility
+        savedRightActionControlsVisibility = llRightActionControls.visibility
         savedEventControlsVisibility = llEventMarkerControls.visibility
         savedEditorControlsVisibility = llEditorControls.visibility
         savedCounterVisibility = cardCounter.visibility
@@ -2445,6 +2546,7 @@ class MainActivity : ComponentActivity() {
         savedEditorViewVisibility = editorView.visibility
         overlayView.visibility = View.GONE
         llNormalControls.visibility = View.GONE
+        llRightActionControls.visibility = View.GONE
         llEventMarkerControls.visibility = View.GONE
         llEditorControls.visibility = View.GONE
         cardCounter.visibility = View.GONE
@@ -2459,6 +2561,7 @@ class MainActivity : ComponentActivity() {
         if (!restoreUi) return
         savedOverlayVisibility?.let { overlayView.visibility = it }
         savedNormalControlsVisibility?.let { llNormalControls.visibility = it }
+        savedRightActionControlsVisibility?.let { llRightActionControls.visibility = it }
         savedEventControlsVisibility?.let { llEventMarkerControls.visibility = it }
         savedEditorControlsVisibility?.let { llEditorControls.visibility = it }
         savedCounterVisibility?.let { cardCounter.visibility = it }
@@ -2466,6 +2569,7 @@ class MainActivity : ComponentActivity() {
         savedEditorViewVisibility?.let { editorView.visibility = it }
         savedOverlayVisibility = null
         savedNormalControlsVisibility = null
+        savedRightActionControlsVisibility = null
         savedEventControlsVisibility = null
         savedEditorControlsVisibility = null
         savedCounterVisibility = null
@@ -2499,7 +2603,49 @@ class MainActivity : ComponentActivity() {
         }
         updateHandOverlayMode()
         videoFeeder?.isPoseMode = AppSettings.isPoseModeEnabled
+        refreshRuntimeModeButton()
         if (!isVideoMode) { unbindCamera(); startCameraMode() }
+    }
+
+    private fun toggleRuntimeMode() {
+        if (isVideoMode) {
+            switchToCameraRuntimeMode()
+        } else {
+            switchToVideoRuntimeMode()
+        }
+    }
+
+    private fun switchToCameraRuntimeMode() {
+        if (!isVideoMode) return
+        isVideoMode = false
+        videoFeeder?.pause()
+        textureView.visibility = View.GONE
+        textureView.alpha = 1f
+        startCameraMode()
+        refreshRuntimeModeButton()
+        refreshSeekButtons()
+    }
+
+    private fun switchToVideoRuntimeMode() {
+        if (isVideoMode) return
+        isVideoMode = true
+        unbindCamera()
+        previewView.visibility = View.GONE
+        startVideoMode()
+        refreshRuntimeModeButton()
+        refreshSeekButtons()
+    }
+
+    private fun refreshRuntimeModeButton() {
+        val btn = findViewById<Button>(R.id.btnRuntimeMode)
+        btn.text = if (isVideoMode) "回顾模式" else "实时模式"
+        btn.setBackgroundResource(
+            if (isVideoMode) {
+                R.drawable.bg_side_action_button_active
+            } else {
+                R.drawable.bg_side_action_button
+            }
+        )
     }
 
     private fun shouldEnablePointingDebugOverlay(): Boolean {
@@ -2521,6 +2667,7 @@ class MainActivity : ComponentActivity() {
         if (blankPreviewActive) {
             llEventMarkerControls.visibility = View.GONE
             llNormalControls.visibility = View.GONE
+            llRightActionControls.visibility = View.GONE
             cardCounter.visibility = View.GONE
             overlayView.visibility = View.GONE
             flRadarContainer.visibility = View.GONE
@@ -2796,6 +2943,7 @@ class MainActivity : ComponentActivity() {
             editorView.visibility = View.GONE
             flRadarContainer.visibility = View.GONE
             llNormalControls.visibility = View.GONE
+            llRightActionControls.visibility = View.GONE
             llEventMarkerControls.visibility = View.GONE
             cardCounter.visibility = View.GONE
             overlayView.visibility = View.VISIBLE
@@ -2813,6 +2961,7 @@ class MainActivity : ComponentActivity() {
         selectionSavedRadarVisibility = null
         if (llEditorControls.visibility != View.VISIBLE && flRadarContainer.visibility != View.VISIBLE) {
             llNormalControls.visibility = View.VISIBLE
+            llRightActionControls.visibility = View.VISIBLE
         }
         applyUiLayerMode(if (llEditorControls.visibility == View.VISIBLE) UiLayerMode.EDITING else UiLayerMode.NORMAL)
         Log.i(
@@ -2833,6 +2982,9 @@ class MainActivity : ComponentActivity() {
                 }
                 if (llNormalControls.visibility == View.VISIBLE) {
                     llNormalControls.bringToFront()
+                }
+                if (llRightActionControls.visibility == View.VISIBLE) {
+                    llRightActionControls.bringToFront()
                 }
                 if (llEventMarkerControls.visibility == View.VISIBLE) {
                     llEventMarkerControls.bringToFront()
@@ -3707,7 +3859,14 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshDebugPanelButton() {
         val btn = findViewById<Button>(R.id.btnDebugPanel)
-        btn.text = if (isDebugPanelEnabled) "调试面板:开" else "调试面板:关"
+        btn.text = "调试面板"
+        btn.setBackgroundResource(
+            if (isDebugPanelEnabled) {
+                R.drawable.bg_side_action_button_active
+            } else {
+                R.drawable.bg_side_action_button_dim
+            }
+        )
         refreshEventMarkerControls()
     }
 
@@ -3725,23 +3884,21 @@ class MainActivity : ComponentActivity() {
         }
         when (currentPlayState) {
             PlayState.PLAYING -> {
-                btn.text = "[ 播放中 ]"
                 videoFeeder?.clearStepSeekTransientState()
                 videoFeeder?.setStillMode(false)
                 overlayView.updatePointingDebugSnapshot(null)
                 videoFeeder?.resume()
             }
             PlayState.STILL -> {
-                btn.text = "[ 静止中 ]"
                 videoFeeder?.pause()
                 videoFeeder?.setStillMode(true)
             }
             PlayState.PAUSED -> {
-                btn.text = "[ 暂停中 ]"
                 videoFeeder?.setStillMode(false)
                 videoFeeder?.pause()
             }
         }
+        refreshPlayStateButton(btn)
         logPlayerDiag(
             "togglePause from=$oldState to=$currentPlayState " +
                 "beforePos=${beforePos ?: -1} afterPos=${videoFeeder?.getCurrentPositionMs() ?: -1} " +
@@ -3749,6 +3906,14 @@ class MainActivity : ComponentActivity() {
         )
         refreshSeekButtons()
         refreshEventMarkerUi()
+    }
+
+    private fun refreshPlayStateButton(btn: Button = findViewById(R.id.btnPause)) {
+        btn.text = when (currentPlayState) {
+            PlayState.PLAYING -> "[ 播放中 ]"
+            PlayState.STILL -> "[ 静止中 ]"
+            PlayState.PAUSED -> "[ 播放中 ]"
+        }
     }
 
     private fun logPlayerDiag(message: String) {
@@ -3809,6 +3974,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        splashHideHandler.removeCallbacksAndMessages(null)
+        splashLoadingAnimator?.cancel()
+        splashLoadingAnimator = null
         super.onDestroy()
         videoFeeder?.stop()
         handSmokeTester?.close()
@@ -3824,8 +3992,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startVideoMode() {
-        textureView.visibility = View.VISIBLE
         previewView.visibility = View.GONE
+        applyDefaultVideoTextureLayout()
+        textureView.visibility = View.VISIBLE
+        textureView.alpha = 0f
         val uriString = AppSettings.testVideoUri
         if (!uriString.isNullOrBlank()) {
             try {
@@ -3848,6 +4018,33 @@ class MainActivity : ComponentActivity() {
         } else {
             bindEventMarkersToVideo(null)
             refreshEventMarkerUi()
+        }
+    }
+
+    private fun applyDefaultVideoTextureLayout() {
+        val parent = textureView.parent as? View ?: return
+        val parentWidth = parent.width
+        val parentHeight = parent.height
+        if (parentWidth <= 0 || parentHeight <= 0) {
+            textureView.post { applyDefaultVideoTextureLayout() }
+            return
+        }
+        val defaultRatio = 16f / 9f
+        val parentRatio = parentWidth.toFloat() / parentHeight
+        val finalWidth: Int
+        val finalHeight: Int
+        if (defaultRatio > parentRatio) {
+            finalWidth = parentWidth
+            finalHeight = (parentWidth / defaultRatio).toInt()
+        } else {
+            finalHeight = parentHeight
+            finalWidth = (parentHeight * defaultRatio).toInt()
+        }
+        val params = textureView.layoutParams
+        if (params.width != finalWidth || params.height != finalHeight) {
+            params.width = finalWidth
+            params.height = finalHeight
+            textureView.layoutParams = params
         }
     }
 

@@ -74,6 +74,7 @@ class VideoFeeder(
     private var lastSeekCompletePositionMs: Int? = null
     private var lastSeekCompleteAtMs: Long = 0L
     private var lastPlaybackDiagPosMs: Int? = null
+    private var lastAppliedVideoLayout: Pair<Int, Int>? = null
     @Volatile
     private var lastAnalysisPositionMs: Int? = null
     private var playbackStallCount: Int = 0
@@ -189,6 +190,7 @@ class VideoFeeder(
 
     private fun setupMediaPlayer(filePath: String? = null, uri: Uri? = null) {
         stop()
+        lastAppliedVideoLayout = null
         frameStepController.resetAnchor("video_start")
         frameStepMs = estimateFrameStepMs(filePath, uri)
         lastAnalyzedPositionMs = null
@@ -196,6 +198,7 @@ class VideoFeeder(
         try {
             Log.d("VideoFeeder", "🎬 初始化 ExoVideoPlayer...")
             textureView.visibility = android.view.View.VISIBLE
+            textureView.alpha = 0f
 
             if (filePath != null) {
                 val file = File(filePath)
@@ -485,7 +488,10 @@ class VideoFeeder(
         val parent = textureView.parent as? android.view.View ?: return
         val screenW = parent.width
         val screenH = parent.height
-        if (screenW == 0 || screenH == 0) return
+        if (screenW == 0 || screenH == 0) {
+            handler.post { adjustAspectRatio(videoW, videoH) }
+            return
+        }
 
         val videoRatio = videoW.toFloat() / videoH
         val screenRatio = screenW.toFloat() / screenH
@@ -503,9 +509,15 @@ class VideoFeeder(
 
         handler.post {
             val params = textureView.layoutParams
+            if (lastAppliedVideoLayout == finalW to finalH && textureView.alpha == 1f) {
+                return@post
+            }
             params.width = finalW
             params.height = finalH
             textureView.layoutParams = params
+            lastAppliedVideoLayout = finalW to finalH
+            textureView.visibility = android.view.View.VISIBLE
+            textureView.alpha = 1f
         }
     }
 

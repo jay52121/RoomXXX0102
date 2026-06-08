@@ -1,5 +1,369 @@
 # Codex History
 
+## [363] 2026-06-08 12:13:33 - 最小改动优化冷启动遮罩显示
+
+**用户指令**：
+> 请按最小改动优化冷启动体验，目标是让 mainSplashOverlay 尽早显示，不要一口气大重构。系统/默认启动画面尽快退场；mainSplashOverlay 尽早显示并至少稳定显示约 1000ms；不要新建 SplashActivity；不要大改架构。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让 `mainSplashOverlay` 先绘制一帧，再执行原有模型、手势、视频初始化，并限制 APK 只打包真机 arm64-v8a。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/build.gradle.kts、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.onCreate、MainActivity.initializeAfterSplashFirstFrame、MainActivity.startMainSplashOverlay、MainActivity.hideMainSplashOverlayWhenReady、android.defaultConfig.ndk.abiFilters
+    *   关键改动：
+      *   `onCreate()` 只保留横屏、隐藏系统栏、`setContentView()`、立即显示 `mainSplashOverlay`。
+      *   使用 `mainSplashOverlay.post { initializeAfterSplashFirstFrame() }`，确保启动遮罩至少先绘制一帧后再执行原有重初始化。
+      *   原 `YoloAnalyzer`、`YoloPoseAnalyzer`、`HandSmokeTester`、`checkPermissionsAndStart()` 和视频启动链路保持原逻辑，只延后到首帧后。
+      *   遮罩隐藏改为初始化完成后触发，并保证至少显示 1000ms。
+      *   `app/build.gradle.kts` 增加 `abiFilters += listOf("arm64-v8a")`，当前 debug APK 仅包含真机 ABI。
+      *   已执行 `./gradlew :app:installDebug`，安装到真机成功；未主动启动 App。当前 APK 大小约 112M，ABI 为 `arm64-v8a`。
+
+---
+
+## [362] 2026-06-07 22:33:13 - 优化启动页加载与回顾模式视频尺寸闪动
+
+**用户指令**：
+> 起始页的时间差不多，是这个时间后面真的在加载资源吗？我希望他能把后面的加载资源的时间给省下来。特别是最后几帧，它就卡住了。然后才进入实际界面。现在又会画面先撑满全屏，再缩回常的视频尺寸（目前我是回顾模式，16:9）
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让启动页显示期间同步加载 MainActivity 资源，并减少回顾模式 TextureView 首帧尺寸闪动。
+    *   修改文件：app/src/main/AndroidManifest.xml、app/src/main/res/layout/activity_main.xml、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.onCreate、MainActivity.startMainSplashOverlay、MainActivity.startMainSplashLoading、MainActivity.onDestroy、MainActivity.startVideoMode、MainActivity.applyDefaultVideoTextureLayout、AndroidManifest LAUNCHER 入口
+    *   关键改动：
+      *   启动入口从单独等待 2 秒的 `SplashActivity` 改回 `MainActivity`，`SplashActivity` 暂时保留但不作为入口。
+      *   在 `activity_main.xml` 顶层新增 `mainSplashOverlay`，显示横版启动图和右下角三点 loading。
+      *   `MainActivity` 启动后立即显示启动遮罩，同时继续初始化模型、播放器和 UI；2 秒后遮罩淡出。
+      *   `startVideoMode()` 启动播放器前先按父容器计算 16:9 默认 TextureView 尺寸并保持透明，真实视频尺寸回调后再显示，避免先全屏再缩回。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [361] 2026-06-07 22:25:21 - 替换为横版启动页图片
+
+**用户指令**：
+> 已经放进来了
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将启动页主视觉替换为用户放入本机的横版启动页图片。
+    *   修改文件：app/src/main/res/drawable-nodpi/sisp_splash.png、app/src/main/res/layout/activity_splash.xml、codexHistory.md、dialogueHistory.md
+    *   涉及方法：activity_splash全屏背景ImageView、splashLoading叠层
+    *   关键改动：
+      *   从 `/Users/yzmac/Documents/启动页.png` 复制横版图片到 `drawable-nodpi/sisp_splash.png`。
+      *   启动页布局移除临时搭建的品牌文字/图标组合，改为全屏 `ImageView` 显示横版启动图。
+      *   保留右下角“进入 SISP”胶囊和三点面包屑 loading，2 秒进入 App 逻辑不变。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [360] 2026-06-07 22:21:00 - 新增 SISP 启动页
+
+**用户指令**：
+> APP 的名字改成 SISP，启动页的图改成这张，右下角有个简单的面包屑 进度 loading，2 秒后进入 app
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将应用名称改为 SISP，并新增 2 秒启动页与右下角面包屑 loading。
+    *   修改文件：app/src/main/AndroidManifest.xml、app/src/main/java/com/example/roomxxx0102/ui/activities/SplashActivity.kt、app/src/main/res/layout/activity_splash.xml、app/src/main/res/drawable/bg_sisp_splash.xml、app/src/main/res/drawable/bg_sisp_loading_chip.xml、app/src/main/res/drawable/bg_sisp_loading_dot.xml、app/src/main/res/drawable/bg_sisp_splash_icon_shadow.xml、app/src/main/res/drawable-nodpi/sisp_splash_icon.png、app/src/main/res/values/strings.xml、codexHistory.md、dialogueHistory.md
+    *   涉及方法：SplashActivity.onCreate、SplashActivity.onDestroy、SplashActivity.hideSystemUI、SplashActivity.startBreadcrumbLoading、AndroidManifest LAUNCHER 入口
+    *   关键改动：
+      *   `app_name` 从 `RoomXXX0102` 改为 `SISP`。
+      *   新增 `SplashActivity` 作为 LAUNCHER Activity，强制横屏，全屏隐藏系统栏。
+      *   启动页显示 SISP 品牌主视觉与“空间 · 感知 · 智能”文案。
+      *   右下角新增“进入 SISP”胶囊与三个循环脉冲小圆点，作为简洁面包屑 loading。
+      *   2 秒后自动进入 `MainActivity`，并使用淡入淡出过渡。
+      *   当前本机未找到用户消息中的横版启动页原始文件，先使用现有 SISP 图标资源搭建启动页；后续落盘横版图后可直接替换启动页主视觉资源。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [359] 2026-06-07 21:57:18 - 替换应用启动图标
+
+**用户指令**：
+> 把这个作为 icon
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将用户提供的 `RoomXXXico.png` 替换为 APK 启动图标。
+    *   修改文件：app/src/main/res/drawable-nodpi/roomxxx_icon_foreground.png、app/src/main/res/drawable/ic_launcher_background.xml、app/src/main/res/mipmap-anydpi/ic_launcher.xml、app/src/main/res/mipmap-anydpi/ic_launcher_round.xml、app/src/main/res/mipmap-*/ic_launcher.png、app/src/main/res/mipmap-*/ic_launcher_round.png、codexHistory.md、dialogueHistory.md
+    *   涉及方法：Android launcher icon 资源、adaptive-icon foreground/monochrome/background
+    *   关键改动：
+      *   从 `/Users/yzmac/Documents/RoomXXXico.png` 生成 mdpi/hdpi/xhdpi/xxhdpi/xxxhdpi 的 `ic_launcher.png` 与 `ic_launcher_round.png`。
+      *   新增 `drawable-nodpi/roomxxx_icon_foreground.png` 作为 Android 8+ adaptive icon 前景。
+      *   `mipmap-anydpi/ic_launcher.xml` 与 `ic_launcher_round.xml` 改为引用新前景图。
+      *   `ic_launcher_background.xml` 主背景色改为白色，贴合新图标风格。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [358] 2026-06-07 21:51:41 - 雷达无房间提示与播放按钮初始状态修正
+
+**用户指令**：
+> 雷达还是要打开的。只是打开之后有这个提示‘’
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：雷达在无有效房间配置时仍正常打开，只额外提示当前仅显示人体识别；同时修正左侧播放按钮初始文案。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/res/layout/activity_main.xml、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.setupButtons、MainActivity.togglePause、MainActivity.refreshPlayStateButton、activity_main.xml 中 `btnPause`
+    *   关键改动：
+      *   雷达按钮点击后始终显示雷达层；若 `RoomRepository.hasMeaningfulConfig()` 为 false，则 Toast 提示“无房间信息，请下发房间户型信息或手动配置房间户型，当前仅显示人体识别。”。
+      *   新增 `refreshPlayStateButton()` 统一播放按钮文案，当前屏蔽暂停入口时 `PAUSED` 也显示为“[ 播放中 ]”。
+      *   `setupButtons()` 初始化播放按钮文案，避免首屏仍显示旧的“暂停”。
+      *   布局中 `btnPause` 初始文案改为“[ 播放中 ]”。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [357] 2026-06-07 21:42:55 - 清零左右浮层屏幕边缘外边距
+
+**用户指令**：
+> 不是相邻的间距啊。是和屏幕边缘的间距
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：纠正上一轮对“间距”的理解，将左右浮层与屏幕边缘的外边距设为 0。
+    *   修改文件：app/src/main/res/layout/activity_main.xml、codexHistory.md、dialogueHistory.md
+    *   涉及方法：activity_main.xml 中 `llNormalControls`、`llRightActionControls` 与按钮 margin 调整、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将左侧浮层 `layout_marginStart` 从 4dp 改为 0dp。
+      *   将右侧浮层 `layout_marginEnd` 从 4dp 改为 0dp。
+      *   恢复上一轮误删的相邻按钮小间距，包括左右侧按钮 6dp 分隔和右侧运行模式按钮 10dp 顶部间距。
+      *   保留左侧上下分组中间 96dp 避让空档。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [356] 2026-06-07 21:40:02 - 清零左右侧按钮间距
+
+**用户指令**：
+> 左右按键间距都设置为 0
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：压缩左右两侧浮层内相邻按钮间距，使按钮排列更紧凑。
+    *   修改文件：app/src/main/res/layout/activity_main.xml、codexHistory.md、dialogueHistory.md
+    *   涉及方法：activity_main.xml 中左右侧浮层按钮 margin 调整、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   移除左侧 `btnRadar`、`btnRewind` 的相邻按钮底部间距。
+      *   移除右侧 `btnSettings`、`btnSetupRoom`、`btnDebugPanel` 的相邻按钮底部间距。
+      *   移除右侧 `btnRuntimeMode` 与上一按钮之间的顶部间距。
+      *   保留左侧上下分组中间 96dp 避让空档，避免遮挡画面主体。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [355] 2026-06-07 21:37:45 - 重构左侧四个播放控制键
+
+**用户指令**：
+> 现在我们来帮下面的另外 4 个按钮，跟刚才的规则一样，摆到左边。但是记住，左边或者右边都有可能中间有遮挡，所以我们尽量把中间给留出来，也就是上面排两个，下面排两个。其他的如果是其他的数字也是一样的。要把中间给留出来
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将原底部剩余四个控制键迁移到左侧空白区，并按上下分组保留屏幕中部视频主体区域。
+    *   修改文件：app/src/main/res/layout/activity_main.xml、codexHistory.md、dialogueHistory.md
+    *   涉及方法：activity_main.xml 中 `llNormalControls`、`btnRadar`、`btnPause`、`btnRewind`、`btnForward`、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `llNormalControls` 从底部横向栏改为左侧竖向浮层，复用右侧功能键的圆角面板风格。
+      *   四个按钮继续使用原 id，保留雷达、播放/暂停、后退、前进以及长按步进等现有逻辑。
+      *   上方分组放置 `雷达`、播放/暂停按钮，下方分组放置 `-5s/-1帧`、`+5s/+1帧`，中间用 96dp 间隔留出画面主体空间。
+      *   左侧按钮宽度统一为 82dp，贴近屏幕左边并减少遮挡。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [354] 2026-06-07 21:30:59 - 调整右侧按钮顺序并新增运行模式切换
+
+**用户指令**：
+> 系统设置应该在最上面，最下面加一个：实时模式、回顾模式（互斥），分别对应相机和视频播放。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：调整右侧功能键顺序，并新增实时/回顾运行模式互斥切换入口。
+    *   修改文件：app/src/main/res/layout/activity_main.xml、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.setupButtons、MainActivity.applySettings、MainActivity.toggleRuntimeMode、MainActivity.switchToCameraRuntimeMode、MainActivity.switchToVideoRuntimeMode、MainActivity.refreshRuntimeModeButton、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将右侧竖排按钮顺序调整为：`系统设置`、`房间设置`、`调试面板`、视图按钮、运行模式按钮。
+      *   新增 `btnRuntimeMode`，在视频播放时显示 `回顾模式`，在相机模式时显示 `实时模式`。
+      *   点击运行模式按钮时在相机实时模式和视频回顾模式之间互斥切换。
+      *   切到实时模式时暂停视频、隐藏 `TextureView` 并启动相机；切到回顾模式时解绑相机、隐藏 `PreviewView` 并启动视频。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [353] 2026-06-07 21:17:03 - 修复右侧功能键触摸与宽度
+
+**用户指令**：
+> 两个问题。第一个问题是右边新加的这些按钮的最右边，它的事件不太对。我点上去之后，它是执行的所有辅助界面消失的那个事件，只有这些按钮的左半部分可以。
+> 其次就是这个按钮太宽了。我还是希望它尽量窄一些。尽量贴着右边边儿一些
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复右侧功能键右半区被黑边预览触摸逻辑抢占的问题，并缩窄按钮、贴近屏幕右侧。
+    *   修改文件：app/src/main/res/layout/activity_main.xml、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.dispatchTouchEvent、MainActivity.isBlankAreaTouch、MainActivity.isTouchInsideView、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将右侧功能键宽度从 104dp 收窄为 82dp，高度从 44dp 调整为 40dp，字体降为 12sp。
+      *   将右侧功能键容器右边距从 18dp 调整为 4dp，内边距从 8dp 调整为 5dp，使其更贴近屏幕右边。
+      *   调整触摸分发顺序，先让正常控件消费事件，未消费时才进入黑边预览逻辑。
+      *   黑边预览命中检测增加控制区排除：右侧功能键、底部控制栏、事件标注栏区域内不触发“隐藏辅助界面”事件。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [352] 2026-06-07 21:13:04 - 修复启动后只有声音无画面
+
+**用户指令**：
+> 现在直接没有画面，只有声音。进去之后
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：修复上一轮隐藏 `TextureView` 导致播放器有声音但无画面的回归。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.startVideoMode、VideoFeeder.setupMediaPlayer、VideoFeeder.adjustAspectRatio、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   不再使用 `View.INVISIBLE` 隐藏 `TextureView`，避免阻断或干扰播放器 Surface 创建。
+      *   启动视频模式与初始化播放器时保持 `TextureView` 为 `VISIBLE`，但设置 `alpha=0` 暂时隐藏未稳定画面。
+      *   视频尺寸布局应用完成后将 `TextureView.alpha` 恢复为 `1f`，保留减少闪动的效果同时恢复画面显示。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [351] 2026-06-07 21:09:16 - 修复启动时全屏与视频比例闪动
+
+**用户指令**：
+> 每次启动的时候，16:9 和 全面就会闪动几次
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：减少主界面启动时全屏相机层与视频 16:9/原比例层之间来回闪动。
+    *   修改文件：app/src/main/res/layout/activity_main.xml、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/java/com/example/roomxxx0102/logic/video/VideoFeeder.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.startVideoMode、VideoFeeder.setupMediaPlayer、VideoFeeder.adjustAspectRatio、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `PreviewView` 初始状态改为 `gone`，避免视频模式启动前先显示全屏相机预览层。
+      *   `startVideoMode()` 先隐藏 `PreviewView`，并让 `TextureView` 保持 `VISIBLE` 以创建 Surface，同时用 `alpha=0` 隐藏未稳定画面。
+      *   `VideoFeeder.setupMediaPlayer()` 初始化播放器时保持 `TextureView` 可见但透明，等待真实视频尺寸回调后再显示。
+      *   `VideoFeeder.adjustAspectRatio()` 在父容器未测量完成时延后重试，应用最终宽高后再显示 `TextureView`，并对重复尺寸更新做去重。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [350] 2026-06-07 20:59:10 - 重构主界面右侧四个功能键
+
+**用户指令**：
+> AUDIO：声音视图就行了。 左边的暂时不动，我们下一步来改左边 4 个，先把右边 4 个进行修改吧。因为整个屏幕是 21:9 的，但是视频拍摄一般是 16:9 的，所以左右其实都留了一些空间。那我们就把右边的空间作为这个东西，放这 4 个键。暂时
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：利用 21:9 屏幕右侧空白区，将主界面右侧四个功能键从底部栏迁移为竖排浮动操作区，并优化文案与视觉样式。
+    *   修改文件：app/src/main/res/layout/activity_main.xml、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、app/src/main/res/drawable/bg_side_action_panel.xml、app/src/main/res/drawable/bg_side_action_button.xml、app/src/main/res/drawable/bg_side_action_button_active.xml、app/src/main/res/drawable/bg_side_action_button_dim.xml、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.updateHandOverlayMode、MainActivity.refreshDebugPanelButton、MainActivity.setupButtons、MainActivity.toggleEditModeUI、MainActivity.enterBlankPreviewMode、MainActivity.cancelBlankPreviewTracking、MainActivity.refreshEventMarkerUi、MainActivity.syncDeviceHitSelectionUi、MainActivity.applyUiLayerMode、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   新增右侧竖排容器 `llRightActionControls`，将 `btnSetupRoom`、`btnSettings`、`btnDebugPanel`、`btnHandOverlay` 移入该容器，底部控制栏暂只保留左侧播放相关按钮。
+      *   四个按钮文案改为 `房间设置`、`系统设置`、`调试面板`、`看人视图/看手视图/声音视图`。
+      *   调试面板按钮文字固定为 `调试面板`，通过亮色/暗色背景表示开关状态。
+      *   新增右侧面板与按钮的圆角渐变背景资源，减少系统默认控件感。
+      *   将右侧功能键容器纳入雷达、编辑、空白预览、设备选择等模式的显隐与层级同步，保持原底部按钮行为一致。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [349] 2026-06-06 20:02:44 - 将 ByteTrack 状态并入 SISP Core 卡片
+
+**用户指令**：
+> 把 ByteTrack 也进去，改成ByteTrack 服务状态
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将 ByteTrack 服务状态从调试设置卡片移入顶部 SISP Core 服务区域，并统一状态文案。
+    *   修改文件：app/src/main/res/layout/fragment_settings_home.xml、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：SettingsHomeFragment.fetchTrackerStatus、SettingsHomeFragment.onViewCreated、SettingsHomeFragment.switchNewTracker 监听、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   将 `tv_tracker_status` 从“调试显示设置”卡片搬到 SISP Core 卡片展开区域。
+      *   ByteTrack 状态文案统一改为 `ByteTrack 服务状态：未启用/检测中/可用/不可用`。
+      *   保留原有 ByteTrack 开关与轮询逻辑，仅调整展示位置和文字。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [348] 2026-06-06 19:56:51 - 增加 SISP Core 自动搜索圆环
+
+**用户指令**：
+> 这个未连接后面，我希望有一个圈一直在无限循环地转，表示我们在自动搜索中。这个圈要漂亮一点，科技一点，但是要尽量减少占用。如果有什么现成的控件也可以的
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在 SISP Core 未连接状态后增加轻量自动搜索动效，强化“正在发现 Core”的演示反馈。
+    *   修改文件：app/src/main/res/layout/fragment_settings_home.xml、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：SettingsHomeFragment.updateSispCoreUi、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在 SISP Core 状态行中新增 18dp 小号 indeterminate `ProgressBar`，放在状态文字之后、展开按钮之前。
+      *   将圆环 tint 设置为青蓝色 `#00BCD4`，保持轻量、科技感和较小占用。
+      *   圆环仅在 `Disconnected` 自动搜索状态显示，进入连接中或已连接状态时隐藏。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [347] 2026-06-06 19:43:15 - 调整 SISP Core 状态行颜色
+
+**用户指令**：
+> 看起来没什么问题，我们稍微做一些颜色上的修改：
+> 1. SPCO 要高亮一些，把它做成蓝色吧，因为它本身也是一个标题。
+> 2. “未连接”要是一个红色。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：优化设置页 SISP Core 状态行的视觉层级，让标题更醒目、未连接状态更明确。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：SettingsHomeFragment.updateSispCoreUi、SettingsHomeFragment.buildSispStatusText、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   使用 `SpannableString` 对 `SISP Core：未连接` 进行分段着色。
+      *   `SISP Core：` 标题部分改为蓝色，强化模块标题感。
+      *   `未连接` 状态部分改为红色，连接中和已连接状态暂不额外改色。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
+## [346] 2026-06-05 22:04:05 - 增加 SISP Core 服务端连接入口
+
+**用户指令**：
+> 设置最上方增加：你现在要在现有 Android APK 项目中新增/完善一个“SISP Core 服务端连接”UI 模块。
+> 目标：
+> 这个模块用于比赛演示 APK。它暂时不需要真的连接服务端，但界面和交互要看起来真实、克制、产品化。它不是服务端配置中心，只是客户端连接 SISP Core 的入口。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在设置页顶部新增 SISP Core 客户端连接折叠卡片，用于演示 APK 展示本地 Core 发现、终端标识和手动连接入口。
+    *   修改文件：app/src/main/res/layout/fragment_settings_home.xml、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：SettingsHomeFragment.SispCoreConnectionState、SettingsHomeFragment.setSispCoreExpanded、SettingsHomeFragment.setSispManualFormExpanded、SettingsHomeFragment.buildSispTerminalIdentity、SettingsHomeFragment.updateSispCoreUi、SettingsHomeFragment.startSispManualConnection、SettingsHomeFragment.finishSispConnectionFailure、SettingsHomeFragment.clearSispConnectionRunnable、SettingsHomeFragment.onViewCreated、SettingsHomeFragment.onDestroyView、tools/dialogue_archive.py append-turn
+    *   关键改动：
+      *   在设置页最上方新增 SISP Core 折叠卡片，默认只显示 `SISP Core：未连接`，展开后显示自动搜索状态、终端标识与手动连接入口。
+      *   终端标识仅使用 `Build.VERSION.RELEASE`、`Build.MANUFACTURER`/`Build.BRAND` 和 `Build.MODEL`，不读取敏感唯一硬件标识，缺失时降级为 `Android 终端`。
+      *   新增 `Disconnected`、`Connecting`、`Connected` 三态 UI，当前默认未连接，连接动作为本地 2.5 秒模拟 loading 后失败，不发起真实网络请求。
+      *   手动连接表单仅包含服务端地址、端口和 `连接` 按钮，包含空地址、空端口、端口范围 1-65535 的轻量校验。
+      *   编译验证通过：`:app:compileDebugKotlin` 成功。
+
+---
+
 ## [344] 2026-06-05 20:54:00 - 修复测试视频选择 URI 授权链路
 
 **用户指令**：
