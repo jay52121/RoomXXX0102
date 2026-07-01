@@ -41,6 +41,7 @@ class HandSmokeTester(context: Context) {
         private const val PROBE_DURATION_MS = 5000L
         private const val MIN_VALID_LANDMARK_SPREAD = 0.025f
         private const val LANDMARK_COORDINATE_MARGIN = 0.15f
+        private const val DEGENERATE_RESET_DELAY_MS = 1000L
         private val CORE_POINT_INDICES = intArrayOf(5, 6, 8, 9, 10, 12)
     }
 
@@ -109,6 +110,7 @@ class HandSmokeTester(context: Context) {
     private var configuredPresenceConfidence = -1f
     private var configuredTrackingConfidence = -1f
     private var lastLandmarkDiagAtMs = 0L
+    private var degenerateSinceTimestampMs: Long? = null
     private val resetRequested = AtomicBoolean(false)
     var onHandsResult: ((List<List<HandPoint>>, Int?) -> Unit)? = null
     var onPointingObservation: ((HandObservation) -> Unit)? = null
@@ -258,10 +260,23 @@ class HandSmokeTester(context: Context) {
                 isValidHandGeometry(mappedHands[index])
             }
             if (mappedHands.isNotEmpty() && validIndices.isEmpty()) {
-                resetRequested.set(true)
-                Log.w(TAG, "HSMOKE|DEGENERATE|hands=${mappedHands.size}|action=KEEP_LAST_AND_RESET")
+                val startedAt = degenerateSinceTimestampMs ?: timestampMs.also {
+                    degenerateSinceTimestampMs = it
+                }
+                val durationMs = (timestampMs - startedAt).coerceAtLeast(0L)
+                val shouldReset = durationMs >= DEGENERATE_RESET_DELAY_MS
+                if (shouldReset) {
+                    resetRequested.set(true)
+                    degenerateSinceTimestampMs = null
+                }
+                Log.w(
+                    TAG,
+                    "HSMOKE|DEGENERATE|hands=${mappedHands.size}|durationMs=$durationMs" +
+                        "|action=${if (shouldReset) "KEEP_LAST_AND_RESET" else "KEEP_LAST"}"
+                )
                 return
             }
+            degenerateSinceTimestampMs = null
             val validHands = validIndices.map(mappedHands::get)
             val selectedHandIndex = selectHigherHandIndex(validHands)
             val selectedSourceIndex = validIndices.getOrNull(selectedHandIndex)

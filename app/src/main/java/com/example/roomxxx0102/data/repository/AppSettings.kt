@@ -130,6 +130,14 @@ object AppSettings {
         handDetectionConfidence = prefs.getFloat(KEY_HAND_DETECTION_CONFIDENCE, 0.5f).coerceIn(0f, 1f)
         handPresenceConfidence = prefs.getFloat(KEY_HAND_PRESENCE_CONFIDENCE, 0.5f).coerceIn(0f, 1f)
         handTrackingConfidence = prefs.getFloat(KEY_HAND_TRACKING_CONFIDENCE, 0.5f).coerceIn(0f, 1f)
+        if (handDetectionConfidence == 0f && handPresenceConfidence == 0f) {
+            handDetectionConfidence = 0.5f
+            handPresenceConfidence = 0.5f
+            prefs.edit()
+                .putFloat(KEY_HAND_DETECTION_CONFIDENCE, handDetectionConfidence)
+                .putFloat(KEY_HAND_PRESENCE_CONFIDENCE, handPresenceConfidence)
+                .apply()
+        }
         handTranslationFullRange = prefs.getFloat(
             KEY_HAND_TRANSLATION_FULL_RANGE,
             HAND_TRANSLATION_FULL_RANGE_DEFAULT

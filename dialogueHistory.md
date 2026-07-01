@@ -27,7 +27,6 @@
 ```
 
 ---
-
 ## [012] 2026-03-04 02:12:00 - 智能匹配提示增加毫秒偏差与刻度颜色恢复
 
 **用户原文**：
@@ -6151,6 +6150,21 @@ ok
 已恢复云端动态 ROI + LIVE_STREAM 快速手部链，保留双手识别和退化熔断，并移除每帧 Bitmap 强制复制。单测和 debug 构建通过，APK 已覆盖安装，未自动启动。当前功能改动已建立独立 Git 检查点，本机环境文件未提交。
 
 任务简报：任务目的=恢复云端稳定快速的手部跟踪链并建立重大功能 Git 检查点；修改文件=HandSmokeTester.kt、VideoFeeder.kt、当前功能相关源码/资源/测试、codexHistory.md、dialogueHistory.md；涉及方法=HandSmokeTester.detect、VideoFeeder.analyzeRunnable 及当前检查点内相关功能。
+```
+
+---
+## [204] 2026-07-01 14:46:58 - 消除快速摆手触发的模型重建断档
+
+**用户原文**：
+```text
+ok
+```
+
+**助手原文**：
+```text
+已修复快速摆手触发的跟踪断档：单帧退化只保留上一有效结果，连续退化 1 秒才重建模型；同时将历史保存的检测/存在双零异常配置迁移回 0.50。单测和 debug 构建通过，APK 已覆盖安装，未自动启动，并建立独立 Git bugfix 提交。
+
+任务简报：任务目的=消除快速移动时模型立即重建造成的跟踪断档；修改文件=HandSmokeTester.kt、AppSettings.kt、codexHistory.md、dialogueHistory.md；涉及方法=HandSmokeTester.processResult、AppSettings.init。
 ```
 
 ---
