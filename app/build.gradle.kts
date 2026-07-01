@@ -1,8 +1,15 @@
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+
+val buildTimestamp: String = LocalDateTime.now().format(
+    DateTimeFormatter.ofPattern("yyyyMMdd.HHmm")
+)
 
 android {
     namespace = "com.example.roomxxx0102"
@@ -23,6 +30,7 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+        buildConfigField("String", "BUILD_TIME", "\"$buildTimestamp\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -54,6 +62,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
         viewBinding = true // 🔥 开启 ViewBinding
     }
 }
@@ -89,7 +98,7 @@ dependencies {
     implementation(libs.litert)
     implementation(libs.litert.gpu)
     implementation(libs.tensorflow.lite.support)
-    implementation("com.google.mediapipe:tasks-vision:0.10.33")
+    implementation("com.google.mediapipe:tasks-vision:0.10.35")
 
     testImplementation(libs.junit)
 }

@@ -82,69 +82,69 @@
         android:elevation="6dp"
         android:gravity="center"
         android:orientation="vertical"
-        android:padding="5dp">
+        android:padding="6dp">
 
         <Button
             android:id="@+id/btnRadar"
-            android:layout_width="82dp"
-            android:layout_height="40dp"
-            android:layout_marginBottom="6dp"
+            android:layout_width="86dp"
+            android:layout_height="38dp"
+            android:layout_marginBottom="7dp"
             android:text="🗺️ 雷达"
             android:background="@drawable/bg_side_action_button"
-            android:textColor="@android:color/white"
+            android:textColor="#F2F7FF"
             android:textAllCaps="false"
             android:textSize="11sp"
             android:textStyle="bold"
             android:minWidth="0dp"
             android:minHeight="0dp"
-            android:paddingHorizontal="4dp" />
+            android:paddingHorizontal="6dp" />
 
         <Button
             android:id="@+id/btnPause"
-            android:layout_width="82dp"
-            android:layout_height="40dp"
+            android:layout_width="86dp"
+            android:layout_height="38dp"
             android:text="[ 播放中 ]"
             android:background="@drawable/bg_side_action_button"
-            android:textColor="@android:color/white"
+            android:textColor="#F2F7FF"
             android:textAllCaps="false"
             android:textSize="11sp"
             android:textStyle="bold"
             android:minWidth="0dp"
             android:minHeight="0dp"
-            android:paddingHorizontal="4dp" />
+            android:paddingHorizontal="6dp" />
 
         <Space
             android:layout_width="1dp"
-            android:layout_height="96dp" />
+            android:layout_height="92dp" />
 
         <Button
             android:id="@+id/btnRewind"
-            android:layout_width="82dp"
-            android:layout_height="40dp"
-            android:layout_marginBottom="6dp"
+            android:layout_width="86dp"
+            android:layout_height="38dp"
+            android:layout_marginBottom="7dp"
             android:text="-5s"
             android:background="@drawable/bg_side_action_button_dim"
-            android:textColor="@android:color/white"
+            android:textColor="#9FB4D0"
             android:textAllCaps="false"
             android:textSize="12sp"
             android:textStyle="bold"
             android:minWidth="0dp"
             android:minHeight="0dp"
-            android:paddingHorizontal="4dp" />
+            android:paddingHorizontal="6dp" />
 
         <Button
             android:id="@+id/btnForward"
-            android:layout_width="82dp"
-            android:layout_height="40dp"
+            android:layout_width="86dp"
+            android:layout_height="38dp"
             android:text="+5s"
             android:background="@drawable/bg_side_action_button_dim"
-            android:textColor="@android:color/white"
+            android:textColor="#9FB4D0"
             android:textAllCaps="false"
             android:textSize="12sp"
             android:textStyle="bold"
             android:minWidth="0dp"
             android:minHeight="0dp"
-            android:paddingHorizontal="4dp" />
+            android:paddingHorizontal="6dp" />
     </LinearLayout>
 
     <!-- 5.1 右侧功能键：利用 21:9 屏幕右侧空白区竖排显示 -->
@@ -158,79 +158,79 @@
         android:elevation="6dp"
         android:gravity="center"
         android:orientation="vertical"
-        android:padding="5dp">
+        android:padding="6dp">
 
         <Button
             android:id="@+id/btnSettings"
-            android:layout_width="82dp"
-            android:layout_height="40dp"
-            android:layout_marginBottom="6dp"
+            android:layout_width="86dp"
+            android:layout_height="38dp"
+            android:layout_marginBottom="7dp"
             android:background="@drawable/bg_side_action_button"
             android:minHeight="0dp"
             android:minWidth="0dp"
-            android:paddingHorizontal="4dp"
+            android:paddingHorizontal="6dp"
             android:text="系统设置"
             android:textAllCaps="false"
-            android:textColor="@android:color/white"
+            android:textColor="#F2F7FF"
             android:textSize="12sp"
             android:textStyle="bold" />
 
         <Button
             android:id="@+id/btnSetupRoom"
-            android:layout_width="82dp"
-            android:layout_height="40dp"
-            android:layout_marginBottom="6dp"
+            android:layout_width="86dp"
+            android:layout_height="38dp"
+            android:layout_marginBottom="7dp"
             android:background="@drawable/bg_side_action_button"
             android:minHeight="0dp"
             android:minWidth="0dp"
-            android:paddingHorizontal="4dp"
+            android:paddingHorizontal="6dp"
             android:text="房间设置"
             android:textAllCaps="false"
-            android:textColor="@android:color/white"
+            android:textColor="#F2F7FF"
             android:textSize="12sp"
             android:textStyle="bold" />
 
         <Button
             android:id="@+id/btnDebugPanel"
-            android:layout_width="82dp"
-            android:layout_height="40dp"
-            android:layout_marginBottom="6dp"
+            android:layout_width="86dp"
+            android:layout_height="38dp"
+            android:layout_marginBottom="7dp"
             android:background="@drawable/bg_side_action_button_dim"
             android:minHeight="0dp"
             android:minWidth="0dp"
-            android:paddingHorizontal="4dp"
+            android:paddingHorizontal="6dp"
             android:text="调试面板"
             android:textAllCaps="false"
-            android:textColor="@android:color/white"
+            android:textColor="#9FB4D0"
             android:textSize="12sp"
             android:textStyle="bold" />
 
         <Button
             android:id="@+id/btnHandOverlay"
-            android:layout_width="82dp"
-            android:layout_height="40dp"
+            android:layout_width="86dp"
+            android:layout_height="38dp"
             android:background="@drawable/bg_side_action_button"
             android:minHeight="0dp"
             android:minWidth="0dp"
-            android:paddingHorizontal="4dp"
+            android:paddingHorizontal="6dp"
             android:text="看人视图"
             android:textAllCaps="false"
-            android:textColor="@android:color/white"
+            android:textColor="#F2F7FF"
             android:textSize="12sp"
             android:textStyle="bold" />
 
         <Button
             android:id="@+id/btnRuntimeMode"
-            android:layout_width="82dp"
-            android:layout_height="40dp"
-            android:layout_marginTop="10dp"
+            android:layout_width="86dp"
+            android:layout_height="38dp"
+            android:layout_marginTop="12dp"
             android:background="@drawable/bg_side_action_button_active"
             android:minHeight="0dp"
             android:minWidth="0dp"
-            android:paddingHorizontal="4dp"
+            android:paddingHorizontal="6dp"
             android:text="回顾模式"
             android:textAllCaps="false"
-            android:textColor="@android:color/white"
+            android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:textStyle="bold" />
     </LinearLayout>
@@ -329,7 +329,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/rename"
                 android:backgroundTint="#9C27B0"
-                android:textColor="@android:color/white"
+                android:textColor="#F2F7FF"
                 android:visibility="gone"
                 android:layout_marginEnd="8dp"/>
 
@@ -339,7 +339,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/delete"
                 android:backgroundTint="#F44336"
-                android:textColor="@android:color/white"
+                android:textColor="#F2F7FF"
                 android:visibility="gone"
                 android:layout_marginEnd="8dp"/>
         </LinearLayout>
@@ -368,7 +368,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/finish"
                 android:backgroundTint="#4CAF50"
-                android:textColor="@android:color/white"
+                android:textColor="#F2F7FF"
                 android:layout_marginEnd="8dp"/>
 
             <!-- 关闭按钮 -->

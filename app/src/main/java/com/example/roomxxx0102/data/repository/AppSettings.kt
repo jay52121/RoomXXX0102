@@ -3,6 +3,7 @@ package com.example.roomxxx0102.data.repository
 import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONArray
+import kotlin.math.roundToInt
 
 /**
  * **应用全局配置 (App Settings)**
@@ -29,6 +30,7 @@ object AppSettings {
     private const val KEY_HAND_DETECTION_CONFIDENCE = "hand_detection_confidence"
     private const val KEY_HAND_PRESENCE_CONFIDENCE = "hand_presence_confidence"
     private const val KEY_HAND_TRACKING_CONFIDENCE = "hand_tracking_confidence"
+    private const val KEY_HAND_TRANSLATION_FULL_RANGE = "hand_translation_full_range"
     private const val KEY_PRESENCE_ALGO_VERSION = "presence_algorithm_version"
     private const val KEY_PAUSE_ON_ROOM_SWITCH = "pause_on_room_switch"
     private const val KEY_PAUSE_DECISION_LOG_ON_SWITCH = "pause_decision_log_on_switch"
@@ -73,6 +75,8 @@ object AppSettings {
         private set
     var handTrackingConfidence: Float = 0.5f
         private set
+    var handTranslationFullRange: Float = HAND_TRANSLATION_FULL_RANGE_DEFAULT
+        private set
     var presenceAlgorithmVersion: String = PRESENCE_ALGO_AUTO
         private set
     var isPauseOnRoomSwitchEnabled: Boolean = false
@@ -97,6 +101,10 @@ object AppSettings {
     const val POINTING_DEBUG_DISPLAY_ALWAYS = 0
     const val POINTING_DEBUG_DISPLAY_WINDOW_ONLY = 1
     const val POINTING_DEBUG_DISPLAY_NEVER = 2
+    const val HAND_TRANSLATION_FULL_RANGE_DEFAULT = 1.5f
+    const val HAND_TRANSLATION_FULL_RANGE_MIN = 0.5f
+    const val HAND_TRANSLATION_FULL_RANGE_MAX = 3.0f
+    const val HAND_TRANSLATION_FULL_RANGE_STEP = 0.1f
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -122,6 +130,10 @@ object AppSettings {
         handDetectionConfidence = prefs.getFloat(KEY_HAND_DETECTION_CONFIDENCE, 0.5f).coerceIn(0f, 1f)
         handPresenceConfidence = prefs.getFloat(KEY_HAND_PRESENCE_CONFIDENCE, 0.5f).coerceIn(0f, 1f)
         handTrackingConfidence = prefs.getFloat(KEY_HAND_TRACKING_CONFIDENCE, 0.5f).coerceIn(0f, 1f)
+        handTranslationFullRange = prefs.getFloat(
+            KEY_HAND_TRANSLATION_FULL_RANGE,
+            HAND_TRANSLATION_FULL_RANGE_DEFAULT
+        ).coerceIn(HAND_TRANSLATION_FULL_RANGE_MIN, HAND_TRANSLATION_FULL_RANGE_MAX)
         presenceAlgorithmVersion = prefs.getString(KEY_PRESENCE_ALGO_VERSION, PRESENCE_ALGO_AUTO) ?: PRESENCE_ALGO_AUTO
         isPauseOnRoomSwitchEnabled = prefs.getBoolean(KEY_PAUSE_ON_ROOM_SWITCH, false)
         isPauseDecisionLogOnSwitchEnabled = prefs.getBoolean(KEY_PAUSE_DECISION_LOG_ON_SWITCH, false)
@@ -265,6 +277,15 @@ object AppSettings {
     fun setHandTrackingConfidence(value: Float) {
         handTrackingConfidence = value.coerceIn(0f, 1f)
         prefs.edit().putFloat(KEY_HAND_TRACKING_CONFIDENCE, handTrackingConfidence).apply()
+    }
+
+    fun setHandTranslationFullRange(value: Float) {
+        val steps = ((value - HAND_TRANSLATION_FULL_RANGE_MIN) / HAND_TRANSLATION_FULL_RANGE_STEP)
+            .roundToInt()
+        handTranslationFullRange = (
+            HAND_TRANSLATION_FULL_RANGE_MIN + steps * HAND_TRANSLATION_FULL_RANGE_STEP
+            ).coerceIn(HAND_TRANSLATION_FULL_RANGE_MIN, HAND_TRANSLATION_FULL_RANGE_MAX)
+        prefs.edit().putFloat(KEY_HAND_TRANSLATION_FULL_RANGE, handTranslationFullRange).apply()
     }
 
     fun setPresenceAlgorithmVersion(version: String) {

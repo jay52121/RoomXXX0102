@@ -66,6 +66,7 @@ import com.example.roomxxx0102.logic.analyzer.HandSmokeTester
 import com.example.roomxxx0102.logic.analyzer.YoloAnalyzer
 import com.example.roomxxx0102.logic.analyzer.YoloPoseAnalyzer
 import com.example.roomxxx0102.logic.audio.PlaybackVideoAudioSource
+import com.example.roomxxx0102.logic.gesture.HandTranslationController
 import com.example.roomxxx0102.logic.pointing.DevicePointingTarget
 import com.example.roomxxx0102.logic.pointing.DeviceTriggeredPointingResolver
 import com.example.roomxxx0102.logic.pointing.HandObservation
@@ -164,6 +165,9 @@ class MainActivity : ComponentActivity() {
     @Volatile private var latestHandResults: List<List<HandSmokeTester.HandPoint>> = emptyList()
     @Volatile private var latestSelectedHandIndex: Int? = null
     private val pointingResolver = DeviceTriggeredPointingResolver()
+    private val handTranslationController = HandTranslationController {
+        AppSettings.handTranslationFullRange
+    }
     private val pointingGuideMinQuality = 0.45f
     private var pointingTargetLabelById: Map<String, String> = emptyMap()
     private var pendingVoicePointingFeedback = false
@@ -221,6 +225,7 @@ class MainActivity : ComponentActivity() {
     private var isVideoMode = true
     private var currentLivingRoomBoundary: List<PointF> = emptyList()
     private var lastVideoSourceKey: String? = null
+    private var lastMissingReviewVideoToastAtMs = 0L
     private var btnHandOverlay: Button? = null
 
     // 播放状态机
@@ -688,7 +693,12 @@ class MainActivity : ComponentActivity() {
                     latestHandResults = hands
                     latestSelectedHandIndex = selectedIndex?.takeIf { index -> index in hands.indices }
                     runOnUiThread {
-                        overlayView.updateHandData(hands, latestSelectedHandIndex)
+                        if (isHandObserveMode()) {
+                            overlayView.updateHandData(hands, null)
+                            updateHandTranslationControl(hands)
+                        } else {
+                            overlayView.updateHandData(hands, latestSelectedHandIndex)
+                        }
                     }
                 }
                 it.onPointingObservation = { observation ->
@@ -1461,7 +1471,10 @@ class MainActivity : ComponentActivity() {
         refreshSeekButtons()
         refreshDebugPanelButton()
 
-        findViewById<Button>(R.id.btnSetupRoom).setOnClickListener { enterEditMode() }
+        findViewById<Button>(R.id.btnSetupRoom).setOnClickListener {
+            Toast.makeText(this, "SISP Core 未启动，切换至手动简易房间编辑模式", Toast.LENGTH_SHORT).show()
+            enterEditMode()
+        }
         refreshRuntimeModeButton()
         
         findViewById<Button>(R.id.btnRadar).setOnClickListener {
@@ -2202,6 +2215,45 @@ class MainActivity : ComponentActivity() {
 
     private fun isHandObserveMode(): Boolean = currentObserveMode == ObserveMode.HAND
 
+    private fun updateHandTranslationControl(
+        hands: List<List<HandSmokeTester.HandPoint>>
+    ) {
+        if (!isHandObserveMode()) return
+        val snapshot = handTranslationController.updateHands(
+            hands = hands,
+            timestampMs = SystemClock.elapsedRealtime()
+        )
+        applyHandTranslationSnapshot(snapshot)
+    }
+
+    private fun resetHandTranslationControl() {
+        applyHandTranslationSnapshot(handTranslationController.reset())
+    }
+
+    private fun applyHandTranslationSnapshot(snapshot: HandTranslationController.Snapshot) {
+        val lines = when (snapshot.state) {
+            HandTranslationController.State.IDLE -> listOf(
+                "二维控制：等待手势",
+                "手势：拇指、食指张开，其余三指卷曲"
+            )
+
+            HandTranslationController.State.HOLDING -> listOf(
+                "二维控制：激活中 ${String.format(Locale.US, "%.1f", snapshot.holdElapsedMs / 1000f)}s / 1.0s"
+            )
+
+            HandTranslationController.State.ACTIVE -> listOf(
+                "二维控制：ACTIVE",
+                "X: ${handTranslationController.formatValue(snapshot.x)}",
+                "Y: ${handTranslationController.formatValue(snapshot.y)}"
+            )
+        }
+        overlayView.setHandTranslationControlState(
+            active = snapshot.state == HandTranslationController.State.ACTIVE,
+            activeHandIndex = snapshot.selectedHandIndex,
+            lines = lines
+        )
+    }
+
     private fun isAudioObserveMode(): Boolean = currentObserveMode == ObserveMode.AUDIO
 
     private fun shouldShowCenterBanner(domain: CenterBannerDomain): Boolean {
@@ -2245,6 +2297,7 @@ class MainActivity : ComponentActivity() {
             pointingResolver.cancelSession()
             overlayView.updatePointingLiveSnapshot(null)
         }
+        resetHandTranslationControl()
         if (mode == ObserveMode.HAND) {
             handSmokeTester?.startConfidenceProbeSession()
             startTriggeredPointingSession()
@@ -2696,6 +2749,7 @@ class MainActivity : ComponentActivity() {
                 R.drawable.bg_side_action_button
             }
         )
+        btn.setTextColor(Color.parseColor(if (isVideoMode) "#FFFFFF" else "#F2F7FF"))
     }
 
     private fun shouldEnablePointingDebugOverlay(): Boolean {
@@ -3723,7 +3777,7 @@ class MainActivity : ComponentActivity() {
      * 用于排查 Presence/ROI 状态，不依赖 unlock 触发。
      */
     private fun buildDebugPanelClipboardReport(nowMs: Long): String {
-        val panelLines = RoiLogAggregator.snapshotForPanel(includePresenceHistory = false)
+        val panelLines = overlayView.snapshotCurrentDebugPanelLines()
         val presenceHistory = RoiLogAggregator.snapshotPresenceHistory(8)
         val currentPos = videoFeeder?.getCurrentPositionMs()
         val builder = StringBuilder()
@@ -3925,6 +3979,7 @@ class MainActivity : ComponentActivity() {
                 R.drawable.bg_side_action_button_dim
             }
         )
+        btn.setTextColor(Color.parseColor(if (isDebugPanelEnabled) "#FFFFFF" else "#9FB4D0"))
         refreshEventMarkerControls()
     }
 
@@ -4026,6 +4081,7 @@ class MainActivity : ComponentActivity() {
         handRoiMissingFrameCount = 0
         latestHandResults = emptyList()
         latestSelectedHandIndex = null
+        resetHandTranslationControl()
         videoFeeder?.nextFrameRoi = null
         videoFeeder?.nextHandFrameRoi = null
         resetEventValidationTracking(clearRuntimeEvents = true)
@@ -4108,7 +4164,19 @@ class MainActivity : ComponentActivity() {
         } else {
             bindEventMarkersToVideo(null)
             refreshEventMarkerUi()
+            showMissingReviewVideoToast()
         }
+    }
+
+    private fun showMissingReviewVideoToast() {
+        val now = SystemClock.uptimeMillis()
+        if (now - lastMissingReviewVideoToastAtMs < 1500L) return
+        lastMissingReviewVideoToastAtMs = now
+        Toast.makeText(
+            this,
+            "未配置回顾视频。请在设置中配置视频或切换为实时模式",
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     private fun applyDefaultVideoTextureLayout() {
@@ -4179,8 +4247,23 @@ class MainActivity : ComponentActivity() {
                     .setTargetResolution(Size(1280, 960))
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
-                if (AppSettings.isPoseModeEnabled) imageAnalysis.setAnalyzer(Executors.newSingleThreadExecutor(), poseAnalyzer!!)
-                else imageAnalysis.setAnalyzer(Executors.newSingleThreadExecutor(), yoloAnalyzer!!)
+                imageAnalysis.setAnalyzer(Executors.newSingleThreadExecutor()) { image ->
+                    try {
+                        val bitmap = image.toBitmap()
+                        if (AppSettings.isPoseModeEnabled) {
+                            poseAnalyzer?.analyzeBitmapAndTrackPoses(bitmap, null, drawOnOverlay = false)
+                        } else {
+                            yoloAnalyzer?.detectOnBitmap(bitmap, drawOnOverlay = false)
+                        }
+                        if (isHandObserveMode()) {
+                            handSmokeTester?.detect(bitmap)
+                        }
+                    } catch (t: Throwable) {
+                        Log.e("Main", "Camera analysis failed", t)
+                    } finally {
+                        image.close()
+                    }
+                }
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis)
             } catch (e: Exception) { Log.e("Main", "Camera Error", e) }

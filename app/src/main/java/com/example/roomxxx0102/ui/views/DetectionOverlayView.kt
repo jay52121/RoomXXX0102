@@ -77,6 +77,12 @@ class DetectionOverlayView @JvmOverloads constructor(
     private var debugPanelOverrideTitle: String? = null
     private var debugPanelOverrideLines: List<String>? = null
     private var handDebugPanelExtraLines: List<String> = emptyList()
+    private var handTranslationControlLines: List<String> = listOf(
+        "二维控制：等待手势",
+        "手势：拇指、食指张开，其余三指卷曲"
+    )
+    private var handTranslationControlActive = false
+    private var handTranslationActiveHandIndex: Int? = null
     private var onDeviceTapListener: ((DeviceConfig) -> Boolean)? = null
     private var onDeviceSelectionCancelListener: (() -> Boolean)? = null
     private var deviceSelectionModeActive = false
@@ -375,6 +381,7 @@ class DetectionOverlayView @JvmOverloads constructor(
         style = Paint.Style.FILL
         isAntiAlias = true
     }
+    private val handControlActiveColor = Color.rgb(34, 197, 94)
 
     init {
         isClickable = false
@@ -567,6 +574,13 @@ class DetectionOverlayView @JvmOverloads constructor(
 
     fun setHandDebugPanelExtraLines(lines: List<String>) {
         handDebugPanelExtraLines = lines.toList()
+        postInvalidate()
+    }
+
+    fun setHandTranslationControlState(active: Boolean, activeHandIndex: Int?, lines: List<String>) {
+        handTranslationControlActive = active
+        handTranslationActiveHandIndex = activeHandIndex
+        handTranslationControlLines = lines.toList()
         postInvalidate()
     }
 
@@ -849,15 +863,17 @@ class DetectionOverlayView @JvmOverloads constructor(
         drawWidth: Float,
         drawHeight: Float
     ) {
-        val handsToDraw = selectedHandIndex
-            ?.takeIf { it in handResults.indices }
-            ?.let { listOf(handResults[it]) }
-            ?: handResults
-        for (hand in handsToDraw) {
+        for ((handIndex, hand) in handResults.withIndex()) {
             for (point in hand) {
                 val screenX = drawLeft + point.x * drawWidth
                 val screenY = drawTop + point.y * drawHeight
-                handPointPaint.color = colorForHandConfidence(point.confidence)
+                handPointPaint.color = if (
+                    handTranslationControlActive && handIndex == handTranslationActiveHandIndex
+                ) {
+                    handControlActiveColor
+                } else {
+                    colorForHandConfidence(point.confidence)
+                }
                 canvas.drawCircle(screenX, screenY, 2f, handPointPaint)
             }
         }
@@ -1073,9 +1089,18 @@ class DetectionOverlayView @JvmOverloads constructor(
             line.startsWith("手部ROI") || line.startsWith("Pose ROI框") || line.startsWith("当前Pose ROI占比")
         }
         return mutableListOf<String>().apply {
+            addAll(handTranslationControlLines)
             addAll(handDebugPanelExtraLines)
             addAll(buildPointingPanelLines())
             addAll(handLines)
+        }
+    }
+
+    fun snapshotCurrentDebugPanelLines(): List<String> {
+        return debugPanelOverrideLines?.toList() ?: if (showHandOnly) {
+            buildHandPanelLines()
+        } else {
+            buildPersonPanelLines()
         }
     }
 
@@ -1253,10 +1278,7 @@ class DetectionOverlayView @JvmOverloads constructor(
         canvas.drawText(panelTitle, panelLeft + paddingLeft, y, debugPanelTitlePaint)
         y += 34f
 
-        val lines = debugPanelOverrideLines?.toMutableList() ?: when {
-            showHandOnly -> buildHandPanelLines().toMutableList()
-            else -> buildPersonPanelLines().toMutableList()
-        }
+        val lines = snapshotCurrentDebugPanelLines()
 
         var drawn = 0
         for (line in lines) {

@@ -244,30 +244,35 @@
                     android:textColor="#FF9800"
                     android:paddingVertical="8dp" />
 
-                <TextView
-                    android:id="@+id/tv_pose_roi_size_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Pose ROI比例"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:textColor="#333333"
-                    android:layout_marginStart="12dp"
-                    android:layout_marginTop="4dp"
-                    android:layout_marginBottom="4dp"
-                    android:visibility="gone"/>
-
-                <Spinner
-                    android:id="@+id/spn_pose_roi_size_mode"
+                <LinearLayout
+                    android:id="@+id/layout_pose_roi_size_choice"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="12dp"
-                    android:background="#FFFFFF"
-                    android:popupBackground="#FFFFFF"
-                    android:theme="@style/ThemeOverlay.MaterialComponents.Light"
-                    android:spinnerMode="dropdown"
-                    android:entries="@array/pose_roi_size_labels"
-                    android:visibility="gone" />
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="4dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/tv_pose_roi_size_label"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Pose ROI比例"
+                        android:textColor="#333333"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <Spinner
+                        android:id="@+id/spn_pose_roi_size_mode"
+                        android:layout_width="150dp"
+                        android:layout_height="36dp"
+                        android:background="@drawable/bg_settings_choice_spinner"
+                        android:popupBackground="#FFFFFF"
+                        android:spinnerMode="dropdown" />
+                </LinearLayout>
 
                 <androidx.appcompat.widget.SwitchCompat
                     android:id="@+id/switch_still_standard_frame"
@@ -296,44 +301,57 @@
                     android:textColor="#333333"
                     android:paddingVertical="8dp" />
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="日志更新频率"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:textColor="#333333"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginBottom="4dp"/>
-
-                <Spinner
-                    android:id="@+id/spn_roi_log_mode"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="#FFFFFF"
-                    android:popupBackground="#FFFFFF"
-                    android:theme="@style/ThemeOverlay.MaterialComponents.Light"
-                    android:spinnerMode="dropdown"
-                    android:entries="@array/roi_log_mode_labels" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="人数算法版本"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:textColor="#333333"
                     android:layout_marginTop="8dp"
-                    android:layout_marginBottom="4dp"/>
+                    android:layout_marginBottom="4dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
 
-                <Spinner
-                    android:id="@+id/spn_presence_algorithm_version"
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="日志更新频率"
+                        android:textColor="#333333"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <Spinner
+                        android:id="@+id/spn_roi_log_mode"
+                        android:layout_width="170dp"
+                        android:layout_height="36dp"
+                        android:background="@drawable/bg_settings_choice_spinner"
+                        android:popupBackground="#FFFFFF"
+                        android:spinnerMode="dropdown" />
+                </LinearLayout>
+
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="#FFFFFF"
-                    android:popupBackground="#FFFFFF"
-                    android:theme="@style/ThemeOverlay.MaterialComponents.Light"
-                    android:spinnerMode="dropdown" />
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="4dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="人数算法版本"
+                        android:textColor="#333333"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <Spinner
+                        android:id="@+id/spn_presence_algorithm_version"
+                        android:layout_width="210dp"
+                        android:layout_height="36dp"
+                        android:background="@drawable/bg_settings_choice_spinner"
+                        android:popupBackground="#FFFFFF"
+                        android:spinnerMode="dropdown" />
+                </LinearLayout>
 
                 <androidx.appcompat.widget.SwitchCompat
                     android:id="@+id/switch_new_tracker"
@@ -371,26 +389,33 @@
                     android:textColor="#333333"
                     android:paddingVertical="8dp" />
 
-                <TextView
-                    android:id="@+id/tv_pointing_display_mode_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="手势识别线显示时机"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:textColor="#333333"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginBottom="4dp"/>
-
-                <Spinner
-                    android:id="@+id/spn_pointing_display_mode"
+                <LinearLayout
+                    android:id="@+id/layout_pointing_display_mode_choice"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="#FFFFFF"
-                    android:popupBackground="#FFFFFF"
-                    android:theme="@style/ThemeOverlay.MaterialComponents.Light"
-                    android:spinnerMode="dropdown"
-                    android:entries="@array/pointing_debug_display_mode_labels" />
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="4dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/tv_pointing_display_mode_label"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="手势识别线显示时机"
+                        android:textColor="#333333"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <Spinner
+                        android:id="@+id/spn_pointing_display_mode"
+                        android:layout_width="170dp"
+                        android:layout_height="36dp"
+                        android:background="@drawable/bg_settings_choice_spinner"
+                        android:popupBackground="#FFFFFF"
+                        android:spinnerMode="dropdown" />
+                </LinearLayout>
 
                 <LinearLayout
                     android:id="@+id/layout_hand_detection_params_header"
@@ -505,6 +530,31 @@
                         android:layout_height="wrap_content"
                         android:max="100"
                         android:progress="50" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="二维控制满量程（手掌尺度）"
+                        android:textColor="#333333"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/tv_hand_translation_full_range_value"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:layout_marginBottom="2dp"
+                        android:text="1.5×"
+                        android:textColor="#666666"
+                        android:textSize="12sp" />
+
+                    <SeekBar
+                        android:id="@+id/sb_hand_translation_full_range"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:max="25"
+                        android:progress="10" />
                 </LinearLayout>
 
                 <TextView
@@ -727,6 +777,16 @@
             android:backgroundTint="#FFFFFF"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
             app:strokeColor="#FF5722" />
+
+        <TextView
+            android:id="@+id/tv_app_version"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:gravity="center"
+            android:padding="8dp"
+            android:textColor="#7890AD"
+            android:textSize="12sp" />
 
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>

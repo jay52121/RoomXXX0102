@@ -20,6 +20,7 @@ import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
 import java.util.LinkedHashMap
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.sqrt
 
 class HandSmokeTester(context: Context) {
@@ -38,6 +39,8 @@ class HandSmokeTester(context: Context) {
         private const val LANDMARK_INDEX_MCP = 5
         private const val LANDMARK_INDEX_TIP = 8
         private const val PROBE_DURATION_MS = 5000L
+        private const val MIN_VALID_LANDMARK_SPREAD = 0.025f
+        private const val LANDMARK_COORDINATE_MARGIN = 0.15f
         private val CORE_POINT_INDICES = intArrayOf(5, 6, 8, 9, 10, 12)
     }
 
@@ -105,6 +108,8 @@ class HandSmokeTester(context: Context) {
     private var configuredDetectionConfidence = -1f
     private var configuredPresenceConfidence = -1f
     private var configuredTrackingConfidence = -1f
+    private var lastLandmarkDiagAtMs = 0L
+    private val resetRequested = AtomicBoolean(false)
     var onHandsResult: ((List<List<HandPoint>>, Int?) -> Unit)? = null
     var onPointingObservation: ((HandObservation) -> Unit)? = null
 
@@ -126,7 +131,9 @@ class HandSmokeTester(context: Context) {
         )
         Log.i(
             TAG,
-            "HSMOKE|CALL|bitmap=${inputBitmap.width}x${inputBitmap.height}|full=${bitmap.width}x${bitmap.height}|roi=${formatRoi(roi)}|ts=$timestampMs"
+            "HSMOKE|CALL|bitmap=${inputBitmap.width}x${inputBitmap.height}" +
+                "|full=${bitmap.width}x${bitmap.height}|roi=${formatRoi(roi)}|ts=$timestampMs" +
+                "|inputConfig=${inputBitmap.config}|mutable=${inputBitmap.isMutable}"
         )
         try {
             detector.detectAsync(mpImage, timestampMs)
@@ -206,7 +213,8 @@ class HandSmokeTester(context: Context) {
         val detectionConfidence = AppSettings.handDetectionConfidence
         val presenceConfidence = AppSettings.handPresenceConfidence
         val trackingConfidence = AppSettings.handTrackingConfidence
-        val changed = handLandmarker == null ||
+        val changed = resetRequested.getAndSet(false) ||
+            handLandmarker == null ||
             configuredDetectionConfidence != detectionConfidence ||
             configuredPresenceConfidence != presenceConfidence ||
             configuredTrackingConfidence != trackingConfidence
@@ -222,9 +230,17 @@ class HandSmokeTester(context: Context) {
     }
 
     private fun onLiveStreamResult(result: HandLandmarkerResult, inputImage: MPImage) {
+        processResult(result, inputImage, result.timestampMs())
+    }
+
+    private fun processResult(
+        result: HandLandmarkerResult,
+        inputImage: MPImage,
+        timestampMs: Long
+    ) {
         try {
             val hands = result.landmarks()
-            val frameContext = consumeFrameContext(result.timestampMs())
+            val frameContext = consumeFrameContext(timestampMs)
             val imageWidth = frameContext?.fullWidth ?: 0
             val imageHeight = frameContext?.fullHeight ?: 0
             val mappedHands = hands.map { hand ->
@@ -237,20 +253,33 @@ class HandSmokeTester(context: Context) {
                     )
                 }
             }
-            val selectedHandIndex = selectHigherHandIndex(mappedHands)
+            logLandmarkSpread(hands, mappedHands)
+            val validIndices = mappedHands.indices.filter { index ->
+                isValidHandGeometry(mappedHands[index])
+            }
+            if (mappedHands.isNotEmpty() && validIndices.isEmpty()) {
+                resetRequested.set(true)
+                Log.w(TAG, "HSMOKE|DEGENERATE|hands=${mappedHands.size}|action=KEEP_LAST_AND_RESET")
+                return
+            }
+            val validHands = validIndices.map(mappedHands::get)
+            val selectedHandIndex = selectHigherHandIndex(validHands)
+            val selectedSourceIndex = validIndices.getOrNull(selectedHandIndex)
             onPointingObservation?.invoke(
                 HandLandmarkerPointingAdapter.toObservation(
-                    timestampMs = result.timestampMs(),
+                    timestampMs = timestampMs,
                     imageWidth = imageWidth,
                     imageHeight = imageHeight,
-                    landmarks = mappedHands.getOrNull(selectedHandIndex).orEmpty(),
-                    handCount = hands.size,
-                    handedness = result.handednesses().getOrNull(selectedHandIndex)?.firstOrNull()
+                    landmarks = validHands.getOrNull(selectedHandIndex).orEmpty(),
+                    handCount = validHands.size,
+                    handedness = selectedSourceIndex?.let { sourceIndex ->
+                        result.handednesses().getOrNull(sourceIndex)?.firstOrNull()
+                    }
                 )
             )
-            sampleConfidenceProbe(result, hands)
-            Log.i(TAG, "HSMOKE|RESULT|hands=${hands.size}")
-            onHandsResult?.invoke(mappedHands, selectedHandIndex.takeIf { mappedHands.isNotEmpty() })
+            sampleConfidenceProbe(result, hands, timestampMs)
+            Log.i(TAG, "HSMOKE|RESULT|hands=${hands.size}|validHands=${validHands.size}")
+            onHandsResult?.invoke(validHands, selectedHandIndex.takeIf { validHands.isNotEmpty() })
             val firstHand = hands.firstOrNull()
             if (firstHand == null) {
                 Log.i(TAG, "HSMOKE|RESULT|firstHandLandmarks=0")
@@ -279,14 +308,27 @@ class HandSmokeTester(context: Context) {
         Log.e(TAG, "HSMOKE|ERROR|landmarker error", error)
     }
 
+    private fun isValidHandGeometry(hand: List<HandPoint>): Boolean {
+        if (hand.size < 21) return false
+        val minX = hand.minOf { it.x }
+        val maxX = hand.maxOf { it.x }
+        val minY = hand.minOf { it.y }
+        val maxY = hand.maxOf { it.y }
+        val inBounds = minX >= -LANDMARK_COORDINATE_MARGIN &&
+            maxX <= 1f + LANDMARK_COORDINATE_MARGIN &&
+            minY >= -LANDMARK_COORDINATE_MARGIN &&
+            maxY <= 1f + LANDMARK_COORDINATE_MARGIN
+        return inBounds && maxOf(maxX - minX, maxY - minY) >= MIN_VALID_LANDMARK_SPREAD
+    }
+
     private fun sampleConfidenceProbe(
         result: HandLandmarkerResult,
-        hands: List<List<NormalizedLandmark>>
+        hands: List<List<NormalizedLandmark>>,
+        timestampMs: Long
     ) {
         synchronized(probeLock) {
             val session = confidenceProbeSession ?: return
             session.totalResultFrames += 1
-            val timestampMs = result.timestampMs()
             if (session.firstTimestampMs == null) {
                 session.firstTimestampMs = timestampMs
             }
@@ -440,6 +482,36 @@ class HandSmokeTester(context: Context) {
         } ?: 0
     }
 
+    private fun logLandmarkSpread(
+        rawHands: List<List<NormalizedLandmark>>,
+        mappedHands: List<List<HandPoint>>
+    ) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastLandmarkDiagAtMs < 500L) return
+        lastLandmarkDiagAtMs = now
+        val details = mappedHands.mapIndexed { index, mapped ->
+            val raw = rawHands.getOrNull(index).orEmpty()
+            val rawMinX = raw.minOfOrNull { it.x() }
+            val rawMaxX = raw.maxOfOrNull { it.x() }
+            val rawMinY = raw.minOfOrNull { it.y() }
+            val rawMaxY = raw.maxOfOrNull { it.y() }
+            val mappedMinX = mapped.minOfOrNull { it.x }
+            val mappedMaxX = mapped.maxOfOrNull { it.x }
+            val mappedMinY = mapped.minOfOrNull { it.y }
+            val mappedMaxY = mapped.maxOfOrNull { it.y }
+            val wrist = mapped.getOrNull(0)
+            val indexMcp = mapped.getOrNull(5)
+            val indexTip = mapped.getOrNull(8)
+            "hand=$index count=${mapped.size} " +
+                "rawX=${formatNullable(rawMinX)}..${formatNullable(rawMaxX)} " +
+                "rawY=${formatNullable(rawMinY)}..${formatNullable(rawMaxY)} " +
+                "mappedX=${formatNullable(mappedMinX)}..${formatNullable(mappedMaxX)} " +
+                "mappedY=${formatNullable(mappedMinY)}..${formatNullable(mappedMaxY)} " +
+                "wrist=${formatPoint(wrist)} mcp=${formatPoint(indexMcp)} tip=${formatPoint(indexTip)}"
+        }
+        Log.i(TAG, "HSMOKE|LANDMARK_SPREAD|${details.joinToString(" | ")}")
+    }
+
     private fun formatRoi(roi: RectF?): String {
         if (roi == null) return "-"
         return String.format(
@@ -508,4 +580,8 @@ class HandSmokeTester(context: Context) {
     private fun format3(value: Float): String = String.format(Locale.US, "%.3f", value)
 
     private fun formatNullable(value: Float?): String = value?.let { format3(it) } ?: "null"
+
+    private fun formatPoint(point: HandPoint?): String {
+        return point?.let { "(${format3(it.x)},${format3(it.y)})" } ?: "-"
+    }
 }

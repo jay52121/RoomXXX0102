@@ -129,7 +129,11 @@ class VideoFeeder(
                 if (bitmap != null) {
                     val poseRoi = nextFrameRoi
                     val handRoi = nextHandFrameRoi ?: poseRoi
-                    Log.i("HandSmokeTester", "HSMOKE|CALL_SITE|bitmap=${bitmap.width}x${bitmap.height}|roi=${handRoi ?: "-"}")
+                    Log.i(
+                        "HandSmokeTester",
+                        "HSMOKE|CALL_SITE|bitmap=${bitmap.width}x${bitmap.height}" +
+                            "|detectorRoi=${handRoi ?: "FULL_FRAME"}"
+                    )
                     handSmokeTester?.detect(bitmap, handRoi)
                     val currentPosMs = player.getCurrentPositionMs() ?: 0
                     lastAnalysisPositionMs = currentPosMs

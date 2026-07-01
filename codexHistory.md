@@ -1,5 +1,392 @@
 # Codex History
 
+## [386] 2026-07-01 10:45:00 - 恢复云端动态 ROI 快速手部链
+
+**用户指令**：
+> 对照云端 GitHub 中大幅摆手仍能稳定跟踪的版本，恢复对应快速链路；重大修改需要独立 Git 提交。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：恢复云端版本的动态手部 ROI 与 LIVE_STREAM 快速输入链，同时保留双手识别和关键点退化熔断。
+    *   修改文件：`HandSmokeTester.kt`、`VideoFeeder.kt`、codexHistory.md、dialogueHistory.md。
+    *   涉及方法：`HandSmokeTester.detect`、`VideoFeeder.analyzeRunnable` 手部检测帧分发。
+    *   关键改动：
+      *   将 `nextHandFrameRoi`（无值时回退 Pose ROI）重新作为 Hand Landmarker 的实际裁剪输入，不再仅用于可视化。
+      *   保持 `RunningMode.LIVE_STREAM`、`detectAsync`、双手输出及退化结果拒绝/模型自愈逻辑。
+      *   移除每帧强制创建不可变 ARGB_8888 副本，减少高频手部检测链上的 Bitmap 分配和复制。
+      *   调试日志明确输出模型实际使用的 ROI。
+
+---
+
+## [385] 2026-07-01 10:29:35 - 收口快速流式手部检测与退化熔断
+
+**用户指令**：
+> IMAGE 独立帧虽然稳定，但 21 点刷新极慢；恢复此前接近实时的跟踪速度，同时避免关键点逐渐坍缩。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：兼顾 LIVE_STREAM 的高刷新率与独立帧方案的输出可靠性，不让退化结果污染 UI 和手势链。
+    *   修改文件：`HandSmokeTester.kt`、codexHistory.md、dialogueHistory.md。
+    *   涉及方法：`HandSmokeTester.detect/setupHandLandmarker/processResult/ensureHandLandmarkerConfig/isValidHandGeometry`。
+    *   关键改动：
+      *   恢复 `RunningMode.LIVE_STREAM` 与 `detectAsync`，拿回 MediaPipe 内部快速跟踪吞吐。
+      *   在结果出口按坐标边界和关键点展开范围过滤伪手；正常有效手立即进入原有回调。
+      *   若检测到手但全部点集坍缩，则拒绝该帧、保留 UI 上一正常结果，并设置重建标记。
+      *   下一输入帧前自动关闭并重建 Hand Landmarker，强制重新执行掌检测，阻断错误状态跨帧延续。
+      *   阈值集中为最小关键点展开范围 0.025、坐标边界容差 0.15；双手主手选择和二维控制接口保持不变。
+      *   定向单测及 `:app:assembleDebug` 均通过，混合方案 APK 已成功覆盖安装到真机，未自动启动。
+
+---
+
+## [384] 2026-07-01 10:17:57 - 手部检测改为独立帧异步模式
+
+**用户指令**：
+> 完整帧刚打开时 21 点正常，随后逐渐收缩并脱离手部；按独立帧方案消除 MediaPipe LIVE_STREAM 内部追踪退化。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：禁止错误手部追踪状态跨帧累积，同时保持 UI 和上层手势链异步、低延迟运行。
+    *   修改文件：`HandSmokeTester.kt`、codexHistory.md、dialogueHistory.md。
+    *   涉及方法：`HandSmokeTester.detect/setupHandLandmarker/processResult/close/ensureHandLandmarkerConfig`。
+    *   关键改动：
+      *   Hand Landmarker 从 `RunningMode.LIVE_STREAM` 改为 `RunningMode.IMAGE`，每个采样帧独立执行掌检测和 21 点定位。
+      *   新增专用单线程执行器与 `AtomicBoolean` 在途控制；模型忙时直接丢弃新帧，不阻塞 UI、不堆积任务。
+      *   独立帧结果继续通过原 `onHandsResult/onPointingObservation` 接口输出，双手主手选择、二维控制和绘制无需改接口。
+      *   使用提交帧时间戳关联 FrameContext，避免 IMAGE 结果时间戳与项目帧上下文失配。
+      *   关闭检测器时同步停止执行器；配置变化仅在无在途推理时重建模型。
+      *   定向单测及 `:app:assembleDebug` 均通过，独立帧 APK 已成功覆盖安装到真机，未自动启动。
+
+---
+
+## [383] 2026-07-01 10:11:28 - 取消手部模型动态外部 ROI 裁剪
+
+**用户指令**：
+> 视频约 10 秒且画面稳定，继续独立验证动态外部 ROI 与 MediaPipe LIVE_STREAM 内部追踪是否冲突。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：保持画面、模型和内部追踪不变，验证每帧变化的外部裁剪坐标系是否导致原始 21 点坍缩。
+    *   修改文件：`VideoFeeder.kt`、codexHistory.md、dialogueHistory.md。
+    *   涉及方法：`VideoFeeder.analyzeRunnable` 手部检测帧分发。
+    *   关键改动：
+      *   手部模型改为接收完整视频帧，不再传入每帧变化的 `nextHandFrameRoi/poseRoi`。
+      *   Pose ROI、手部 ROI 计算及框显示继续保留，不影响其他检测与调试链路。
+      *   CALL_SITE 日志同时标记 visualRoi 与 `detectorRoi=FULL_FRAME`，便于确认验证条件。
+      *   定向单测及 `:app:assembleDebug` 均通过，完整帧验证 APK 已成功覆盖安装到真机，未自动启动。
+
+---
+
+## [382] 2026-07-01 00:19:15 - 强制 MediaPipe 输入为不可变 ARGB_8888
+
+**用户指令**：
+> 在运行时和官方模型均排除后，按官方输入要求验证 Bitmap 格式是否导致手部原始关键点坍缩。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：单变量验证输入 Bitmap 配置对 MediaPipe Hand Landmarker 原始 21 点输出的影响。
+    *   修改文件：`HandSmokeTester.kt`、codexHistory.md、dialogueHistory.md。
+    *   涉及方法：`HandSmokeTester.detect`。
+    *   关键改动：
+      *   ROI 裁剪后若 Bitmap 不是 `ARGB_8888` 或仍可变，则复制为不可变 `ARGB_8888` 后再创建 MPImage。
+      *   HSMOKE 调用日志增加 source/cropped/input Config、是否复制和最终 mutable 状态，便于确认输入条件。
+      *   模型、MediaPipe 0.10.35、运行模式、阈值和手势业务逻辑均保持不变。
+      *   定向单测及 `:app:assembleDebug` 均通过，验证 APK 已成功覆盖安装到真机，未自动启动。
+
+---
+
+## [381] 2026-07-01 00:10:45 - 升级 MediaPipe 运行时验证关键点坍缩
+
+**用户指令**：
+> 将 MediaPipe tasks-vision 从 0.10.33 升级到官方当前稳定版，验证原始 21 点坐标坍缩是否由运行时版本导致。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在不修改模型和业务链的前提下，单变量验证 MediaPipe 运行时版本问题。
+    *   修改文件：`app/build.gradle.kts`、codexHistory.md、dialogueHistory.md。
+    *   涉及方法：Gradle `dependencies` 中 `com.google.mediapipe:tasks-vision` 版本解析。
+    *   关键改动：
+      *   将 `tasks-vision` 从 `0.10.33` 升级到官方当前稳定版 `0.10.35`。
+      *   保留 2023 年手部模型、关键点映射、双手选择和绘制逻辑不变，确保验证变量单一。
+      *   定向单测及 `:app:assembleDebug` 均通过，验证 APK 已成功覆盖安装到真机，未自动启动。
+
+---
+
+## [380] 2026-07-01 00:06:06 - 增加手部关键点坍缩诊断
+
+**用户指令**：
+> 看手视图同时检测到两只手时只显示两个点，而不是每只手完整的关键点，需要继续定位原因。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：区分 MediaPipe 原始关键点输出坍缩与项目 ROI 坐标映射坍缩，避免继续猜测绘制或选择逻辑。
+    *   修改文件：`HandSmokeTester.kt`、codexHistory.md、dialogueHistory.md。
+    *   涉及方法：`HandSmokeTester.onLiveStreamResult/logLandmarkSpread/formatPoint`。
+    *   关键改动：
+      *   每 500ms 输出一次 `HSMOKE|LANDMARK_SPREAD`，分别记录每只手的原始 X/Y 范围、映射后 X/Y 范围及腕点、食指 MCP、食指指尖坐标。
+      *   确认模型文件自首次接入后未变化；MediaPipe 依赖曾由 `latest.release` 固定为 `0.10.33`，后续将依据诊断结果决定是否调整依赖。
+      *   定向单测及 `:app:assembleDebug` 均通过，诊断 APK 已成功覆盖安装到真机，未自动启动。
+
+---
+
+## [379] 2026-06-30 23:59:45 - 改为手势选主手并增加构建版本信息
+
+**用户指令**：
+> 双手都进行识别，由目标手势决定哪只手成为主手；设置页最下方增加版本号和构建时间。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：移除“屏幕位置更高即主手”对二维控制的影响，改为由目标手势稳定激活主手，并让每个 APK 可通过设置页明确识别。
+    *   修改文件：`HandTranslationController.kt`、`HandTranslationControllerTest.kt`、`DetectionOverlayView.kt`、`MainActivity.kt`、`SettingsHomeFragment.kt`、`fragment_settings_home.xml`、`app/build.gradle.kts`、codexHistory.md、dialogueHistory.md。
+    *   涉及方法：`HandTranslationController.updateHands/selectTrackedHand/activate`、`DetectionOverlayView.drawHands/setHandTranslationControlState`、`MainActivity.updateHandTranslationControl`。
+    *   关键改动：
+      *   控制器每帧评估最多两只手，过滤掌尺度不足的坍缩结果，由最先匹配目标手势的有效手进入 HOLDING。
+      *   HOLDING/ACTIVE 使用掌心最近邻连续性维持同一只手，避免 MediaPipe 双手列表顺序交换导致主手跳变。
+      *   看手视图始终绘制全部检测手；仅 ACTIVE 主手的全部关键点变绿，其他手保持原色。
+      *   增加双手顺序交换并混入 21 点坍缩伪手的回归测试，验证真实手能够从索引 1 切换到索引 0 并正常激活。
+      *   Gradle 生成 `BuildConfig.BUILD_TIME`，设置页底部显示 `SISP 版本名 (版本码) · Build 年月日.时分`。
+      *   定向单测及 `:app:assembleDebug` 均通过，最新 APK 已成功覆盖安装到真机，未自动启动。
+
+---
+
+## [378] 2026-06-30 23:34:47 - 统一调试面板显示与长按复制内容
+
+**用户指令**：
+> 长按调试面板复制的内容与调试面板内显示不一致，检查并修复。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：让调试面板长按复制报告的面板主体严格复用当前视图实际使用的数据组装链。
+    *   修改文件：`DetectionOverlayView.kt`、`MainActivity.kt`、codexHistory.md、dialogueHistory.md。
+    *   涉及方法：`DetectionOverlayView.snapshotCurrentDebugPanelLines/drawDebugPanel`、`MainActivity.buildDebugPanelClipboardReport`。
+    *   关键改动：
+      *   定位到屏幕按看手/看人视图分别构建面板，而长按复制固定读取 `RoiLogAggregator`，导致看手数据被漏掉。
+      *   新增当前调试面板即时快照方法，统一处理覆盖面板、看手面板和看人面板。
+      *   屏幕绘制与剪贴板报告的 `panel` 区域改为调用同一方法；报告头和历史诊断区继续保留。
+      *   整手二维控制定向单测及 `:app:assembleDebug` 均通过，APK 已成功覆盖安装到真机，未自动启动。
+
+---
+
+## [377] 2026-06-30 23:19:47 - 修复实时模式看手视图无检测结果
+
+**用户指令**：
+> 看手视图在实时模式下没有任何反应，排查并修复。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：补齐 CameraX 实时模式的手部检测帧链，使现有手部关键点和整手二维控制在看手视图正常运行。
+    *   修改文件：`MainActivity.kt`、codexHistory.md、dialogueHistory.md。
+    *   涉及方法：`MainActivity.startCameraMode`。
+    *   关键改动：
+      *   定位到实时 CameraX 的 `ImageAnalysis` 仅绑定 Pose/YOLO 分析器，从未调用 `HandSmokeTester.detect`；回顾模式则由 `VideoFeeder` 正常调用。
+      *   将实时分析器收口为单次 `ImageProxy.toBitmap()`，继续执行原有 Pose/YOLO 分析，并仅在看手视图把同一 Bitmap 送入现有手部检测器。
+      *   统一在外层 `finally` 关闭 `ImageProxy`，避免重复转换和重复关闭；回顾模式链路未修改。
+      *   整手二维控制定向单测及 `:app:assembleDebug` 均通过，APK 已成功覆盖安装到真机，未自动启动。
+
+---
+
+## [376] 2026-06-30 23:02:22 - 增加仅看手视图生效的整手二维平移控制
+
+**用户指令**：
+> 在现有手部识别链增加整手二维平移控制：拇指和食指张开、其余三指卷曲并稳定保持 1 秒后激活，以激活时手掌中心和尺度为原点计算 X/Y；复用现有标记点和日志面板，满量程参数可在设置中即时调整；暂时只在看手视图生效。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在不改模型和主手选择逻辑的前提下，为看手视图增加可调、可视、具备抖动容错的整手二维控制。
+    *   修改文件：`HandTranslationController.kt`、`HandTranslationControllerTest.kt`、`AppSettings.kt`、`MainActivity.kt`、`DetectionOverlayView.kt`、`SettingsHomeFragment.kt`、`fragment_settings_home.xml`、codexHistory.md、dialogueHistory.md。
+    *   涉及方法：`HandTranslationController.update/activate/updateActivePosition`、`MainActivity.updateHandTranslationControl/applyHandTranslationSnapshot/resetHandTranslationControl`、`DetectionOverlayView.setHandTranslationControlState/drawHands/buildHandPanelLines`、`AppSettings.setHandTranslationFullRange`。
+    *   关键改动：
+      *   新增 `IDLE/HOLDING/ACTIVE` 状态机，目标手势保持 1000ms 后记录四个掌指关节中心和固定手掌尺度并激活。
+      *   HOLDING/ACTIVE 分别提供 150ms/300ms 短暂丢失容错，单帧位移超过激活尺度 0.45 倍时保持上一有效输出。
+      *   X 向画面右侧为正，Y 向画面上方为正；输出经 0.3 EMA、2.5 中心死区和 ±100 截断。
+      *   复用现有主手和手部关键点结果；ACTIVE 时现有手部标记点改为绿色，状态与 X/Y 覆盖刷新到看手调试面板，不追加刷屏日志。
+      *   在可折叠的手部检测参数区增加“二维控制满量程（手掌尺度）”，范围 0.5～3.0、步长 0.1、默认 1.5，修改后立即生效。
+      *   离开看手视图、切换观察模式或重启回放时清除状态，其他视图不运行该控制器。
+      *   定向单测和 `:app:assembleDebug` 均通过；debug APK 已成功覆盖安装到连接真机，未自动启动。
+      *   移除构建资源目录中误放的非 XML 进度表，并原样迁移到 `/Users/yzmac/Documents/2026年参赛大赛进度表（按时间排序）.md`。
+
+---
+
+## [375] 2026-06-29 12:45:00 - 生成包含 APK 与 0629 PPTX 的赛事完整交付包
+
+**用户指令**：
+> 将 200 多兆的 APK 包及“基于本地视觉AI的室内空间理解与智能调度平台Sisp0629.pptx”加入赛事提交材料，并搜索 PPTX 位置。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在核心源码披露包之外增加可运行 APK 和项目路演材料，形成完整赛事技术交付件。
+    *   修改文件：`/Users/yzmac/Documents/SISP_Competition_Technical_Submission_2026Q2/`、对应外层 ZIP 与 SHA-256 文件，以及 codexHistory.md、dialogueHistory.md。
+    *   涉及方法：本机 APK/PPTX 搜索、APK badging 与签名验证、文件分层组包、逐文件 SHA-256、ZIP 结构验证。
+    *   关键改动：
+      *   定位 PPTX：OneDrive/SISP/基于本地视觉AI的室内空间理解与智能调度平台Sisp0629.pptx，文件约 128MB。
+      *   全盘未发现单文件超过 180MB 的 APK；采用当前项目最新 APK，磁盘文件约 114MB，安装解压后体积更大。
+      *   APK 核验为应用名 SISP、arm64-v8a、最低 API 26、目标 API 36，APK Signature Scheme v2 验证通过。
+      *   外层包按源码、演示 APK、PPTX、验证材料四区组织，并新增 README_FIRST.md 与 APK_INFO.txt。
+      *   最终外层 ZIP 约 242MB，包含 7 个交付文件；逐文件哈希、APK/PPTX ZIP 结构、外层 ZIP 完整性和外部 SHA-256 均验证通过。
+      *   未包含签名 keystore，当前 Android App 源码未修改。
+
+---
+
+## [374] 2026-06-29 12:37:00 - 完成 Core-first 与 Edge Continuity 赛事架构闭环
+
+**用户指令**：
+> 按已确认的正式架构改造赛事源码包：SISP Core 服务端作为主系统，APK 仅承担采集、展示、执行和 Core 不可用时的最小本地冗余；形成可用、降级、恢复的完整闭环并重新打包。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将赛事披露包从本地算法集合升级为 Core-first / Edge-continuity 的完整系统架构表达，并提供可运行状态机与验证测试。
+    *   修改文件：Documents 下赛事交付包源码目录、README、架构/能力矩阵/闭环/接口/依赖/披露/验证文档、Gradle 验证入口、ZIP、SHA-256 文件，以及 codexHistory.md、dialogueHistory.md。
+    *   涉及方法：SispRuntimeCoordinator.start/submit/attemptRecovery/stop、SispCorePort、FallbackPolicy、SyncJournal、EdgeContinuityRuntime、TrackerServicePort。
+    *   关键改动：
+      *   新增 `edge-runtime`，实现 `DISCOVERING → CONNECTING → CORE_ACTIVE → EDGE_DEGRADED → RECOVERING → CORE_ACTIVE` 状态闭环。
+      *   定义 Core 能力、Edge 能力、执行模式、决策权威、版本化配置、观测、决策、日志和对账数据契约。
+      *   Core 正常时执行权威决策；Core 失败时基于缓存配置执行受限本地冗余并写入顺序日志；恢复后补传日志、刷新配置、接受权威对账并清理已确认日志。
+      *   将原源码目录规范为 `edge-kws`、`edge-fallback-pointing`、`edge-fallback-spatial`、`shared-contracts`，统一命名空间为 `com.sisp.edge.*` 与 `com.sisp.shared.*`。
+      *   将远端跟踪编排更名为 `ResilientTrackEngine`，保留服务端口注入、在途控制、故障冷却和本地降级。
+      *   README 重构为 SISP Core / Edge Continuity 系统拓扑，并新增运行闭环、能力矩阵、Core Ports、验证记录和构建说明。
+      *   新增三条运行时测试，覆盖 Core 正常、断线降级和恢复对账；独立 Gradle 构建测试通过。
+      *   最终包包含 44 个 Kotlin 文件、4574 行源码、61 个交付文件；已清除隐藏文件和构建产物，并通过敏感扫描、ZIP 完整性及全部 SHA-256 校验。
+      *   当前 Android App 源码未修改，本次只改造独立赛事交付包。
+
+---
+
+## [373] 2026-06-29 12:09:00 - 将披露包服务连接收口为抽象端口
+
+**用户指令**：
+> 检查此前写死的服务器连接能力；在赛事披露包中可将相关方法抽象为接口并省略内部实现，既作为后续正式接口，也增强架构表达。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：从赛事源码披露包中移除固定服务地址和具体网络传输实现，以标准 Ports-and-Adapters 方式展示服务端集成边界。
+    *   修改文件：交付包 `core-spatial` 跟踪服务接口与远端跟踪编排源码、README、ARCHITECTURE.md、DEPENDENCIES.md、DISCLOSURE_SCOPE.md、SERVICE_PORT.md、THIRD_PARTY_NOTICES.md、源码清单、ZIP 与校验文件，以及 codexHistory.md、dialogueHistory.md。
+    *   涉及方法：RemoteByteTrackEngine 构造注入与服务调用、TrackerServicePort.submitFrame/reset/checkHealth、TrackerEndpointConfig 运行时配置、交付包敏感信息扫描与哈希重建。
+    *   关键改动：
+      *   从披露包删除具体 `TrackClient`、HTTP/JSON 序列化、固定 URL、端口及终端编号。
+      *   新增 `TrackerServicePort` 出站端口、`TrackerEndpointConfig` 和服务响应数据契约。
+      *   `RemoteByteTrackEngine` 改为依赖注入服务端口，继续保留异步帧调度、单请求在途控制、失败冷却、缓存结果和本地降级逻辑。
+      *   新增 `SERVICE_PORT.md`，说明服务发现、认证、加密、协议协商和生产传输适配属于有限披露中省略的基础设施实现。
+      *   重新生成 38 个 Kotlin 文件、3929 行源码的清单、ZIP 和 SHA-256；压缩完整性与全部哈希验证通过。
+      *   当前 App 中原有写死 ByteTrack 地址未修改，本次仅更新独立赛事交付包。
+
+---
+
+## [372] 2026-06-29 11:52:00 - 生成赛事核心技术源码有限披露包
+
+**用户指令**：
+> 整理一份用于大赛提交的核心源码压缩包，编写规范且具有技术表达力的 README，并说明该资料属于早期 Demo；因现行版本软件著作权尚未完成且涉及公司核心资产，暂不披露完整源码。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：形成一份可供赛事技术审查的 SISP 核心源码有限披露包，在展示真实算法能力的同时隔离未公开资产和内部工程信息。
+    *   修改文件：`/Users/yzmac/Documents/SISP_Core_Technology_Source_Disclosure_2026Q2/`、`/Users/yzmac/Documents/SISP_Core_Technology_Source_Disclosure_2026Q2.zip`、codexHistory.md、dialogueHistory.md
+    *   涉及方法：核心源码筛选、命名空间规范化、设备指向公共类型解耦、README/架构/算法/依赖/披露范围文档编写、敏感信息扫描、SHA-256 完整性校验。
+    *   关键改动：
+      *   按 `core-pointing`、`core-kws`、`core-spatial`、`data-contracts` 四个模块整理 38 个 Kotlin 文件，共 4066 行源码。
+      *   设备指向模块增加独立会话编排示例并将置信状态公共类型收口到交付副本模型中，不修改当前 App 源码。
+      *   统一交付副本命名空间为 `com.sisp.core.*`，移除内部项目代号和固定局域网服务地址。
+      *   新增 README、架构说明、算法说明、依赖边界、第三方说明、有限披露说明和评审用途许可证。
+      *   明确本包基于早期 Demo（技术验证）版本；现行版本因软件著作权办理及公司核心资产保护暂不披露。
+      *   排除模型权重、第三方 AAR、服务端实现、真实配置、密钥、历史记录、业务 UI 与个人文件。
+      *   生成逐文件源码清单、内部 `CHECKSUMS.sha256` 和外部 ZIP 校验文件；压缩包完整性及全部哈希验证通过。
+
+---
+
+## [371] 2026-06-08 18:41:56 - 统一设置页选项控件蓝色右侧下拉样式
+
+**用户指令**：
+> 设置页中人数算法版本等选项控件不点击前看不到框，框颜色白色导致内容看不到；具备这种选项的控件都应在右侧显示当前选项并带向下箭头，选中的预览应为蓝色，例如日志更新频率“一秒一次”也应在外部蓝色显示。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：统一设置页 Spinner 类选项控件的布局和选中态视觉，使当前值在折叠状态下位于右侧并以蓝色可读显示。
+    *   修改文件：app/src/main/res/layout/fragment_settings_home.xml、app/src/main/res/drawable/bg_settings_choice_spinner.xml、app/src/main/java/com/example/roomxxx0102/ui/settings/SettingsHomeFragment.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：SettingsHomeFragment.createChoiceAdapter、SettingsHomeFragment.onViewCreated、SettingsHomeFragment.syncPoseRoiSizeVisibility、SettingsHomeFragment.syncPointingDisplayModeVisibility
+    *   关键改动：
+      *   新增 `bg_settings_choice_spinner.xml`，作为设置页选项胶囊背景：浅蓝底、蓝色描边、圆角。
+      *   将 Pose ROI 比例、日志更新频率、人数算法版本、手势识别线显示时机四个 Spinner 从“标题下方整行”改为“标题左侧 + 当前值右侧”的横向布局。
+      *   移除 Spinner 的白色系统背景预览，改为右侧蓝色当前值，并追加 `▾` 下拉提示。
+      *   新增 `createChoiceAdapter()`，统一折叠预览和下拉列表样式；下拉列表中当前选中项使用蓝色文字与浅蓝底。
+      *   保留所有原有选项内容、保存逻辑和开关控制流程。
+      *   已执行 `./gradlew :app:assembleDebug` 和 `adb install -r app/build/outputs/apk/debug/app-debug.apk`，构建和安装成功；未主动启动 App。
+
+---
+
+## [370] 2026-06-08 16:48:57 - 回顾模式无视频配置提示
+
+**用户指令**：
+> 系统新安装默认为 回顾模式，进入回顾模式如果未配置视频，则弹出：未配置回顾视频。请在设置中配置视频或切换为实时模式
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在回顾模式没有可播放视频源时明确提示用户配置视频或切换实时模式。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.startVideoMode、MainActivity.showMissingReviewVideoToast
+    *   关键改动：
+      *   确认当前 `isVideoMode` 默认为 `true`，新安装默认进入回顾模式。
+      *   `startVideoMode()` 在未配置测试视频 URI 且默认本地视频文件不存在时弹出 Toast：`未配置回顾视频。请在设置中配置视频或切换为实时模式`。
+      *   增加 1500ms Toast 去重，避免启动/切换过程中重复刷提示。
+      *   未自动切换实时模式，保留用户手动选择。
+      *   已执行 `./gradlew :app:assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk`，构建和安装成功；未主动启动 App。
+
+---
+
+## [369] 2026-06-08 16:45:54 - 房间设置入口增加 SISP Core 提示
+
+**用户指令**：
+> 点击房间设置后 toast 弹出：SISP Core 未启动，切换至手动简易房间编辑模式
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：在进入手动房间编辑前提示当前 SISP Core 未启动。
+    *   修改文件：app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.setupButtons 中 btnSetupRoom 点击监听
+    *   关键改动：
+      *   `btnSetupRoom` 点击时先弹出 Toast：`SISP Core 未启动，切换至手动简易房间编辑模式`。
+      *   Toast 后继续调用原有 `enterEditMode()`，不改变房间设置业务流程。
+      *   已执行 `./gradlew :app:assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk`，构建和安装成功；未主动启动 App。
+
+---
+
+## [368] 2026-06-08 16:38:33 - 优化监控回放界面 SISP 控制栏视觉
+
+**用户指令**：
+> 第一阶段只做 UI 视觉风格优化，不改业务逻辑、不改点击事件、不引入新素材、不加图标、不动顶部进度条。重点修改 bg_side_action_panel/button/active/dim 和 activity_main.xml 必要文字颜色、按钮尺寸、padding、margin；按 SISP 深蓝黑半透明面板 + 科技蓝描边 + 克制高亮风格。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将监控/回放界面左右控制栏从临时调试感的青绿色渐变改为 SISP 品牌深蓝黑玻璃风格。
+    *   修改文件：app/src/main/res/drawable/bg_side_action_panel.xml、app/src/main/res/drawable/bg_side_action_button.xml、app/src/main/res/drawable/bg_side_action_button_active.xml、app/src/main/res/drawable/bg_side_action_button_dim.xml、app/src/main/res/layout/activity_main.xml、app/src/main/java/com/example/roomxxx0102/ui/activities/MainActivity.kt、codexHistory.md、dialogueHistory.md
+    *   涉及方法：MainActivity.refreshRuntimeModeButton、MainActivity.refreshDebugPanelButton
+    *   关键改动：
+      *   侧栏面板改为 `#E6050B14` 深色半透明背景、`#334B78FF` 蓝色弱描边、22dp 圆角。
+      *   默认按钮改为 `#B30D1828` 半透明深蓝底、`#665A8DFF` 描边、15dp 圆角。
+      *   高亮按钮改为 `#FF2563FF` 主蓝填充、`#FF66A3FF` 描边、白色文字。
+      *   弱化/调试按钮改为 `#991E293B` 灰蓝底、`#55334155` 描边、`#9FB4D0` 文字。
+      *   左右按钮宽度、padding、间距和文字色做轻量统一；保留所有 Button 结构和点击事件。
+      *   动态的回顾/实时按钮、调试面板按钮同步 active/dim 文字色，避免动态背景与文字层级不一致。
+      *   未改顶部进度条、未新增图标、未引入依赖、未改业务逻辑。
+      *   已执行 `./gradlew :app:assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk`，构建和安装成功；未主动启动 App。
+
+---
+
 ## [367] 2026-06-08 16:26:08 - 实现 Live 静止冻结覆盖与模式切换 loading
 
 **用户指令**：

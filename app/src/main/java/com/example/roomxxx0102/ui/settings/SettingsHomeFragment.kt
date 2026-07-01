@@ -4,6 +4,7 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -14,6 +15,7 @@ import android.text.style.ForegroundColorSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.Gravity
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.EditText
@@ -25,6 +27,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import com.example.roomxxx0102.R
 import com.example.roomxxx0102.data.repository.AppSettings
+import com.example.roomxxx0102.BuildConfig
 import com.example.roomxxx0102.data.repository.RoomRepository
 import com.example.roomxxx0102.data.repository.VideoRoomConfigManager
 import com.example.roomxxx0102.databinding.FragmentSettingsHomeBinding
@@ -35,6 +38,7 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * **设置主页 (Settings Home)**
@@ -65,6 +69,34 @@ class SettingsHomeFragment : Fragment() {
     private var sispConnectingHost = ""
     private var sispConnectingPort = ""
     private var sispConnectRunnable: Runnable? = null
+
+    private fun createChoiceAdapter(labels: List<String>, selectedPositionProvider: () -> Int): ArrayAdapter<String> {
+        return object : ArrayAdapter<String>(requireContext(), android.R.layout.simple_spinner_item, labels) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = super.getView(position, convertView, parent) as TextView
+                view.text = "${labels.getOrNull(position).orEmpty()}  ▾"
+                view.setTextColor(Color.parseColor("#2F6BFF"))
+                view.setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+                view.gravity = Gravity.CENTER_VERTICAL or Gravity.END
+                view.textSize = 13f
+                view.includeFontPadding = false
+                return view
+            }
+
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = super.getDropDownView(position, convertView, parent) as TextView
+                val selected = position == selectedPositionProvider()
+                view.text = labels.getOrNull(position).orEmpty()
+                view.setTextColor(Color.parseColor(if (selected) "#2563FF" else "#263447"))
+                view.setTypeface(Typeface.DEFAULT, if (selected) Typeface.BOLD else Typeface.NORMAL)
+                view.setBackgroundColor(Color.parseColor(if (selected) "#EAF2FF" else "#FFFFFF"))
+                view.setPadding(24, 18, 24, 18)
+                return view
+            }
+        }.also {
+            it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+    }
 
     private fun buildPresenceOptionsInStableOrder(): List<PresenceAlgorithmRegistry.AlgorithmOption> {
         val options = mutableListOf(
@@ -626,6 +658,20 @@ class SettingsHomeFragment : Fragment() {
 
     private fun confidenceToProgress(value: Float): Int = (value.coerceIn(0f, 1f) * 100f).toInt()
 
+    private fun handTranslationFullRangeToProgress(value: Float): Int {
+        return ((value - AppSettings.HAND_TRANSLATION_FULL_RANGE_MIN) /
+            AppSettings.HAND_TRANSLATION_FULL_RANGE_STEP).roundToInt().coerceIn(0, 25)
+    }
+
+    private fun progressToHandTranslationFullRange(progress: Int): Float {
+        return AppSettings.HAND_TRANSLATION_FULL_RANGE_MIN +
+            progress.coerceIn(0, 25) * AppSettings.HAND_TRANSLATION_FULL_RANGE_STEP
+    }
+
+    private fun formatHandTranslationFullRange(value: Float): String {
+        return String.format(Locale.US, "%.1f×", value)
+    }
+
     private fun setHandDetectionParamsExpanded(expanded: Boolean) {
         isHandDetectionParamsExpanded = expanded
         binding.layoutHandDetectionParams.visibility = if (expanded) View.VISIBLE else View.GONE
@@ -746,6 +792,10 @@ class SettingsHomeFragment : Fragment() {
         binding.tvHandPresenceConfidenceValue.text = formatConfidence(AppSettings.handPresenceConfidence)
         binding.sbHandTrackingConfidence.progress = confidenceToProgress(AppSettings.handTrackingConfidence)
         binding.tvHandTrackingConfidenceValue.text = formatConfidence(AppSettings.handTrackingConfidence)
+        binding.sbHandTranslationFullRange.progress =
+            handTranslationFullRangeToProgress(AppSettings.handTranslationFullRange)
+        binding.tvHandTranslationFullRangeValue.text =
+            formatHandTranslationFullRange(AppSettings.handTranslationFullRange)
     }
 
     override fun onCreateView(
@@ -754,6 +804,8 @@ class SettingsHomeFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View {
         _binding = FragmentSettingsHomeBinding.inflate(inflater, container, false)
+        binding.tvAppVersion.text =
+            "SISP ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · Build ${BuildConfig.BUILD_TIME}"
         return binding.root
     }
 
@@ -764,6 +816,16 @@ class SettingsHomeFragment : Fragment() {
         setConfigListExpanded(false)
         setVideoListExpanded(false)
         setHandDetectionParamsExpanded(false)
+
+        binding.spnPoseRoiSizeMode.adapter = createChoiceAdapter(
+            resources.getStringArray(R.array.pose_roi_size_labels).toList()
+        ) { binding.spnPoseRoiSizeMode.selectedItemPosition }
+        binding.spnRoiLogMode.adapter = createChoiceAdapter(
+            resources.getStringArray(R.array.roi_log_mode_labels).toList()
+        ) { binding.spnRoiLogMode.selectedItemPosition }
+        binding.spnPointingDisplayMode.adapter = createChoiceAdapter(
+            resources.getStringArray(R.array.pointing_debug_display_mode_labels).toList()
+        ) { binding.spnPointingDisplayMode.selectedItemPosition }
 
         // 初始化开关状态
         binding.switchShowBox.isChecked = AppSettings.isDebugBoxShown
@@ -816,12 +878,9 @@ class SettingsHomeFragment : Fragment() {
         // 人数算法版本选择（与“日志更新频率”同款 Spinner）
         presenceAlgoOptions = buildPresenceOptionsInStableOrder()
         val labels = presenceAlgoOptions.map { option -> option.label }
-        val presenceAdapter = ArrayAdapter(
-            requireContext(),
-            android.R.layout.simple_spinner_item,
-            labels
-        )
-        presenceAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        val presenceAdapter = createChoiceAdapter(labels) {
+            binding.spnPresenceAlgorithmVersion.selectedItemPosition
+        }
         binding.spnPresenceAlgorithmVersion.adapter = presenceAdapter
         syncPresenceSpinnerSelection()
         binding.spnPresenceAlgorithmVersion.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -940,6 +999,19 @@ class SettingsHomeFragment : Fragment() {
                 binding.tvHandTrackingConfidenceValue.text = formatConfidence(value)
                 if (fromUser) {
                     AppSettings.setHandTrackingConfidence(value)
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+
+        binding.sbHandTranslationFullRange.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val value = progressToHandTranslationFullRange(progress)
+                binding.tvHandTranslationFullRangeValue.text = formatHandTranslationFullRange(value)
+                if (fromUser) {
+                    AppSettings.setHandTranslationFullRange(value)
                 }
             }
 
@@ -1089,13 +1161,11 @@ class SettingsHomeFragment : Fragment() {
 
     private fun syncPoseRoiSizeVisibility(enabled: Boolean) {
         val visibility = if (enabled) View.VISIBLE else View.GONE
-        binding.tvPoseRoiSizeLabel.visibility = visibility
-        binding.spnPoseRoiSizeMode.visibility = visibility
+        binding.layoutPoseRoiSizeChoice.visibility = visibility
     }
 
     private fun syncPointingDisplayModeVisibility(enabled: Boolean) {
         val visibility = if (enabled) View.VISIBLE else View.GONE
-        binding.tvPointingDisplayModeLabel.visibility = visibility
-        binding.spnPointingDisplayMode.visibility = visibility
+        binding.layoutPointingDisplayModeChoice.visibility = visibility
     }
 }
