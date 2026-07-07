@@ -6168,3 +6168,25 @@ ok
 ```
 
 ---
+## [205] 2026-07-07 21:17:37 - 将比赛源码交付包推送到GitHub
+
+**用户原文**：
+```text
+我们上次给对方准备的源码文件夹你还记得吗
+
+现在把这个放在 github 里面，我们要把源码给对方了
+```
+
+**助手原文**：
+```text
+已找到上次准备的交付目录 `/Users/yzmac/Documents/SISP_Competition_Technical_Submission_2026Q2`，并将其复制到当前私有仓库的 `competition_submission/SISP_Competition_Technical_Submission_2026Q2`。
+
+已新增 `.gitattributes`，让 APK 和 PPT 通过 Git LFS 跟踪，避免 GitHub 普通 Git 单文件大小限制。源码 zip、README、校验文件正常进入 Git。
+
+已提交并推送到 GitHub 私有仓库 `jay52121/RoomXXX0102` 的 `设备与语音匹配` 分支。提交为 `3712240 chore: add SISP competition source package`。
+
+任务简报：任务目的=将比赛源码交付包纳入私有 GitHub 仓库；修改文件=.gitattributes、competition_submission/SISP_Competition_Technical_Submission_2026Q2/**、codexHistory.md；涉及方法=Git LFS 文件跟踪与交付目录版本化。
+```
+
+---
+
