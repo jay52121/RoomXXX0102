@@ -1,5 +1,23 @@
 # Codex History
 
+## [389] 2026-07-07 21:37:00 - 补充比赛交付演示视频
+
+**用户指令**：
+> 将“带状态的手势调节 1107mp4”、“手势264-1”、“响应264-1”三个视频上传到项目中合适的位置。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：把三段手势/响应演示视频纳入比赛交付包，便于源码接收方同步查看 Demo 行为。
+    *   修改文件：`.gitattributes`、`competition_submission/SISP_Competition_Technical_Submission_2026Q2/05_Demo_Videos/**`、codexHistory.md。
+    *   涉及方法：Git LFS 视频文件跟踪与交付包演示素材目录组织。
+    *   关键改动：
+      *   新增 `05_Demo_Videos` 目录，存放三段 MP4 演示素材。
+      *   新增视频说明 README，标明每段视频用途。
+      *   将 `competition_submission/**/*.mp4` 纳入 Git LFS 跟踪，避免后续视频素材进入普通 Git 对象。
+
+---
+
 ## [388] 2026-07-07 21:24:00 - 将比赛源码交付包纳入 GitHub
 
 **用户指令**：
