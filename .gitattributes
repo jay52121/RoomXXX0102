@@ -1,0 +1,2 @@
+competition_submission/**/*.apk filter=lfs diff=lfs merge=lfs -text
+competition_submission/**/*.pptx filter=lfs diff=lfs merge=lfs -text

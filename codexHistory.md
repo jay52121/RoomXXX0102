@@ -1,5 +1,23 @@
 # Codex History
 
+## [388] 2026-07-07 21:24:00 - 将比赛源码交付包纳入 GitHub
+
+**用户指令**：
+> 将此前准备给大赛/对方的源码文件夹放到 GitHub 中，准备对外提供源码。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：把已整理的 SISP 比赛技术交付包纳入当前私有 GitHub 仓库，便于后续授权对方获取源码与演示材料。
+    *   修改文件：`.gitattributes`、`competition_submission/SISP_Competition_Technical_Submission_2026Q2/**`、codexHistory.md。
+    *   涉及方法：Git LFS 文件跟踪与交付目录版本化。
+    *   关键改动：
+      *   新增 `competition_submission/SISP_Competition_Technical_Submission_2026Q2` 交付目录，包含源码披露包、演示 APK、PPT、校验信息和说明文件。
+      *   APK 与 PPT 大文件通过 Git LFS 跟踪，避免触发 GitHub 普通 Git 单文件大小限制。
+      *   保持业务源码不变，仅新增交付材料。
+
+---
+
 ## [387] 2026-07-01 14:50:00 - 消除快速摆手触发的模型重建断档
 
 **用户指令**：
