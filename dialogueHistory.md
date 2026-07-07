@@ -6190,3 +6190,29 @@ ok
 
 ---
 
+## [206] 2026-07-07 21:20:18 - 补充比赛交付演示视频
+
+**用户原文**：
+```text
+带状态的手势调节 1107mp4,手势264-1(7 兆）,响应264-1(22.2M)这三个视频上传到这个项目合适的位置
+```
+
+**助手原文**：
+```text
+已找到三个视频文件：
+
+- `/Users/yzmac/Downloads/带状态的手势调节 1107mp4.mp4`
+- `/Users/yzmac/Downloads/手势264/手势264-1.mp4`
+- `/Users/yzmac/Downloads/响应264/响应264-1.mp4`
+
+已放入交付包目录：
+
+`competition_submission/SISP_Competition_Technical_Submission_2026Q2/05_Demo_Videos`
+
+已新增 `05_Demo_Videos/README.md` 说明每段视频用途，并将 `competition_submission/**/*.mp4` 纳入 Git LFS。提交并推送到 `设备与语音匹配` 分支，提交为 `1db11a2 docs: add SISP demo gesture videos`。
+
+任务简报：任务目的=将三段手势/响应演示视频纳入比赛交付包并上传 GitHub；修改文件=.gitattributes、competition_submission/SISP_Competition_Technical_Submission_2026Q2/05_Demo_Videos/**、codexHistory.md；涉及方法=Git LFS 视频文件跟踪与交付包演示素材目录组织。
+```
+
+---
+
