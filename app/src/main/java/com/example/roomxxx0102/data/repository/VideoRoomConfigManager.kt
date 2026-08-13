@@ -57,6 +57,15 @@ object VideoRoomConfigManager {
 
     fun listConfigFilesForCurrentVideo(): List<File> {
         val context = currentVideoContext() ?: return emptyList()
+        return listConfigFiles(context)
+    }
+
+    fun hasConfigFilesForVideo(uriString: String): Boolean {
+        val context = contextForUri(uriString) ?: return false
+        return listConfigFiles(context).isNotEmpty()
+    }
+
+    private fun listConfigFiles(context: VideoConfigContext): List<File> {
         val folder = context.folder
         if (!folder.exists() || !folder.isDirectory) return emptyList()
         return folder.listFiles()

@@ -6328,3 +6328,19 @@ ok
 
 ---
 
+## [211] 2026-08-13 15:34:13 - 增加已有配置视频快捷切换
+
+**用户原文**：
+```text
+开始吧
+```
+
+**助手原文**：
+```text
+已在现有设置页“选择测试视频”下方增加常驻“已有配置的视频”列表。列表只显示视频历史中对应目录存在 `.Room` 配置的项目；点击即可切换视频并加载默认配置，当前视频蓝色高亮。新建或导入配置后列表会即时刷新。单测和 debug 构建通过，APK 已覆盖安装，未自动启动。
+
+任务简报：任务目的=增加已有配置视频的快捷切换入口；修改文件=VideoRoomConfigManager.kt、SettingsHomeFragment.kt、fragment_settings_home.xml、codexHistory.md、dialogueHistory.md；涉及方法=hasConfigFilesForVideo、listConfigFiles、refreshConfiguredVideoListContent、loadSelectedVideo、refreshConfigListContent、onResume。
+```
+
+---
+

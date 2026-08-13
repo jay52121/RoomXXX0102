@@ -242,6 +242,7 @@ class SettingsHomeFragment : Fragment() {
             AppSettings.pushTestVideoHistory(uriString)
         }
         loadDefaultConfigForSelectedVideo()
+        refreshConfiguredVideoListContent()
         refreshVideoListContent()
     }
 
@@ -495,6 +496,7 @@ class SettingsHomeFragment : Fragment() {
     }
 
     private fun refreshConfigListContent() {
+        refreshConfiguredVideoListContent()
         if (!isConfigListExpanded) return
         val container = binding.layoutConfigList
         container.removeAllViews()
@@ -646,6 +648,53 @@ class SettingsHomeFragment : Fragment() {
         }
         history.forEachIndexed { index, uriString ->
             container.addView(buildVideoHistoryRow(uriString, index))
+        }
+    }
+
+    private fun refreshConfiguredVideoListContent() {
+        val container = binding.layoutConfiguredVideoList
+        container.removeAllViews()
+        val configuredVideos = AppSettings.getTestVideoHistory()
+            .filter(VideoRoomConfigManager::hasConfigFilesForVideo)
+
+        if (configuredVideos.isEmpty()) {
+            container.addView(TextView(requireContext()).apply {
+                text = "暂无已有配置的视频"
+                textSize = 13f
+                setTextColor(0xFF9FB0C4.toInt())
+                setPadding(0, 6.dp, 0, 0)
+            })
+            return
+        }
+
+        configuredVideos.forEach { uriString ->
+            val isCurrent = AppSettings.testVideoUri == uriString
+            val label = resolveVideoHistoryLabel(uriString)
+            container.addView(com.google.android.material.button.MaterialButton(
+                requireContext(),
+                null,
+                if (isCurrent) {
+                    com.google.android.material.R.attr.materialButtonStyle
+                } else {
+                    com.google.android.material.R.attr.materialButtonOutlinedStyle
+                }
+            ).apply {
+                text = if (isCurrent) "$label  ·  当前" else label
+                isAllCaps = false
+                gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                setTextColor(Color.parseColor(if (isCurrent) "#FFFFFF" else "#2563FF"))
+                if (isCurrent) {
+                    backgroundTintList = android.content.res.ColorStateList.valueOf(
+                        Color.parseColor("#2563FF")
+                    )
+                }
+                setOnClickListener {
+                    if (!isCurrent) {
+                        loadSelectedVideo(uriString, addToHistory = true)
+                        Toast.makeText(context, "已切换视频: $label", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            })
         }
     }
 
@@ -1143,6 +1192,7 @@ class SettingsHomeFragment : Fragment() {
         binding.sbEventMissPauseWindow.progress = ((windowMs - 100) / 100).coerceIn(0, 9)
         binding.tvEventMissPauseWindowValue.text = "${windowMs} ms"
         if (AppSettings.isNewTrackerPredictionEnabled) startTrackerStatusPolling() else stopTrackerStatusPolling()
+        refreshConfiguredVideoListContent()
         refreshVideoListContent()
         refreshConfigListContent()
     }

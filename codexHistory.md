@@ -1,5 +1,25 @@
 # Codex History
 
+## [390] 2026-08-13 14:30:00 - 设置页增加已有配置视频快捷切换
+
+**用户指令**：
+> 在选择测试视频下方显示已有配置文件的视频，以便快速切换；保持现有 APK，不新增独立 APK。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：减少反复打开系统文件选择器的操作，直接从设置页切换已有房间配置的视频。
+    *   修改文件：`VideoRoomConfigManager.kt`、`SettingsHomeFragment.kt`、`fragment_settings_home.xml`、codexHistory.md、dialogueHistory.md。
+    *   涉及方法：`VideoRoomConfigManager.hasConfigFilesForVideo/listConfigFiles`、`SettingsHomeFragment.refreshConfiguredVideoListContent/loadSelectedVideo/refreshConfigListContent/onResume`。
+    *   关键改动：
+      *   在“选择测试视频”按钮下新增常驻“已有配置的视频”列表。
+      *   从持久化视频历史中筛选对应目录内存在 `.Room` 配置文件的视频。
+      *   点击列表项直接切换测试视频并加载该视频默认配置，当前视频使用蓝色高亮标识。
+      *   新建或导入配置后即时刷新快捷列表，无需退出设置页。
+      *   不修改视频 URI、配置文件格式或播放器业务链。
+
+---
+
 ## [389] 2026-07-07 21:37:00 - 补充比赛交付演示视频
 
 **用户指令**：
