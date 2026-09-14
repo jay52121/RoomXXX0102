@@ -100,7 +100,7 @@ dependencies {
     implementation(libs.tensorflow.lite.support)
     implementation("com.google.mediapipe:tasks-vision:0.10.35")
 
-    // Portal V2 本地短时视觉跟踪（CSRT）
+    // Portal V2 本地短时视觉跟踪（OpenCV core video / TrackerMIL，不依赖 contrib）
     implementation("org.opencv:opencv:4.13.0")
 
     testImplementation(libs.junit)
