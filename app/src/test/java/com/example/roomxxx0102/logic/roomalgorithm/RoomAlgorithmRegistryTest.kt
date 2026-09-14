@@ -2,6 +2,7 @@ package com.example.roomxxx0102.logic.roomalgorithm
 
 import com.example.roomxxx0102.logic.presence.PresenceAlgorithmRegistry
 import com.example.roomxxx0102.logic.presence.PresenceOutsideMode
+import com.example.roomxxx0102.logic.roomalgorithm.portal.PortalVisualTrackerRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -16,7 +17,24 @@ class RoomAlgorithmRegistryTest {
         val engine = RoomAlgorithmRegistry.create("removed_algorithm", config)
 
         assertEquals(RoomAlgorithmRegistry.LEGACY_PRESENCE_ID, engine.algorithmId)
-        assertEquals(RoomAlgorithmRegistry.LEGACY_PRESENCE_ID, RoomAlgorithmRegistry.options().single().algorithmId)
+        assertTrue(
+            RoomAlgorithmRegistry.options().any {
+                it.algorithmId == RoomAlgorithmRegistry.LEGACY_PRESENCE_ID
+            }
+        )
+    }
+
+    @Test
+    fun portalV2IsRegisteredAndUsesLocalCsrtByDefault() {
+        val config = RoomAlgorithmRegistry.CreationConfig(
+            presenceVersionId = PresenceAlgorithmRegistry.VERSION_V1_6_2_B03060320
+        )
+
+        val engine = RoomAlgorithmRegistry.create(RoomAlgorithmRegistry.PORTAL_V2_ID, config)
+
+        assertEquals(RoomAlgorithmRegistry.PORTAL_V2_ID, engine.algorithmId)
+        assertTrue(RoomAlgorithmRegistry.options().any { it.algorithmId == RoomAlgorithmRegistry.PORTAL_V2_ID })
+        assertTrue(engine.configurationKey.contains(PortalVisualTrackerRegistry.OPENCV_CSRT_ID))
     }
 
     @Test
