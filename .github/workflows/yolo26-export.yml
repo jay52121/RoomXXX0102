@@ -1,0 +1,152 @@
+name: Temporary YOLO26 FP16 export
+
+on:
+  push:
+    branches:
+      - "9月新房间判定算法"
+    paths:
+      - ".github/workflows/yolo26-export.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  export-yolo26:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "9月新房间判定算法"
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install pinned Ultralytics exporter
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "ultralytics[export-tensorflow]==8.4.150"
+
+      - name: Export and inspect YOLO26 FP16 TFLite models
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          import shutil
+          import numpy as np
+          import tensorflow as tf
+          import ultralytics
+          from ultralytics import YOLO
+
+          ROOT = Path.cwd()
+          ASSETS = ROOT / "app/src/main/assets"
+          ASSETS.mkdir(parents=True, exist_ok=True)
+          REPORT = ROOT / "yolo26_tensor_report.json"
+
+          export_args = dict(
+              format="tflite",
+              imgsz=640,
+              half=True,
+              batch=1,
+              nms=False,
+              end2end=False,
+              int8=False,
+              device="cpu",
+          )
+
+          print(f"ULTRALYTICS_VERSION={ultralytics.__version__}")
+          print("DETECT_EXPORT_COMMAND=YOLO('yolo26s.pt').export(format='tflite', imgsz=640, half=True, batch=1, nms=False, end2end=False, int8=False, device='cpu')")
+          detect_result = YOLO("yolo26s.pt").export(**export_args)
+          print("POSE_EXPORT_COMMAND=YOLO('yolo26s-pose.pt').export(format='tflite', imgsz=640, half=True, batch=1, nms=False, end2end=False, int8=False, device='cpu')")
+          pose_result = YOLO("yolo26s-pose.pt").export(**export_args)
+
+          def resolve_float16(result, model_stem):
+              result_path = Path(str(result))
+              candidates = []
+              if result_path.is_file() and result_path.suffix == ".tflite":
+                  candidates.append(result_path)
+              search_roots = [result_path] if result_path.is_dir() else [result_path.parent, ROOT]
+              for base in search_roots:
+                  if base.exists():
+                      candidates.extend(base.rglob("*float16.tflite"))
+              unique = []
+              seen = set()
+              for p in candidates:
+                  rp = p.resolve()
+                  if rp not in seen:
+                      unique.append(p)
+                      seen.add(rp)
+              matching = [p for p in unique if model_stem in p.as_posix()]
+              if not matching:
+                  raise RuntimeError(f"No FP16 TFLite found for {model_stem}; candidates={[str(p) for p in unique]}")
+              matching.sort(key=lambda p: len(p.as_posix()))
+              return matching[0]
+
+          detect_src = resolve_float16(detect_result, "yolo26s")
+          pose_src = resolve_float16(pose_result, "yolo26s-pose")
+          detect_dst = ASSETS / "yolo26s_float16.tflite"
+          pose_dst = ASSETS / "yolo26s_pose_float16.tflite"
+          shutil.copy2(detect_src, detect_dst)
+          shutil.copy2(pose_src, pose_dst)
+
+          def inspect(path, expected_channels):
+              interpreter = tf.lite.Interpreter(model_path=str(path))
+              interpreter.allocate_tensors()
+              inputs = interpreter.get_input_details()
+              outputs = interpreter.get_output_details()
+              if len(inputs) != 1:
+                  raise AssertionError(f"{path.name}: expected 1 input, got {len(inputs)}")
+              inp = inputs[0]
+              if list(inp["shape"]) not in ([1, 640, 640, 3], [1, 3, 640, 640]):
+                  raise AssertionError(f"{path.name}: unexpected input shape {inp['shape']}")
+              if inp["dtype"] != np.float32:
+                  raise AssertionError(f"{path.name}: input dtype must be float32, got {inp['dtype']}")
+              if len(outputs) != 1:
+                  raise AssertionError(f"{path.name}: expected 1 output, got {len(outputs)}")
+              out = outputs[0]
+              shape = list(out["shape"])
+              if out["dtype"] != np.float32:
+                  raise AssertionError(f"{path.name}: output dtype must be float32, got {out['dtype']}")
+              if len(shape) != 3 or shape[0] != 1 or expected_channels not in shape[1:]:
+                  raise AssertionError(f"{path.name}: unexpected output shape {shape}, expected channels={expected_channels}")
+              ops = interpreter._get_ops_details()
+              op_names = sorted({str(op.get("op_name", "")) for op in ops})
+              flex_ops = [name for name in op_names if name.startswith("Flex")]
+              if flex_ops:
+                  raise AssertionError(f"{path.name}: Flex/Select TF ops found: {flex_ops}")
+              info = {
+                  "file": path.name,
+                  "bytes": path.stat().st_size,
+                  "input": [{"name": d["name"], "shape": list(map(int, d["shape"])), "dtype": str(d["dtype"])} for d in inputs],
+                  "output": [{"name": d["name"], "shape": list(map(int, d["shape"])), "dtype": str(d["dtype"])} for d in outputs],
+                  "flex_ops": flex_ops,
+                  "op_names": op_names,
+              }
+              print("TENSOR_INFO=" + json.dumps(info, ensure_ascii=False))
+              return info
+
+          report = {
+              "ultralytics": ultralytics.__version__,
+              "export_args": export_args,
+              "detect": inspect(detect_dst, 84),
+              "pose": inspect(pose_dst, 56),
+          }
+          REPORT.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+          for old_name in ("yolo11s_float16.tflite", "yolo11s_pose.tflite"):
+              old = ASSETS / old_name
+              if old.exists():
+                  old.unlink()
+          PY
+
+      - name: Commit generated model assets and tensor report
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/assets/yolo26s_float16.tflite app/src/main/assets/yolo26s_pose_float16.tflite yolo26_tensor_report.json
+          git add -u app/src/main/assets/yolo11s_float16.tflite app/src/main/assets/yolo11s_pose.tflite
+          git commit -m "build: replace YOLO11 assets with YOLO26 FP16 exports"
+          git push origin HEAD:"9月新房间判定算法"
