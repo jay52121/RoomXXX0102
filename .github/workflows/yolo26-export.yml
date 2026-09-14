@@ -26,4 +26,12 @@ jobs:
           java-version: "17"
 
       - name: Finalize YOLO26 integration
-        run: python tools/_yolo26_finalize.py
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tools/_yolo26_finalize.py")
+          text = path.read_text(encoding="utf-8")
+          text = text.replace('["./gradlew",', '["bash", "gradlew",')
+          path.write_text(text, encoding="utf-8", newline="\n")
+          PY
+          python tools/_yolo26_finalize.py
