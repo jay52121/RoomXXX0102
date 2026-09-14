@@ -25,7 +25,7 @@ class RoomAlgorithmRegistryTest {
     }
 
     @Test
-    fun portalV2IsRegisteredAndUsesLocalCsrtByDefault() {
+    fun portalV2IsRegisteredAndUsesLocalMilByDefault() {
         val config = RoomAlgorithmRegistry.CreationConfig(
             presenceVersionId = PresenceAlgorithmRegistry.VERSION_V1_6_2_B03060320
         )
@@ -34,7 +34,7 @@ class RoomAlgorithmRegistryTest {
 
         assertEquals(RoomAlgorithmRegistry.PORTAL_V2_ID, engine.algorithmId)
         assertTrue(RoomAlgorithmRegistry.options().any { it.algorithmId == RoomAlgorithmRegistry.PORTAL_V2_ID })
-        assertTrue(engine.configurationKey.contains(PortalVisualTrackerRegistry.OPENCV_CSRT_ID))
+        assertTrue(engine.configurationKey.contains(PortalVisualTrackerRegistry.OPENCV_MIL_ID))
     }
 
     @Test
