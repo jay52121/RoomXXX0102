@@ -31,6 +31,7 @@ object AppSettings {
     private const val KEY_HAND_PRESENCE_CONFIDENCE = "hand_presence_confidence"
     private const val KEY_HAND_TRACKING_CONFIDENCE = "hand_tracking_confidence"
     private const val KEY_HAND_TRANSLATION_FULL_RANGE = "hand_translation_full_range"
+    private const val KEY_ROOM_ALGORITHM_ID = "room_algorithm_id"
     private const val KEY_PRESENCE_ALGO_VERSION = "presence_algorithm_version"
     private const val KEY_PAUSE_ON_ROOM_SWITCH = "pause_on_room_switch"
     private const val KEY_PAUSE_DECISION_LOG_ON_SWITCH = "pause_decision_log_on_switch"
@@ -77,6 +78,8 @@ object AppSettings {
         private set
     var handTranslationFullRange: Float = HAND_TRANSLATION_FULL_RANGE_DEFAULT
         private set
+    var roomAlgorithmId: String = ROOM_ALGORITHM_LEGACY
+        private set
     var presenceAlgorithmVersion: String = PRESENCE_ALGO_AUTO
         private set
     var isPauseOnRoomSwitchEnabled: Boolean = false
@@ -105,6 +108,7 @@ object AppSettings {
     const val HAND_TRANSLATION_FULL_RANGE_MIN = 0.5f
     const val HAND_TRANSLATION_FULL_RANGE_MAX = 3.0f
     const val HAND_TRANSLATION_FULL_RANGE_STEP = 0.1f
+    const val ROOM_ALGORITHM_LEGACY = "legacy_presence"
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -142,6 +146,8 @@ object AppSettings {
             KEY_HAND_TRANSLATION_FULL_RANGE,
             HAND_TRANSLATION_FULL_RANGE_DEFAULT
         ).coerceIn(HAND_TRANSLATION_FULL_RANGE_MIN, HAND_TRANSLATION_FULL_RANGE_MAX)
+        roomAlgorithmId = prefs.getString(KEY_ROOM_ALGORITHM_ID, ROOM_ALGORITHM_LEGACY)
+            ?: ROOM_ALGORITHM_LEGACY
         presenceAlgorithmVersion = prefs.getString(KEY_PRESENCE_ALGO_VERSION, PRESENCE_ALGO_AUTO) ?: PRESENCE_ALGO_AUTO
         isPauseOnRoomSwitchEnabled = prefs.getBoolean(KEY_PAUSE_ON_ROOM_SWITCH, false)
         isPauseDecisionLogOnSwitchEnabled = prefs.getBoolean(KEY_PAUSE_DECISION_LOG_ON_SWITCH, false)
@@ -299,6 +305,11 @@ object AppSettings {
     fun setPresenceAlgorithmVersion(version: String) {
         presenceAlgorithmVersion = if (version.isBlank()) PRESENCE_ALGO_AUTO else version
         prefs.edit().putString(KEY_PRESENCE_ALGO_VERSION, presenceAlgorithmVersion).apply()
+    }
+
+    fun setRoomAlgorithmId(algorithmId: String) {
+        roomAlgorithmId = if (algorithmId.isBlank()) ROOM_ALGORITHM_LEGACY else algorithmId
+        prefs.edit().putString(KEY_ROOM_ALGORITHM_ID, roomAlgorithmId).apply()
     }
 
     fun setPauseOnRoomSwitchEnabled(enable: Boolean) {

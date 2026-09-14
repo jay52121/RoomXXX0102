@@ -6344,3 +6344,150 @@ ok
 
 ---
 
+## [212] 2026-08-14 19:16:03 - 说明当前服务启停链路
+
+**用户原文**：
+```text
+现在服务的启动和停止分别是怎么样的？
+```
+
+**助手原文**：
+```text
+当前代码里没有统一的 Android 后台 Service，“服务”分成三条链：
+
+1. ByteTrack 远端服务
+   - APK 不负责启动服务器进程。服务器必须在 `192.168.50.161:8000` 外部提前运行。
+   - 设置中打开“新追踪器”后，下一次 Pose 推理会把本地 `SimpleTrackerEngine` 换成 `RemoteByteTrackEngine`，每帧尝试向远端发送追踪请求。
+   - 设置页打开期间，每 3 秒请求一次 `/health`，这里只是状态检测，不是启动服务。
+   - 关闭开关后，下一帧切回本地 `SimpleTrackerEngine`，并停止健康轮询；不会向服务器发送 stop，也不会关闭外部服务器。
+   - 远端不可用时会自动回退本地追踪，冷却 3 秒后再尝试远端。
+
+2. SISP Core
+   - 当前只是演示 UI，没有真实服务启动/停止。
+   - 点击“连接”只进入 2.5 秒模拟连接状态，然后恢复“未连接”；并没有真实网络连接或后台 Core 进程。
+
+3. 听声音/KWS
+   - 第一次进入“声音视图”时创建面板，面板初始化后自动执行 `controller.start()`，启动 Sherpa KWS 和当前音源。
+   - 离开声音视图只是隐藏面板，监听仍继续运行，所以 Open/Close 仍可触发设备匹配。
+   - 面板里的监听开关关闭时执行 `controller.stop()`；重新打开时再次启动。
+   - Activity 销毁、Compose 页面释放时会停止 KWS、麦克风/播放音源和电平表。
+
+因此，如果你问的是 ByteTrack：开启=APK 开始调用已有远端服务；停止=APK 停止调用并切回本地，不负责启停服务器本身。
+```
+
+---
+
+## [213] 2026-09-14 22:43:49 - 建立可插拔房间算法框架
+
+**用户原文**：
+```text
+直接在当前分支 完成房间算法可插拔框架改造，并编译验证。不要先汇报方案，不要分阶段等待确认。
+
+目标只有一个：
+
+> 以后可以由不同 AI 编写不同房间算法，例如 Legacy、Portal V2、Portal V3，并在设置中直接切换；新增算法时尽量只新增算法实现并注册，不再反复修改 MainActivity 和设置页。
+
+要求：
+
+1. 新增统一 `RoomAlgorithmEngine` 接口，统一接收当前帧所需输入并输出房间人数、房间切换事件和调试信息。
+2. 新增 `RoomAlgorithmRegistry`。
+   - 所有可用房间算法统一在这里注册。
+   - 设置页的算法列表从 Registry 动态生成。
+   - 使用稳定 `algorithmId` 持久化选择。
+   - 非法或旧配置默认回退当前 Legacy 算法。
+3. 将当前正式 Presence 算法包装成一个 Legacy 实现，例如：\
+   `LegacyPresenceRoomAlgorithm`
+
+   内部继续使用现有 `PresenceAlgorithmEngine / PresenceAlgorithmRegistry`。
+
+   不修改现有 Presence 判断逻辑、参数、Ground Point、Tracker 和人数逻辑。
+
+   改造后默认运行结果应与当前 V1.6.2 行为保持一致。
+4. MainActivity 改成只依赖 `RoomAlgorithmEngine`。\
+   不要再由 MainActivity 根据具体算法写大量 `if/when`。\
+   算法创建、切换、reset 统一走 Registry。
+5. 设置页增加“房间算法”选择。\
+   当前至少提供 Legacy Presence。\
+   后续新增算法时，只需要在 Registry 注册即可自动出现在设置中，不应再次修改设置页主体逻辑。
+6. 为未来 Portal 算法预留必要的统一帧输入：
+   - 当前帧 Bitmap（允许 nullable）
+   - 与该帧严格对应的 timestampMs
+   - frameSeq
+   - PoseResult 列表
+   - rooms
+   - doors
+   - 必要的图像尺寸/场景信息
+   不要在算法内部重新查询播放器“当前时间”代替输入帧时间。
+7. 同时新增一个很薄的 `PortalVisualTracker` 接口和 `PortalVisualTrackerRegistry`，只作为未来 ViTTrack / NanoTrack 等视觉跟踪算法的扩展点。
+
+   本次不要实现 ViTTrack、NanoTrack、OpenCV，也不要实现新的 Portal FSM。
+8. 将三个概念保持分离：
+   - Identity Tracker：现有 SimpleTracker / RemoteByteTrack
+   - Portal Visual Tracker：未来 ViTTrack / NanoTrack
+   - Room Algorithm：Legacy / Portal V2 / Portal V3
+   不要混成一个 Tracker 或一个巨型版本枚举。
+9. 切换房间算法时必须 reset 旧算法运行状态，再创建新算法，禁止旧状态泄漏。
+10. 保持现有兼容：
+
+- YOLO Pose 不变
+- SimpleTracker / RemoteByteTrack 不变
+- Presence V1.6.2 逻辑不变
+- 历史 Presence 版本机制保留
+- 房间配置格式不变
+- 人工事件标记不变
+- 当前视频回放和调试功能不破坏
+
+11. 不做无关重构，不重写整个 MainActivity，只完成这次抽象所需的最小修改。
+12. 完成后直接编译验证。\
+    如果存在已有工程编译问题，要明确区分“本次引入”还是“原本存在”。
+
+最终预期结构类似：
+```text
+RoomAlgorithmEngine
+├── LegacyPresenceRoomAlgorithm
+├── PortalV2RoomAlgorithm        // 未来新增
+└── PortalV3RoomAlgorithm        // 未来新增
+
+RoomAlgorithmRegistry
+
+PortalVisualTracker
+├── ViTTrack                     // 未来新增
+└── NanoTrack                    // 未来新增
+
+PortalVisualTrackerRegistry
+```
+
+以后另一个 AI 要实现 Portal V2，应该主要只需要：
+
+- 新增 `PortalV2RoomAlgorithm`
+- 注册到 `RoomAlgorithmRegistry`
+
+以后另一个 AI 要实现 NanoTrack，应该主要只需要：
+
+- 新增 `NanoPortalVisualTracker`
+- 注册到 `PortalVisualTrackerRegistry`
+
+不要让新增算法再次大规模修改 MainActivity 或设置页。
+
+遵守仓库现有 `AGENTS.md` 的日志、历史记录和文件修改规则，但本任务已经明确授权直接完成上述代码改造，无需再向用户请求确认。
+
+完成全部修改、历史记录和编译验证后，再一次性汇报结果。
+```
+
+**助手原文**：
+```text
+已完成房间算法可插拔框架改造。
+
+- 新增统一 RoomAlgorithmEngine、帧输入/输出和结构化调试模型。
+- 新增 RoomAlgorithmRegistry，设置页动态读取算法列表并持久化稳定 algorithmId；非法配置回退 Legacy Presence。
+- 当前 Presence 被 LegacyPresenceRoomAlgorithm 包装，继续使用原 Presence Registry，默认行为保持 V1.6.2。
+- MainActivity 只通过统一房间算法入口处理帧；切换算法或 Legacy 版本时先 reset 旧实例。
+- 新增独立 PortalVisualTracker 和 Registry 扩展点，未实现新 Tracker 或 Portal FSM。
+- 保留现有 YOLO Pose、Identity Tracker、Presence 历史版本、房间配置、事件标记和回放链。
+- 新增 Registry 回退及 Legacy 输出一致性测试。
+
+验证：`:app:testDebugUnitTest`、`:app:assembleDebug` 均通过；APK 已安装但未自动启动。
+```
+
+---
+

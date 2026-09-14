@@ -32,6 +32,7 @@ import com.example.roomxxx0102.data.repository.RoomRepository
 import com.example.roomxxx0102.data.repository.VideoRoomConfigManager
 import com.example.roomxxx0102.databinding.FragmentSettingsHomeBinding
 import com.example.roomxxx0102.logic.presence.PresenceAlgorithmRegistry
+import com.example.roomxxx0102.logic.roomalgorithm.RoomAlgorithmRegistry
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.BufferedReader
@@ -59,6 +60,8 @@ class SettingsHomeFragment : Fragment() {
     private val httpClient = OkHttpClient()
     private val binding get() = _binding!!
     private var presenceAlgoOptions: List<PresenceAlgorithmRegistry.AlgorithmOption> = emptyList()
+    private var roomAlgorithmOptions: List<RoomAlgorithmRegistry.AlgorithmOption> = emptyList()
+    private var syncingRoomAlgorithmSpinner = false
     private var syncingPresenceSpinner = false
     private var isConfigListExpanded = false
     private var isVideoListExpanded = false
@@ -123,6 +126,16 @@ class SettingsHomeFragment : Fragment() {
         syncingPresenceSpinner = true
         binding.spnPresenceAlgorithmVersion.setSelection(selectedIndex, false)
         syncingPresenceSpinner = false
+    }
+
+    private fun syncRoomAlgorithmSpinnerSelection() {
+        if (_binding == null || roomAlgorithmOptions.isEmpty()) return
+        val resolvedId = RoomAlgorithmRegistry.resolveAlgorithmId(AppSettings.roomAlgorithmId)
+        val selectedIndex = roomAlgorithmOptions.indexOfFirst { it.algorithmId == resolvedId }
+            .coerceAtLeast(0)
+        syncingRoomAlgorithmSpinner = true
+        binding.spnRoomAlgorithm.setSelection(selectedIndex, false)
+        syncingRoomAlgorithmSpinner = false
     }
 
 
@@ -924,7 +937,27 @@ class SettingsHomeFragment : Fragment() {
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
 
-        // 人数算法版本选择（与“日志更新频率”同款 Spinner）
+        roomAlgorithmOptions = RoomAlgorithmRegistry.options()
+        val roomAlgorithmAdapter = createChoiceAdapter(
+            roomAlgorithmOptions.map { it.displayName }
+        ) {
+            binding.spnRoomAlgorithm.selectedItemPosition
+        }
+        binding.spnRoomAlgorithm.adapter = roomAlgorithmAdapter
+        syncRoomAlgorithmSpinnerSelection()
+        binding.spnRoomAlgorithm.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (syncingRoomAlgorithmSpinner) return
+                val option = roomAlgorithmOptions.getOrNull(position) ?: return
+                if (AppSettings.roomAlgorithmId != option.algorithmId) {
+                    AppSettings.setRoomAlgorithmId(option.algorithmId)
+                }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+
+        // Legacy Presence 内部版本选择（保留历史版本机制）
         presenceAlgoOptions = buildPresenceOptionsInStableOrder()
         val labels = presenceAlgoOptions.map { option -> option.label }
         val presenceAdapter = createChoiceAdapter(labels) {

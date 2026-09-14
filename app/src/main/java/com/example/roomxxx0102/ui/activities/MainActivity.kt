@@ -73,20 +73,16 @@ import com.example.roomxxx0102.logic.pointing.HandObservation
 import com.example.roomxxx0102.logic.pointing.PointingDecision
 import com.example.roomxxx0102.logic.pointing.PointingDebugSnapshot
 import com.example.roomxxx0102.logic.pointing.PointingConfidenceStatus
-import com.example.roomxxx0102.logic.presence.PresenceOutsideMode
-import com.example.roomxxx0102.logic.presence.PresenceKeypoint
 import com.example.roomxxx0102.logic.presence.PresencePoint
-import com.example.roomxxx0102.logic.presence.PresenceRect
 import com.example.roomxxx0102.logic.presence.PresenceRoomSnapshot
 import com.example.roomxxx0102.logic.presence.PresenceSwitchDisplayType
-import com.example.roomxxx0102.logic.presence.PresenceStrength
-import com.example.roomxxx0102.logic.presence.PresenceTrackObservation
 import com.example.roomxxx0102.logic.presence.PresenceDoorSnapshot
-import com.example.roomxxx0102.logic.presence.PresenceAlgorithmEngine
-import com.example.roomxxx0102.logic.presence.PresenceAlgorithmRegistry
-import com.example.roomxxx0102.logic.presence.PresenceEstimatorParams
 import com.example.roomxxx0102.logic.presence.RoomPresenceChangeLogger
 import com.example.roomxxx0102.logic.presence.PresenceSwitchEvent
+import com.example.roomxxx0102.logic.roomalgorithm.RoomAlgorithmEngine
+import com.example.roomxxx0102.logic.roomalgorithm.RoomAlgorithmFrameInput
+import com.example.roomxxx0102.logic.roomalgorithm.RoomAlgorithmRegistry
+import com.example.roomxxx0102.logic.roomalgorithm.RoomAlgorithmSceneInfo
 import com.example.roomxxx0102.logic.validation.DeviceHitMarkedEvent
 import com.example.roomxxx0102.logic.validation.DeviceHitMarkerManager
 import com.example.roomxxx0102.logic.validation.EventMarkerManager
@@ -279,8 +275,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Presence 估计引擎（位置判定/房间切换事件）
-    private lateinit var roomPresenceAlgorithm: PresenceAlgorithmEngine
+    // 可插拔房间判定引擎；Identity Tracker 与 Portal Visual Tracker 均不属于此层。
+    private lateinit var roomAlgorithm: RoomAlgorithmEngine
+    private var roomAlgorithmFrameSeq = 0L
     private val roomPresenceChangeLogger = RoomPresenceChangeLogger("ROOM_PRESENCE_CHANGE")
     private val eventMarkerManager = EventMarkerManager()
     private val deviceHitMarkerManager = DeviceHitMarkerManager()
@@ -356,7 +353,7 @@ class MainActivity : ComponentActivity() {
         RoomRepository.init(applicationContext)
         eventMarkerManager.init(applicationContext)
         deviceHitMarkerManager.init(applicationContext)
-        ensurePresenceAlgorithmVersion()
+        ensureRoomAlgorithm()
 
         yoloAnalyzer = YoloAnalyzer(this, overlayView)
         poseAnalyzer = YoloPoseAnalyzer(this) { results, bitmap, time ->
@@ -398,40 +395,26 @@ class MainActivity : ComponentActivity() {
             }
 
             // Presence 估计：独立工具类统一处理“位置判定/房间切换事件/持久化人数”
-            val presenceNowMs = videoFeeder?.peekLastAnalysisPositionMs()?.toLong() ?: -1L
-            val observedTargets = results.map { pose ->
-                val box = pose.box
-                PresenceTrackObservation(
-                    trackId = pose.id,
-                    landingPoint = PresencePoint(
-                        x = pose.landingPoint.x.toDouble(),
-                        y = pose.landingPoint.y.toDouble()
-                    ),
-                    strength = toPresenceStrength(pose),
-                    timestampMs = presenceNowMs,
-                    groundConfidence = estimateGroundConfidence(pose),
-                    personBox = PresenceRect(
-                        left = minOf(box.left, box.right).toDouble(),
-                        top = minOf(box.top, box.bottom).toDouble(),
-                        right = maxOf(box.left, box.right).toDouble(),
-                        bottom = maxOf(box.top, box.bottom).toDouble()
-                    ),
-                    keypoints = pose.keypoints.map { keypoint ->
-                        PresenceKeypoint(
-                            x = keypoint.x.toDouble(),
-                            y = keypoint.y.toDouble(),
-                            confidence = keypoint.conf.toDouble()
-                        )
-                    }
-                )
+            val frameTimestampMs = if (isVideoMode) {
+                videoFeeder?.peekLastAnalysisPositionMs()?.toLong() ?: -1L
+            } else {
+                SystemClock.elapsedRealtime()
             }
-            val presenceResult = roomPresenceAlgorithm.processFrame(
+            val frameSeq = ++roomAlgorithmFrameSeq
+            val frameWidth = bitmap?.width ?: previewView.width.coerceAtLeast(1)
+            val frameHeight = bitmap?.height ?: previewView.height.coerceAtLeast(1)
+            val roomResult = roomAlgorithm.processFrame(RoomAlgorithmFrameInput(
+                bitmap = bitmap,
+                timestampMs = frameTimestampMs,
+                frameSeq = frameSeq,
+                poses = results,
                 rooms = buildPresenceRoomSnapshots(allRooms),
                 doors = buildPresenceDoorSnapshots(allRooms),
-                observations = observedTargets,
-                outsideMode = PresenceOutsideMode.INVISIBLE
-            )
-            val poseSwitchDisplayByTrackId = presenceResult.trackSwitchScores.mapNotNull { (trackId, hint) ->
+                imageWidth = frameWidth,
+                imageHeight = frameHeight,
+                sceneInfo = RoomAlgorithmSceneInfo(isVideoPlayback = isVideoMode)
+            ))
+            val poseSwitchDisplayByTrackId = roomResult.trackSwitchScores.mapNotNull { (trackId, hint) ->
                 val type = when (hint.type) {
                     PresenceSwitchDisplayType.ENTER_SUB_ROOM -> EventType.ENTER
                     PresenceSwitchDisplayType.EXIT_SUB_ROOM -> EventType.EXIT
@@ -444,25 +427,25 @@ class MainActivity : ComponentActivity() {
             }
             val roomNameById = allRooms.associate { it.id to it.name }
             RoiLogAggregator.updatePresenceDebug(
-                algoVersion = roomPresenceAlgorithm.runtimeTag,
-                eventText = buildPresenceEventText(presenceResult.events, roomNameById),
+                algoVersion = roomAlgorithm.runtimeTag,
+                eventText = buildPresenceEventText(roomResult.events, roomNameById),
                 decisionText = toReadablePresenceDecision(
-                    presenceResult.rejectedReasons.firstOrNull() ?: "NO_DECISION",
+                    roomResult.rejectedReasons.firstOrNull() ?: "NO_DECISION",
                     roomNameById
                 ),
-                countsText = buildPresenceCountsText(presenceResult.presenceCounts, roomNameById),
+                countsText = buildPresenceCountsText(roomResult.roomCounts, roomNameById),
                 posMs = videoFeeder?.peekLastAnalysisPositionMs()
             )
             allRooms.forEach { room ->
-                room.persistentPersonCount = presenceResult.presenceCounts[room.id] ?: 0
+                room.persistentPersonCount = roomResult.roomCounts[room.id] ?: 0
             }
             roomPresenceChangeLogger.buildLogLineIfChanged(
                 timestampMs = System.currentTimeMillis(),
-                events = presenceResult.events,
-                counts = presenceResult.presenceCounts,
+                events = roomResult.events,
+                counts = roomResult.roomCounts,
                 roomNameById = roomNameById
             )?.let { line ->
-                Log.d("RoomPresence", "$line algo=${roomPresenceAlgorithm.runtimeTag}")
+                Log.d("RoomPresence", "$line algo=${roomAlgorithm.runtimeTag}")
             }
             val livingRoomCount = livingRoom?.personCount ?: 0
             val livingPersistentCount = livingRoom?.persistentPersonCount ?: 0
@@ -537,14 +520,14 @@ class MainActivity : ComponentActivity() {
                 val nowMs = currentVideoTimestampMs()
                 val frameIndex = currentEstimatedFrameIndex(nowMs)
                 val validationRuntimeEvents = appendRuntimeEventsForValidation(
-                    events = presenceResult.events,
+                    events = roomResult.events,
                     livingRoomId = livingRoom?.id,
                     roomNameById = roomNameById,
                     timestampMs = nowMs,
                     frameIndex = frameIndex
                 )
-                if (presenceResult.events.isNotEmpty()) {
-                    val lastEvent = presenceResult.events.last()
+                if (roomResult.events.isNotEmpty()) {
+                    val lastEvent = roomResult.events.last()
                     val fromName = roomNameById[lastEvent.fromRoomId] ?: lastEvent.fromRoomId
                     val toName = roomNameById[lastEvent.toRoomId] ?: lastEvent.toRoomId
                     val switchType = mapPresenceEventType(lastEvent, livingRoom?.id ?: "")
@@ -589,7 +572,7 @@ class MainActivity : ComponentActivity() {
                         Log.i(
                             "RoomPauseSwitch",
                             "switch=$fromName->$toName@${lastEvent.doorId}:${lastEvent.reason} " +
-                                "events=${presenceResult.events.size} " +
+                                "events=${roomResult.events.size} " +
                                 "pauseOnSwitch=${AppSettings.isPauseOnRoomSwitchEnabled} " +
                                 "playStateBefore=$playStateBefore " +
                                 "shouldAutoPause=$shouldAutoPause " +
@@ -600,16 +583,16 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
-                if (presenceResult.events.isEmpty()) {
+                if (roomResult.events.isEmpty()) {
                     val negativeDelta = extractNegativeCountDelta(
                         previousCounts = lastPresenceCountsForPause,
-                        currentCounts = presenceResult.presenceCounts
+                        currentCounts = roomResult.roomCounts
                     )
                     if (negativeDelta.isNotEmpty()) {
                         val playStateBefore = currentPlayState
                         val shouldAutoPause = AppSettings.isPauseOnRoomSwitchEnabled &&
                             playStateBefore != PlayState.PAUSED
-                        val likelyCause = resolveCountDeltaLikelyCause(presenceResult.rejectedReasons)
+                        val likelyCause = resolveCountDeltaLikelyCause(roomResult.rejectedReasons)
                         val deltaText = formatNegativeCountDelta(
                             delta = negativeDelta,
                             roomNameById = roomNameById
@@ -640,7 +623,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                val anomalyReason = presenceResult.rejectedReasons.firstOrNull { reason ->
+                val anomalyReason = roomResult.rejectedReasons.firstOrNull { reason ->
                     reason.contains("identityResetApplied=true") ||
                         reason.contains("pendingDisabled=true") ||
                         reason.contains("pendingDropped=true") ||
@@ -653,7 +636,7 @@ class MainActivity : ComponentActivity() {
                         nowMs = nowMs
                     )
                 }
-                lastPresenceCountsForPause = presenceResult.presenceCounts.toMap()
+                lastPresenceCountsForPause = roomResult.roomCounts.toMap()
                 maybeRunSmartMatchValidation(
                     runtimeEvents = validationRuntimeEvents,
                     nowMs = nowMs
@@ -815,66 +798,6 @@ class MainActivity : ComponentActivity() {
         return rooms.firstOrNull {
             it.isSovereignTerritory && it.boundaryPoints.size >= 3 && GeometryUtils.isPointInPolygon(point, it.boundaryPoints)
         }
-    }
-
-    /**
-     * 将当前 Pose 目标映射为 Presence 模块的强度分层。
-     * - CONFIRMED：已 lock
-     * - STRONG：未 lock 但双肩可信
-     * - WEAK：其余目标
-     */
-    private fun toPresenceStrength(pose: com.example.roomxxx0102.data.model.PoseResult): PresenceStrength {
-        if (pose.isConfirmed) {
-            return PresenceStrength.CONFIRMED
-        }
-        val kpts = pose.keypoints
-        val shouldersTrusted = if (kpts.size > 6) {
-            val leftShoulder = kpts[5]
-            val rightShoulder = kpts[6]
-            leftShoulder.conf >= 0.7f &&
-                rightShoulder.conf >= 0.7f
-        } else {
-            false
-        }
-        return if (shouldersTrusted) PresenceStrength.STRONG else PresenceStrength.WEAK
-    }
-
-    /**
-     * 估算地面落点可信度（A_conf）。
-     *
-     * 说明：
-     * 1) 优先依赖脚踝关键点置信度。
-     * 2) 脚踝弱时，退化参考 lock 状态与双肩可信度。
-     * 3) 该值仅用于 Presence 进入评分，不影响现有框绘制与 lock 逻辑。
-     */
-    private fun estimateGroundConfidence(pose: com.example.roomxxx0102.data.model.PoseResult): Double {
-        val kpts = pose.keypoints
-        if (kpts.size < 17) return 0.25
-
-        val leftAnkle = kpts[15].conf
-        val rightAnkle = kpts[16].conf
-        val bothAnklesHigh = leftAnkle >= 0.50f && rightAnkle >= 0.50f
-        val oneAnkleHigh = leftAnkle >= 0.50f || rightAnkle >= 0.50f
-        val oneAnkleMedium = leftAnkle >= 0.20f || rightAnkle >= 0.20f
-
-        val shouldersTrusted = if (kpts.size > 6) {
-            val leftShoulder = kpts[5]
-            val rightShoulder = kpts[6]
-            leftShoulder.conf >= 0.7f &&
-                rightShoulder.conf >= 0.7f
-        } else {
-            false
-        }
-
-        val conf = when {
-            bothAnklesHigh -> 1.00
-            oneAnkleHigh -> 0.85
-            oneAnkleMedium -> 0.65
-            pose.isConfirmed && shouldersTrusted -> 0.50
-            shouldersTrusted -> 0.40
-            else -> 0.25
-        }
-        return conf.coerceIn(0.0, 1.0)
     }
 
     /**
@@ -2459,7 +2382,7 @@ class MainActivity : ComponentActivity() {
             hideSystemUI()
             return
         }
-        ensurePresenceAlgorithmVersion()
+        ensureRoomAlgorithm()
         syncPoseRoiTrackerConfig()
         applySettings()
         refreshOverlayDisplay()
@@ -2644,17 +2567,25 @@ class MainActivity : ComponentActivity() {
         savedEditorViewVisibility = null
     }
 
-    /**
-     * 同步设置中的 Presence 算法版本。
-     * 仅当版本变化时重建引擎，避免运行中状态被频繁打断。
-     */
-    private fun ensurePresenceAlgorithmVersion() {
-        val selectedId = AppSettings.presenceAlgorithmVersion
-        val resolvedId = PresenceAlgorithmRegistry.resolveVersionId(selectedId)
-        if (!::roomPresenceAlgorithm.isInitialized || roomPresenceAlgorithm.versionId != resolvedId) {
-            roomPresenceAlgorithm = PresenceAlgorithmRegistry.create(selectedId, PresenceEstimatorParams())
+    private fun ensureRoomAlgorithm() {
+        val creationConfig = RoomAlgorithmRegistry.CreationConfig(
+            presenceVersionId = AppSettings.presenceAlgorithmVersion
+        )
+        val desiredKey = RoomAlgorithmRegistry.configurationKey(
+            selectedId = AppSettings.roomAlgorithmId,
+            config = creationConfig
+        )
+        if (!::roomAlgorithm.isInitialized || roomAlgorithm.configurationKey != desiredKey) {
+            if (::roomAlgorithm.isInitialized) {
+                roomAlgorithm.reset()
+            }
+            roomAlgorithm = RoomAlgorithmRegistry.create(AppSettings.roomAlgorithmId, creationConfig)
+            roomAlgorithmFrameSeq = 0L
             roomPresenceChangeLogger.reset()
-            Log.i("RoomPresence", "Presence算法已切换: ${roomPresenceAlgorithm.runtimeTag}")
+            Log.i(
+                "RoomPresence",
+                "房间算法已切换: id=${roomAlgorithm.algorithmId} runtime=${roomAlgorithm.runtimeTag}"
+            )
         }
     }
 
@@ -3792,7 +3723,7 @@ class MainActivity : ComponentActivity() {
                 "roiLogMode=${AppSettings.roiLogMode} " +
                 "pauseOnSwitch=${AppSettings.isPauseOnRoomSwitchEnabled} " +
                 "pauseSwitchLog=${AppSettings.isPauseDecisionLogOnSwitchEnabled} " +
-                "presenceAlgo=${roomPresenceAlgorithm.runtimeTag}"
+                "roomAlgo=${roomAlgorithm.algorithmId} runtime=${roomAlgorithm.runtimeTag}"
         )
         builder.appendLine("--- panel ---")
         panelLines.forEach { builder.appendLine(it) }
@@ -4073,7 +4004,8 @@ class MainActivity : ComponentActivity() {
         kwsLogClearSignal.intValue += 1
         yoloAnalyzer?.reset()
         poseAnalyzer?.resetTrackingState()
-        roomPresenceAlgorithm.reset()
+        roomAlgorithm.reset()
+        roomAlgorithmFrameSeq = 0L
         roomPresenceChangeLogger.reset()
         roiTracker.resetSmoothing()
         handRoiTracker.resetSmoothing()

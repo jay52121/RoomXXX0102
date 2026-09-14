@@ -1,5 +1,26 @@
 # Codex History
 
+## [391] 2026-09-14 22:43:49 - 建立可插拔房间算法框架
+
+**用户指令**：
+> 在当前分支完成房间算法可插拔框架，使 Legacy、Portal V2、Portal V3 可通过统一 Registry 注册并在设置中切换，同时预留 Portal Visual Tracker 扩展点；保持现有 Presence V1.6.2、Identity Tracker、配置和事件链行为不变，并完成编译验证。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将房间判定从 MainActivity 的具体 Presence 依赖收口为稳定的算法输入、输出、注册和切换边界。
+    *   修改文件：`RoomAlgorithmEngine.kt`、`RoomAlgorithmModels.kt`、`LegacyPresenceRoomAlgorithm.kt`、`RoomAlgorithmRegistry.kt`、`PortalVisualTracker.kt`、`PortalVisualTrackerRegistry.kt`、`AppSettings.kt`、`MainActivity.kt`、`SettingsHomeFragment.kt`、`fragment_settings_home.xml`、`RoomAlgorithmRegistryTest.kt`、codexHistory.md、dialogueHistory.md。
+    *   涉及方法：`RoomAlgorithmEngine.processFrame/reset`、`RoomAlgorithmRegistry.options/resolveAlgorithmId/configurationKey/create`、`LegacyPresenceRoomAlgorithm.processFrame`、`MainActivity.ensureRoomAlgorithm`、`AppSettings.setRoomAlgorithmId`、`SettingsHomeFragment.syncRoomAlgorithmSpinnerSelection`。
+    *   关键改动：
+      *   统一传入帧 Bitmap、帧时间、frameSeq、Pose、房间、门线、图像尺寸和场景信息，统一输出人数、切换事件、调试信息及 UI 所需切换分。
+      *   Legacy 适配器完整复用现有 Presence Registry 和版本机制，默认仍解析到 V1.6.2，不修改原算法参数与判断逻辑。
+      *   设置页房间算法列表由 Registry 动态生成，使用稳定 algorithmId 持久化；非法旧值回退 Legacy。
+      *   算法或 Legacy 内部版本变化时先 reset 旧实例，再创建新实例，隔离运行状态。
+      *   Portal Visual Tracker 作为独立薄接口预留，不与现有 Identity Tracker 或房间算法混合。
+      *   `:app:testDebugUnitTest` 与 `:app:assembleDebug` 均通过。
+
+---
+
 ## [390] 2026-08-13 14:30:00 - 设置页增加已有配置视频快捷切换
 
 **用户指令**：
