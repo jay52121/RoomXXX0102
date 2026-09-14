@@ -32,6 +32,8 @@ class CsrtPortalVisualTracker : PortalVisualTracker {
     private var consecutiveSuspectFrames: Int = 0
 
     override fun track(input: PortalVisualTrackerFrameInput): List<PortalVisualTrack> {
+        // Portal episode 未启动时不做任何 OpenCV 初始化/Bitmap 转换，避免全程白跑 CSRT 前处理。
+        if (tracker == null && !input.allowInitialization) return emptyList()
         val bitmap = input.bitmap ?: return emptyList()
         if (!ensureOpenCv()) return emptyList()
 
@@ -43,7 +45,6 @@ class CsrtPortalVisualTracker : PortalVisualTracker {
             Imgproc.cvtColor(rgba, rgb, Imgproc.COLOR_RGBA2RGB)
 
             if (tracker == null) {
-                if (!input.allowInitialization) return emptyList()
                 val seed = selectSeedPose(input) ?: return emptyList()
                 if (!initializeFromPose(rgb, seed, bitmap.width, bitmap.height, input.frameSeq)) {
                     return emptyList()
