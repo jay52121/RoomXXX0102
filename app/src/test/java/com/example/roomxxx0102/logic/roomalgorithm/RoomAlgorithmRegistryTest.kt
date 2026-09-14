@@ -25,16 +25,20 @@ class RoomAlgorithmRegistryTest {
     }
 
     @Test
-    fun portalV2IsRegisteredAndUsesLocalMilByDefault() {
+    fun portalV2UsesVitTrackAndKeepsMilBaselineSelectable() {
         val config = RoomAlgorithmRegistry.CreationConfig(
             presenceVersionId = PresenceAlgorithmRegistry.VERSION_V1_6_2_B03060320
         )
 
-        val engine = RoomAlgorithmRegistry.create(RoomAlgorithmRegistry.PORTAL_V2_ID, config)
+        val vit = RoomAlgorithmRegistry.create(RoomAlgorithmRegistry.PORTAL_V2_ID, config)
+        val mil = RoomAlgorithmRegistry.create(RoomAlgorithmRegistry.PORTAL_V2_MIL_ID, config)
 
-        assertEquals(RoomAlgorithmRegistry.PORTAL_V2_ID, engine.algorithmId)
+        assertEquals(RoomAlgorithmRegistry.PORTAL_V2_ID, vit.algorithmId)
+        assertEquals(RoomAlgorithmRegistry.PORTAL_V2_MIL_ID, mil.algorithmId)
+        assertTrue(vit.configurationKey.contains(PortalVisualTrackerRegistry.OPENCV_VIT_ID))
+        assertTrue(mil.configurationKey.contains(PortalVisualTrackerRegistry.OPENCV_MIL_ID))
         assertTrue(RoomAlgorithmRegistry.options().any { it.algorithmId == RoomAlgorithmRegistry.PORTAL_V2_ID })
-        assertTrue(engine.configurationKey.contains(PortalVisualTrackerRegistry.OPENCV_MIL_ID))
+        assertTrue(RoomAlgorithmRegistry.options().any { it.algorithmId == RoomAlgorithmRegistry.PORTAL_V2_MIL_ID })
     }
 
     @Test

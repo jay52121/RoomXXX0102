@@ -1,6 +1,7 @@
 package com.example.roomxxx0102.logic.roomalgorithm.portal
 
 object PortalVisualTrackerRegistry {
+    const val OPENCV_VIT_ID = "opencv_vit"
     const val OPENCV_MIL_ID = "opencv_mil"
 
     data class TrackerOption(val trackerId: String, val displayName: String)
@@ -11,7 +12,10 @@ object PortalVisualTrackerRegistry {
     )
 
     private val registrations: List<Registration> = listOf(
-        Registration(TrackerOption(OPENCV_MIL_ID, "OpenCV MIL")) {
+        Registration(TrackerOption(OPENCV_VIT_ID, "OpenCV ViTTrack")) {
+            VitPortalVisualTracker()
+        },
+        Registration(TrackerOption(OPENCV_MIL_ID, "OpenCV MIL（基线）")) {
             MilPortalVisualTracker()
         }
     )
@@ -21,7 +25,7 @@ object PortalVisualTrackerRegistry {
     fun resolveTrackerId(selectedId: String?): String {
         return registrations.firstOrNull { it.option.trackerId == selectedId }
             ?.option?.trackerId
-            ?: OPENCV_MIL_ID
+            ?: OPENCV_VIT_ID
     }
 
     fun create(trackerId: String?): PortalVisualTracker {
