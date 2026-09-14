@@ -3,6 +3,7 @@ package com.example.roomxxx0102.data.repository
 import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.math.roundToInt
 
 /**
@@ -18,6 +19,7 @@ object AppSettings {
     private const val KEY_ENABLE_ROI_CROP = "enable_roi_crop"
     private const val KEY_TEST_VIDEO_URI = "test_video_uri"
     private const val KEY_TEST_VIDEO_HISTORY = "test_video_history"
+    private const val KEY_VIDEO_CONFIG_ASSOCIATIONS = "video_config_associations"
     private const val KEY_ACTIVE_ROOM_CONFIG_PATH = "active_room_config_path"
     private const val KEY_NO_ROOM_CONFIG_SELECTED = "no_room_config_selected"
     private const val KEY_ENABLE_NEW_TRACKER = "enable_new_tracker"
@@ -224,6 +226,34 @@ object AppSettings {
         val array = JSONArray()
         remained.forEach { array.put(it) }
         prefs.edit().putString(KEY_TEST_VIDEO_HISTORY, array.toString()).apply()
+    }
+
+    fun getVideoConfigAssociations(): Map<String, String> {
+        val raw = prefs.getString(KEY_VIDEO_CONFIG_ASSOCIATIONS, null).orEmpty()
+        if (raw.isBlank()) return emptyMap()
+        return try {
+            val json = JSONObject(raw)
+            buildMap {
+                json.keys().forEach { uri ->
+                    val path = json.optString(uri).trim()
+                    if (uri.isNotBlank() && path.isNotBlank()) put(uri, path)
+                }
+            }
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    fun setVideoConfigAssociation(uri: String, configPath: String) {
+        val normalizedUri = uri.trim()
+        val normalizedPath = configPath.trim()
+        if (normalizedUri.isBlank() || normalizedPath.isBlank()) return
+        val json = JSONObject()
+        getVideoConfigAssociations().forEach { (savedUri, savedPath) ->
+            json.put(savedUri, savedPath)
+        }
+        json.put(normalizedUri, normalizedPath)
+        prefs.edit().putString(KEY_VIDEO_CONFIG_ASSOCIATIONS, json.toString()).apply()
     }
 
     fun setActiveRoomConfigPath(path: String?) {

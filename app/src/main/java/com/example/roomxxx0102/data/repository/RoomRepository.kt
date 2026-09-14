@@ -146,6 +146,7 @@ object RoomRepository {
         if (persistSelection && file.exists()) {
             AppSettings.setActiveRoomConfigPath(file.absolutePath)
             AppSettings.setNoRoomConfigSelected(false)
+            VideoRoomConfigManager.associateCurrentVideoWithConfig(file)
         }
         return true
     }
@@ -160,6 +161,7 @@ object RoomRepository {
         loadedBaselineCanonicalJson = currentCanonicalJson()
         AppSettings.setActiveRoomConfigPath(file.absolutePath)
         AppSettings.setNoRoomConfigSelected(false)
+        VideoRoomConfigManager.associateCurrentVideoWithConfig(file)
         return true
     }
 
@@ -174,6 +176,7 @@ object RoomRepository {
         loadedBaselineCanonicalJson = currentCanonicalJson()
         AppSettings.setActiveRoomConfigPath(targetFile.absolutePath)
         AppSettings.setNoRoomConfigSelected(false)
+        VideoRoomConfigManager.associateCurrentVideoWithConfig(targetFile)
         return targetFile
     }
 
@@ -551,4 +554,3 @@ object RoomRepository {
         return changed
     }
 }
-

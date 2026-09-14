@@ -260,20 +260,20 @@ class SettingsHomeFragment : Fragment() {
     }
 
     private fun loadDefaultConfigForSelectedVideo() {
-        val defaultFile = VideoRoomConfigManager.defaultConfigFileForCurrentVideo()
-        if (defaultFile == null) {
+        val currentVideoUri = AppSettings.testVideoUri
+        if (currentVideoUri.isNullOrBlank()) {
             Toast.makeText(context, "请先选择测试视频", Toast.LENGTH_SHORT).show()
             refreshConfigListContent()
             return
         }
-        val exists = defaultFile.exists()
-        val message = if (exists) {
+        val configFile = VideoRoomConfigManager.configFileForVideo(currentVideoUri)
+        val message = if (configFile != null) {
             RoomRepository.switchToConfigFile(
-                file = defaultFile,
+                file = configFile,
                 persistSelection = true,
                 createIfMissing = false
             )
-            "已加载默认配置: ${defaultFile.nameWithoutExtension}"
+            "已加载配置: ${configFile.nameWithoutExtension}"
         } else {
             RoomRepository.loadTemporaryEmptyConfig()
             AppSettings.setActiveRoomConfigPath(null)
@@ -667,12 +667,11 @@ class SettingsHomeFragment : Fragment() {
     private fun refreshConfiguredVideoListContent() {
         val container = binding.layoutConfiguredVideoList
         container.removeAllViews()
-        val configuredVideos = AppSettings.getTestVideoHistory()
-            .filter(VideoRoomConfigManager::hasConfigFilesForVideo)
+        val configuredVideos = VideoRoomConfigManager.discoverConfiguredVideos()
 
         if (configuredVideos.isEmpty()) {
             container.addView(TextView(requireContext()).apply {
-                text = "暂无已有配置的视频"
+                text = "未找到同时具备视频与配置的项目"
                 textSize = 13f
                 setTextColor(0xFF9FB0C4.toInt())
                 setPadding(0, 6.dp, 0, 0)
@@ -680,9 +679,11 @@ class SettingsHomeFragment : Fragment() {
             return
         }
 
-        configuredVideos.forEach { uriString ->
+        configuredVideos.forEach { match ->
+            val uriString = match.videoUri
+            val configFile = match.configFile
             val isCurrent = AppSettings.testVideoUri == uriString
-            val label = resolveVideoHistoryLabel(uriString)
+            val label = match.videoName.substringBeforeLast('.')
             container.addView(com.google.android.material.button.MaterialButton(
                 requireContext(),
                 null,
@@ -692,7 +693,11 @@ class SettingsHomeFragment : Fragment() {
                     com.google.android.material.R.attr.materialButtonOutlinedStyle
                 }
             ).apply {
-                text = if (isCurrent) "$label  ·  当前" else label
+                text = if (isCurrent) {
+                    "$label  ·  ${configFile.nameWithoutExtension}  ·  当前"
+                } else {
+                    "$label  ·  ${configFile.nameWithoutExtension}"
+                }
                 isAllCaps = false
                 gravity = Gravity.START or Gravity.CENTER_VERTICAL
                 setTextColor(Color.parseColor(if (isCurrent) "#FFFFFF" else "#2563FF"))
@@ -703,6 +708,7 @@ class SettingsHomeFragment : Fragment() {
                 }
                 setOnClickListener {
                     if (!isCurrent) {
+                        VideoRoomConfigManager.associateVideoWithConfig(uriString, configFile)
                         loadSelectedVideo(uriString, addToHistory = true)
                         Toast.makeText(context, "已切换视频: $label", Toast.LENGTH_SHORT).show()
                     }

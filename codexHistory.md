@@ -1,5 +1,26 @@
 # Codex History
 
+## [392] 2026-09-15 00:10:00 - 全盘匹配已有配置视频
+
+**用户指令**：
+> “已有配置的视频”必须是真实视频与配置的匹配结果；扫描手机视频并自动找回已有配置对应的视频，不能展示孤立配置项。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：从手机 MediaStore 全盘发现真实视频，与内部 `.Room` 配置可靠匹配并建立可持续的稳定关联。
+    *   修改文件：`AppSettings.kt`、`VideoRoomConfigManager.kt`、`RoomRepository.kt`、`SettingsHomeFragment.kt`、codexHistory.md、dialogueHistory.md。
+    *   涉及方法：`getVideoConfigAssociations`、`setVideoConfigAssociation`、`configFileForVideo`、`associateVideoWithConfig`、`discoverConfiguredVideos`、`queryMediaVideos`、`findUniqueDateCandidate`、`loadDefaultConfigForSelectedVideo`、`refreshConfiguredVideoListContent`。
+    *   关键改动：
+      *   扫描 MediaStore 全部视频，以规范化文件名精确匹配配置目录/文件名；日期型旧目录仅在唯一候选时匹配。
+      *   使用视频 URI 到配置文件路径的映射持久化扫描结果，同时保留旧同名目录自动发现兼容。
+      *   读取、另存、保存当前配置时自动更新当前视频关联。
+      *   快捷列表只展示同时存在真实视频与配置的项目，不再把孤立 `.Room` 文件称为“已有配置的视频”。
+      *   点击扫描结果时先固化关联，再切换视频并自动加载对应配置。
+      *   `:app:testDebugUnitTest` 与 `:app:assembleDebug` 均通过。
+
+---
+
 ## [391] 2026-09-14 22:43:49 - 建立可插拔房间算法框架
 
 **用户指令**：
