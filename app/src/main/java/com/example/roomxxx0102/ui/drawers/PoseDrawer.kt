@@ -11,6 +11,8 @@ import com.example.roomxxx0102.data.model.Keypoint
 import com.example.roomxxx0102.data.model.POSE_HIGH_CONFIDENCE_THRESHOLD
 import com.example.roomxxx0102.data.model.PoseResult
 import com.example.roomxxx0102.data.model.IdSource
+import com.example.roomxxx0102.logic.roomalgorithm.portal.PortalVisualDebugStore
+import com.example.roomxxx0102.logic.roomalgorithm.portal.PortalVisualTrackState
 import com.example.roomxxx0102.logic.validation.EventType
 
 class PoseDrawer {
@@ -70,6 +72,27 @@ class PoseDrawer {
     private val shieldColor = Color.parseColor("#B000FF")
     private val enterSwitchColor = Color.parseColor("#4CAF50")
     private val exitSwitchColor = Color.parseColor("#FF9800")
+    private val portalTrackingPaint = Paint().apply {
+        color = Color.parseColor("#00E676")
+        style = Paint.Style.STROKE
+        strokeWidth = 8f
+        isAntiAlias = true
+    }
+    private val portalSuspectPaint = Paint().apply {
+        color = Color.parseColor("#FFD740")
+        style = Paint.Style.STROKE
+        strokeWidth = 8f
+        isAntiAlias = true
+        pathEffect = DashPathEffect(floatArrayOf(22f, 12f), 0f)
+    }
+    private val portalTextPaint = Paint().apply {
+        color = Color.parseColor("#00E676")
+        textSize = 32f
+        isAntiAlias = true
+        style = Paint.Style.FILL
+        typeface = Typeface.DEFAULT_BOLD
+        setShadowLayer(4f, 0f, 0f, Color.BLACK)
+    }
 
     private val skeletonConnections = listOf(
         Pair(3, 5), Pair(4, 6),
@@ -115,7 +138,10 @@ class PoseDrawer {
         drawHeight: Float,
         switchHints: Map<Int, Pair<Float, EventType>> = emptyMap()
     ) {
-        if (results.isEmpty()) return
+        if (results.isEmpty()) {
+            drawPortalVisualDebug(canvas, drawLeft, drawTop, drawWidth, drawHeight)
+            return
+        }
 
         for (result in results) {
             val kpts = result.keypoints
@@ -238,5 +264,40 @@ class PoseDrawer {
             }
             canvas.drawText(infoText, infoX, infoY, scoreTextPaint)
         }
+
+        // Portal V2 的视觉跟踪框最后绘制，确保能压在 YOLO/Pose 框之上便于人工观察。
+        drawPortalVisualDebug(canvas, drawLeft, drawTop, drawWidth, drawHeight)
+    }
+
+    private fun drawPortalVisualDebug(
+        canvas: Canvas,
+        drawLeft: Float,
+        drawTop: Float,
+        drawWidth: Float,
+        drawHeight: Float
+    ) {
+        val snapshot = PortalVisualDebugStore.snapshot() ?: return
+        val bounds = snapshot.bounds
+        val left = drawLeft + bounds.left * drawWidth
+        val top = drawTop + bounds.top * drawHeight
+        val right = drawLeft + bounds.right * drawWidth
+        val bottom = drawTop + bounds.bottom * drawHeight
+        val rect = RectF(left, top, right, bottom)
+
+        val paint = when (snapshot.state) {
+            PortalVisualTrackState.TRACKING -> portalTrackingPaint
+            PortalVisualTrackState.SUSPECT -> portalSuspectPaint
+        }
+        val color = when (snapshot.state) {
+            PortalVisualTrackState.TRACKING -> Color.parseColor("#00E676")
+            PortalVisualTrackState.SUSPECT -> Color.parseColor("#FFD740")
+        }
+        portalTextPaint.color = color
+        canvas.drawRect(rect, paint)
+
+        val detectorText = if (snapshot.detectorVisible) "YOLO:ON" else "YOLO:LOST"
+        val label = "${snapshot.trackerId} ID:${snapshot.trackId} $detectorText ${snapshot.state.name}"
+        val labelY = (top - 12f).coerceAtLeast(drawTop + portalTextPaint.textSize)
+        canvas.drawText(label, left, labelY, portalTextPaint)
     }
 }
