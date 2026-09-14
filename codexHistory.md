@@ -1,5 +1,25 @@
 # Codex History
 
+## [393] 2026-09-15 03:16:58 - 替换为 YOLO26s FP16 TFLite
+
+**用户指令**：
+> 将 Android APK 当前的 YOLO11s 检测/Pose 两套模型替换为官方 YOLO26s/YOLO26s-pose，保持现有业务链，实测 Tensor 并完成构建验证后提交推送。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将 APK 感知模型直接升级到官方 YOLO26s / YOLO26s-pose FP16 TFLite，不增加运行时模型切换，不修改现有阈值、NMS、Tracker、ROI、房间判断、手势或绘制链。
+    *   修改文件：`app/src/main/assets/yolo26s_float16.tflite`、`app/src/main/assets/yolo26s_pose_float16.tflite`、`YoloAnalyzer.kt`、`YoloPoseAnalyzer.kt`、`codexHistory.md`、`dialogueHistory.md`；移除旧 `yolo11s_float16.tflite`、`yolo11s_pose.tflite`。
+    *   涉及方法：Ultralytics `YOLO.export`、LiteRT/TFLite Tensor 实测、`createInterpreterWithFallback`、启动 Tensor/后端日志、现有 raw-head 解析与外部 NMS。
+    *   导出环境：Ultralytics 8.4.82；检测命令 `YOLO('yolo26s.pt').export(format='tflite', imgsz=640, half=True, batch=1, nms=False, end2end=False, int8=False, device='cpu')`；Pose 命令同参数使用 `yolo26s-pose.pt`。
+    *   Tensor 实测：检测 `[1,640,640,3] FLOAT32 -> [1,84,8400] FLOAT32`；Pose `[1,640,640,3] FLOAT32 -> [1,56,8400] FLOAT32`；两者均单输入/单输出，无 Flex/Select TF Ops，因此原 raw-head 解析与外部 NMS 无需改变。
+    *   GPU 策略：先创建 `GpuDelegate` 并实际构造 Interpreter；任一阶段失败后释放候选 delegate，再以 XNNPACK + 4 threads 重新构造 Interpreter，并记录后端日志。
+    *   验证：`:app:testDebugUnitTest` 通过，`:app:assembleDebug` 通过；APK 中存在两套 YOLO26 资产、无 YOLO11 资产，native ABI 仅 arm64-v8a。
+    *   APK 大小：YOLO11 基线 `143262850` bytes；YOLO26 `144195174` bytes；变化 `+932324` bytes。
+    *   设备安装：GitHub hosted runner 未检测到 adb 设备，因此未执行真机安装。
+
+---
+
 ## [392] 2026-09-15 00:10:00 - 全盘匹配已有配置视频
 
 **用户指令**：

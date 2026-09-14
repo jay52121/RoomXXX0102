@@ -45,7 +45,8 @@ class YoloAnalyzer(
 ) : ImageAnalysis.Analyzer {
 
     companion object {
-        private const val MODEL_FILE_NAME = "yolo11s_float16.tflite"
+        private const val MODEL_FILE_NAME = "yolo26s_float16.tflite"
+        private const val MODEL_ARCHITECTURE = "YOLO26s"
         private const val TAG = "YoloAnalyzer"
     }
 
@@ -55,6 +56,7 @@ class YoloAnalyzer(
     private val movementThreshold = 0.02f
 
     private var interpreter: Interpreter? = null
+    private var gpuDelegate: GpuDelegate? = null
     private var inputWidth = 640
     private var inputHeight = 640
     private var tensorImage: TensorImage? = null
@@ -87,28 +89,96 @@ class YoloAnalyzer(
             val afd = context.assets.openFd(MODEL_FILE_NAME)
             val fis = FileInputStream(afd.fileDescriptor)
             val modelBuffer = fis.channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
-            val options = Interpreter.Options()
-            try {
-                options.addDelegate(GpuDelegate())
-                Log.d(TAG, "🚀 GPU 加速已开启")
-            } catch (e: Exception) {
-                options.setUseXNNPACK(true)
-                options.setNumThreads(4)
-                Log.e(TAG, "⚠️ GPU 失败，使用 XNNPACK")
+            interpreter = createInterpreterWithFallback(modelBuffer)
+            val activeInterpreter = interpreter!!
+            require(activeInterpreter.getInputTensorCount() == 1) {
+                "$MODEL_ARCHITECTURE expects exactly 1 input tensor, got ${activeInterpreter.getInputTensorCount()}"
             }
-            interpreter = Interpreter(modelBuffer, options)
-            val inputShape = interpreter!!.getInputTensor(0).shape()
-            if (inputShape[1] == 3) { inputHeight = inputShape[2]; inputWidth = inputShape[3] }
-            else { inputHeight = inputShape[1]; inputWidth = inputShape[2] }
+            require(activeInterpreter.getOutputTensorCount() == 1) {
+                "$MODEL_ARCHITECTURE expects exactly 1 output tensor, got ${activeInterpreter.getOutputTensorCount()}"
+            }
+
+            val inputTensor = activeInterpreter.getInputTensor(0)
+            val inputShape = inputTensor.shape()
+            Log.i(
+                TAG,
+                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE input[0]=" +
+                    "shape=${inputShape.contentToString()} dtype=${inputTensor.dataType()}"
+            )
+            require(inputTensor.dataType() == DataType.FLOAT32) {
+                "$MODEL_ARCHITECTURE input dtype must be FLOAT32, got ${inputTensor.dataType()}"
+            }
+            require(inputShape.contentEquals(intArrayOf(1, 640, 640, 3))) {
+                "$MODEL_ARCHITECTURE unexpected input shape ${inputShape.contentToString()}"
+            }
+            inputHeight = inputShape[1]
+            inputWidth = inputShape[2]
 
             tensorImage = TensorImage(DataType.FLOAT32)
-            val outputShape = interpreter!!.getOutputTensor(0).shape()
-            val dim1 = outputShape[1]; val dim2 = outputShape[2]
-            if (dim1 < dim2) { isChannelsFirst = true; numClasses = dim1 - 4; numBoxes = dim2 }
-            else { isChannelsFirst = false; numClasses = dim2 - 4; numBoxes = dim1 }
+            val outputTensor = activeInterpreter.getOutputTensor(0)
+            val outputShape = outputTensor.shape()
+            Log.i(
+                TAG,
+                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE output[0]=" +
+                    "shape=${outputShape.contentToString()} dtype=${outputTensor.dataType()}"
+            )
+            require(outputTensor.dataType() == DataType.FLOAT32) {
+                "$MODEL_ARCHITECTURE output dtype must be FLOAT32, got ${outputTensor.dataType()}"
+            }
+            require(outputShape.contentEquals(intArrayOf(1, 84, 8400))) {
+                "$MODEL_ARCHITECTURE unexpected output shape ${outputShape.contentToString()}"
+            }
+            val dim1 = outputShape[1]
+            val dim2 = outputShape[2]
+            isChannelsFirst = true
+            numClasses = dim1 - 4
+            numBoxes = dim2
             outputData = Array(1) { Array(dim1) { FloatArray(dim2) } }
+            Log.i(
+                TAG,
+                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE ready=true " +
+                    "classes=$numClasses boxes=$numBoxes externalNms=true"
+            )
         } catch (e: Exception) {
             Log.e(TAG, "❌ 模型加载失败", e)
+        }
+    }
+
+    private fun createInterpreterWithFallback(modelBuffer: java.nio.ByteBuffer): Interpreter {
+        var candidateDelegate: GpuDelegate? = null
+        try {
+            candidateDelegate = GpuDelegate()
+            val gpuOptions = Interpreter.Options().apply { addDelegate(candidateDelegate) }
+            val gpuInterpreter = Interpreter(modelBuffer, gpuOptions)
+            gpuDelegate = candidateDelegate
+            Log.i(
+                TAG,
+                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE gpuDelegate=true backend=GPU"
+            )
+            return gpuInterpreter
+        } catch (gpuError: Throwable) {
+            try {
+                candidateDelegate?.close()
+            } catch (_: Throwable) {
+            }
+            gpuDelegate = null
+            Log.w(
+                TAG,
+                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE gpuDelegate=false fallback=XNNPACK",
+                gpuError
+            )
+        }
+
+        modelBuffer.rewind()
+        val cpuOptions = Interpreter.Options().apply {
+            setUseXNNPACK(true)
+            setNumThreads(4)
+        }
+        return Interpreter(modelBuffer, cpuOptions).also {
+            Log.i(
+                TAG,
+                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE gpuDelegate=false backend=XNNPACK"
+            )
         }
     }
 

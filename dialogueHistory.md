@@ -6533,3 +6533,111 @@ PortalVisualTrackerRegistry
 
 ---
 
+## [216] 2026-09-15 03:16:58 - YOLO26 模型替换与验证
+
+**用户原文**：
+```text
+请在 GitHub 项目 jay52121/RoomXXX0102 的分支“9月新房间判定算法”上直接完成 YOLO26 替换，并提交、推送到当前分支。
+
+开始前先读取仓库 AGENTS.md，并遵守历史日志规则。
+
+目标：
+把 Android APK 当前使用的两套 YOLO11s 模型直接替换为 YOLO26s。暂时不做版本切换 UI，不保留运行时双模型选择；如果存在兼容问题，直接修改解析层解决。
+
+当前模型：
+- app/src/main/assets/yolo11s_float16.tflite
+- app/src/main/assets/yolo11s_pose.tflite
+
+当前加载代码：
+- YoloAnalyzer.kt
+- YoloPoseAnalyzer.kt
+
+当前运行方式：
+- LiteRT / TensorFlow Lite
+- GPU Delegate 优先
+- 输入尺寸 640×640
+- FLOAT32 输入归一化
+- 模型权重使用 FP16
+- 检测结果继续进入现有 Tracker、ROI、房间算法和绘制链路
+
+实施要求：
+
+1. 使用当前官方 Ultralytics YOLO26s：
+   - 检测：yolo26s.pt
+   - Pose：yolo26s-pose.pt
+
+2. 导出 Android 可用的 TFLite：
+   - imgsz=640
+   - half=True / FP16
+   - batch=1
+   - 不内嵌 NMS，尽量保留原始输出
+   - 不量化 INT8
+   - 不引入 Flex/Select TF Ops，除非确实无法避免
+   - 记录实际使用的 Ultralytics 版本和完整导出命令
+
+3. 将模型放入 app/src/main/assets，名称建议：
+   - yolo26s_float16.tflite
+   - yolo26s_pose_float16.tflite
+
+4. 修改 YoloAnalyzer 和 YoloPoseAnalyzer，使其直接加载 YOLO26 模型。
+
+5. 必须实际读取导出模型的输入、输出 Tensor：
+   - 检查输入 shape、dtype
+   - 检查输出数量、shape、dtype
+   - 不要假设 YOLO26 输出与 YOLO11 完全一致
+   - 如果输出结构不同，修改检测与 Pose 解析器
+   - 禁止为了编译通过而伪造解析逻辑
+
+6. 保持现有业务行为：
+   - 只识别人类类别的既有策略不变
+   - 现有阈值暂时不改
+   - NMS 行为不变
+   - SimpleTracker / RemoteByteTrack 不变
+   - Pose ROI、房间判断、手势识别、绘制逻辑不变
+   - GPU Delegate 优先，失败后回退 XNNPACK
+   - 不做无关重构
+
+7. 增加清晰启动日志，至少输出：
+   - 模型文件名
+   - 输入 Tensor 信息
+   - 输出 Tensor 信息
+   - GPU Delegate 是否成功
+   - 实际模型架构为 YOLO26
+
+8. 验证：
+   - 运行现有单元测试
+   - 运行 :app:assembleDebug
+   - 确认 arm64-v8a APK 能构建
+   - 如果能连接设备，再运行安装验证
+   - 说明 APK 大小变化
+   - 检查两个 TFLite 文件确实被打包进 APK
+
+9. Git：
+   - 不提交本机环境文件、local.properties、.DS_Store 等无关内容
+   - 将模型文件、代码、codexHistory.md、dialogueHistory.md 一并提交
+   - 推送到“9月新房间判定算法”
+   - 给出最终提交 hash
+
+10. 如果官方 YOLO26 Pose 暂时无法可靠导出为 Android TFLite：
+   - 不要提交一个无法工作的假替换
+   - 明确给出失败阶段、命令、错误和模型 Tensor 信息
+   - 检测模型可以单独验证，但最终提交前必须说明 Pose 是否完成
+
+最终回复需要包含：
+- 使用的模型和 Ultralytics 版本
+- 导出命令
+- 修改文件
+- Tensor 输入输出结构
+- 测试和构建结果
+- APK 大小
+- commit hash
+- 是否已推送
+```
+
+**助手原文**：
+```text
+已按要求完成 YOLO26 替换：采用 Ultralytics 8.4.82 的 legacy TFLite exporter 导出 yolo26s/yolo26s-pose FP16 模型，实测输入输出分别为 [1,640,640,3] FLOAT32→[1,84,8400] FLOAT32 和 [1,640,640,3] FLOAT32→[1,56,8400] FLOAT32，未包含 Flex Ops。Android 分析器已直接加载新模型，保留原阈值/NMS/Tracker/ROI/房间/绘制链，并增加完整 Tensor/YOLO26/GPU→XNNPACK 日志与形状校验。现有单元测试、:app:assembleDebug、APK 资产/arm64 检查均通过；YOLO11 基线 APK 143262850 bytes，YOLO26 APK 144195174 bytes，变化 +932324 bytes；runner 无 adb 设备，未执行真机安装。临时导出 workflow/report 已清理，历史日志已更新并推送当前分支。
+```
+
+---
+

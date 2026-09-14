@@ -50,7 +50,8 @@ class YoloPoseAnalyzer(
 ) : ImageAnalysis.Analyzer {
 
     companion object {
-        private const val MODEL_FILE_NAME = "yolo11s_pose.tflite"
+        private const val MODEL_FILE_NAME = "yolo26s_pose_float16.tflite"
+        private const val MODEL_ARCHITECTURE = "YOLO26s-pose"
         private const val TAG = "YoloPoseAnalyzer"
 
         // --- 阈值策略 (Threshold Strategy) ---
@@ -69,6 +70,7 @@ class YoloPoseAnalyzer(
     }
 
     private var interpreter: Interpreter? = null
+    private var gpuDelegate: GpuDelegate? = null
     
     // [Model Input Size]: 通常为 640x640
     private var modelInputWidth = 640
@@ -107,36 +109,108 @@ class YoloPoseAnalyzer(
     private fun initializeInterpreter() {
         try {
             val assets = context.assets.list("")
-            if (assets == null || !assets.contains(MODEL_FILE_NAME)) return
+            if (assets == null || !assets.contains(MODEL_FILE_NAME)) {
+                Log.e(TAG, "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE assetMissing=true")
+                return
+            }
 
             val afd = context.assets.openFd(MODEL_FILE_NAME)
             val fis = FileInputStream(afd.fileDescriptor)
             val buffer = fis.channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
             
-            val options = Interpreter.Options()
-            try {
-                options.addDelegate(GpuDelegate())
-            } catch (e: Exception) {
-                options.setUseXNNPACK(true)
-                options.setNumThreads(4)
+            interpreter = createInterpreterWithFallback(buffer)
+            val activeInterpreter = interpreter!!
+            require(activeInterpreter.getInputTensorCount() == 1) {
+                "$MODEL_ARCHITECTURE expects exactly 1 input tensor, got ${activeInterpreter.getInputTensorCount()}"
             }
-            
-            interpreter = Interpreter(buffer, options)
-            val inputTensor = interpreter!!.getInputTensor(0)
+            require(activeInterpreter.getOutputTensorCount() == 1) {
+                "$MODEL_ARCHITECTURE expects exactly 1 output tensor, got ${activeInterpreter.getOutputTensorCount()}"
+            }
+
+            val inputTensor = activeInterpreter.getInputTensor(0)
             val inputShape = inputTensor.shape()
-            if (inputShape.size == 4) {
-                if (inputShape[1] == 3) { modelInputHeight = inputShape[2]; modelInputWidth = inputShape[3] } 
-                else { modelInputHeight = inputShape[1]; modelInputWidth = inputShape[2] }
+            Log.i(
+                TAG,
+                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE input[0]=" +
+                    "shape=${inputShape.contentToString()} dtype=${inputTensor.dataType()}"
+            )
+            require(inputTensor.dataType() == DataType.FLOAT32) {
+                "$MODEL_ARCHITECTURE input dtype must be FLOAT32, got ${inputTensor.dataType()}"
             }
-            val outputTensor = interpreter!!.getOutputTensor(0)
+            require(inputShape.contentEquals(intArrayOf(1, 640, 640, 3))) {
+                "$MODEL_ARCHITECTURE unexpected input shape ${inputShape.contentToString()}"
+            }
+            modelInputHeight = inputShape[1]
+            modelInputWidth = inputShape[2]
+
+            val outputTensor = activeInterpreter.getOutputTensor(0)
             val outputShape = outputTensor.shape()
+            Log.i(
+                TAG,
+                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE output[0]=" +
+                    "shape=${outputShape.contentToString()} dtype=${outputTensor.dataType()}"
+            )
+            require(outputTensor.dataType() == DataType.FLOAT32) {
+                "$MODEL_ARCHITECTURE output dtype must be FLOAT32, got ${outputTensor.dataType()}"
+            }
+            require(outputShape.contentEquals(intArrayOf(1, 56, 8400))) {
+                "$MODEL_ARCHITECTURE unexpected output shape ${outputShape.contentToString()}"
+            }
             val channels = outputShape[1]
             val anchors = outputShape[2]
             
             modelOutputBuffer = Array(1) { Array(channels) { FloatArray(anchors) } }
             tensorImage = TensorImage(DataType.FLOAT32)
+            Log.i(
+                TAG,
+                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE ready=true " +
+                    "channels=$channels anchors=$anchors externalNms=true"
+            )
         } catch (e: Exception) {
             interpreter = null
+            Log.e(
+                TAG,
+                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE initializationFailed=true",
+                e
+            )
+        }
+    }
+
+    private fun createInterpreterWithFallback(modelBuffer: java.nio.ByteBuffer): Interpreter {
+        var candidateDelegate: GpuDelegate? = null
+        try {
+            candidateDelegate = GpuDelegate()
+            val gpuOptions = Interpreter.Options().apply { addDelegate(candidateDelegate) }
+            val gpuInterpreter = Interpreter(modelBuffer, gpuOptions)
+            gpuDelegate = candidateDelegate
+            Log.i(
+                TAG,
+                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE gpuDelegate=true backend=GPU"
+            )
+            return gpuInterpreter
+        } catch (gpuError: Throwable) {
+            try {
+                candidateDelegate?.close()
+            } catch (_: Throwable) {
+            }
+            gpuDelegate = null
+            Log.w(
+                TAG,
+                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE gpuDelegate=false fallback=XNNPACK",
+                gpuError
+            )
+        }
+
+        modelBuffer.rewind()
+        val cpuOptions = Interpreter.Options().apply {
+            setUseXNNPACK(true)
+            setNumThreads(4)
+        }
+        return Interpreter(modelBuffer, cpuOptions).also {
+            Log.i(
+                TAG,
+                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE gpuDelegate=false backend=XNNPACK"
+            )
         }
     }
 
