@@ -1,5 +1,6 @@
 name: Temporary YOLO26 FP16 export
 
+# Temporary export workflow; removed after validated model assets are committed.
 on:
   push:
     branches:
