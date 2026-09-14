@@ -32,6 +32,10 @@ jobs:
           path = Path("tools/_yolo26_finalize.py")
           text = path.read_text(encoding="utf-8")
           text = text.replace('["./gradlew",', '["bash", "gradlew",')
+          text = text.replace(
+              '    user_file.unlink()\n    assistant_file.unlink()\n',
+              '    run(["git", "checkout", "--", str(user_file.relative_to(ROOT)), str(assistant_file.relative_to(ROOT))])\n'
+          )
           path.write_text(text, encoding="utf-8", newline="\n")
           PY
           python tools/_yolo26_finalize.py
