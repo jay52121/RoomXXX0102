@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.roomxxx0102.data.model.PoseResult
 import com.example.roomxxx0102.logic.presence.PresenceDoorSnapshot
 import com.example.roomxxx0102.logic.presence.PresenceEstimatorParams
+import com.example.roomxxx0102.logic.roomalgorithm.portal.PortalVisualDebugStore
 import com.example.roomxxx0102.logic.roomalgorithm.portal.PortalVisualTrack
 import com.example.roomxxx0102.logic.roomalgorithm.portal.PortalVisualTracker
 import com.example.roomxxx0102.logic.roomalgorithm.portal.PortalVisualTrackerFrameInput
@@ -95,6 +96,11 @@ class PortalV2RoomAlgorithm(
 
         val visualState = visibleTrack?.state?.name ?: if (visualEpisodeActive) "MISSING" else "IDLE"
         val detectorVisible = visibleTrack?.trackId?.let { id -> input.poses.any { it.id == id } } ?: false
+        PortalVisualDebugStore.update(
+            track = visibleTrack,
+            detectorVisible = detectorVisible,
+            trackerId = resolvedVisualTrackerId
+        )
         val visualSummary = buildVisualSummary(
             frameSeq = input.frameSeq,
             track = visibleTrack,
@@ -133,6 +139,7 @@ class PortalV2RoomAlgorithm(
     override fun reset() {
         legacy.reset()
         visualTracker.reset()
+        PortalVisualDebugStore.clear()
         visualEpisodeActive = false
         visualEpisodeFrames = 0
         visualMissingFrames = 0
