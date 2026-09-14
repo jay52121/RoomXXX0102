@@ -25,10 +25,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install pinned Ultralytics exporter
+      - name: Install pinned legacy TFLite exporter
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "ultralytics[export-tensorflow]==8.4.150"
+          python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install "ultralytics[export-tensorflow]==8.4.82"
 
       - name: Export and inspect YOLO26 FP16 TFLite models
         run: |
