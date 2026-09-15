@@ -1,5 +1,6 @@
 package com.example.roomxxx0102.ui.settings
 
+import com.example.roomxxx0102.logic.roomalgorithm.flow.PortalV3Settings
 import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
@@ -943,6 +944,15 @@ class SettingsHomeFragment : Fragment() {
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
 
+        val algorithmRow = binding.spnRoomAlgorithm.parent as? View
+        val algorithmParent = algorithmRow?.parent as? LinearLayout
+        if (algorithmRow != null && algorithmParent != null) {
+            val baselineButton = android.widget.Button(requireContext()).apply {
+                text = "V3 起始人数（可选）"
+                setOnClickListener { PortalV3Settings.showBaselineEditor(requireContext()) }
+            }
+            algorithmParent.addView(baselineButton, algorithmParent.indexOfChild(algorithmRow) + 1)
+        }
         roomAlgorithmOptions = RoomAlgorithmRegistry.options()
         val roomAlgorithmAdapter = createChoiceAdapter(
             roomAlgorithmOptions.map { it.displayName }

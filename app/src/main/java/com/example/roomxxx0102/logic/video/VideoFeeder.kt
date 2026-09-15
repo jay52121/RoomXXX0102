@@ -1,5 +1,6 @@
 package com.example.roomxxx0102.logic.video
 
+import com.example.roomxxx0102.logic.roomalgorithm.flow.PortalFrameHub
 import android.content.Context
 import android.graphics.RectF
 import android.media.MediaMetadataRetriever
@@ -127,6 +128,8 @@ class VideoFeeder(
                 }
                 val bitmap = textureView.bitmap
                 if (bitmap != null) {
+                    val currentPosMs = player.getCurrentPositionMs() ?: 0
+                    val portalStamp = PortalFrameHub.capture(bitmap, currentPosMs.toLong(), temporalAdvanced)
                     val poseRoi = nextFrameRoi
                     val handRoi = nextHandFrameRoi ?: poseRoi
                     Log.i(
@@ -135,7 +138,6 @@ class VideoFeeder(
                             "|detectorRoi=${handRoi ?: "FULL_FRAME"}"
                     )
                     handSmokeTester?.detect(bitmap, handRoi)
-                    val currentPosMs = player.getCurrentPositionMs() ?: 0
                     lastAnalysisPositionMs = currentPosMs
                     val frameSignature = FrameSignatureUtils.create(bitmap)
                     val frameDigest = frameSignature.summary
@@ -170,7 +172,8 @@ class VideoFeeder(
                         bitmap = bitmap,
                         roi = poseRoi,
                         temporalAdvanced = temporalAdvanced,
-                        suppressStagnantUnlock = suppressStagnantUnlock
+                        suppressStagnantUnlock = suppressStagnantUnlock,
+                        frameStamp = portalStamp
                     )
                 } else {
                     maybeLogBitmapDiag(null, player.getCurrentPositionMs() ?: -1, null)
@@ -553,6 +556,7 @@ class VideoFeeder(
     }
 
     fun stop() {
+        PortalFrameHub.resetSource()
         isAnalyzing = false
         isStillMode = false
         suppressStagnantUnlockUntilMs = 0L
@@ -583,7 +587,8 @@ class VideoFeeder(
         bitmap: android.graphics.Bitmap,
         roi: RectF?,
         temporalAdvanced: Boolean,
-        suppressStagnantUnlock: Boolean
+        suppressStagnantUnlock: Boolean,
+        frameStamp: PortalFrameHub.Stamp
     ) {
         if (!inferenceInFlight.compareAndSet(false, true)) {
             inferenceSkipStreak += 1
@@ -610,7 +615,8 @@ class VideoFeeder(
                         roi = roi,
                         drawOnOverlay = true,
                         temporalAdvanced = temporalAdvanced,
-                        suppressStagnantUnlock = suppressStagnantUnlock
+                        suppressStagnantUnlock = suppressStagnantUnlock,
+                        frameStamp = frameStamp
                     )
                 } else {
                     yoloAnalyzer?.detectOnBitmap(bitmap, drawOnOverlay = true)

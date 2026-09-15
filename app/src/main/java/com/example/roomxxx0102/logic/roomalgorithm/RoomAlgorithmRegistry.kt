@@ -1,10 +1,13 @@
 package com.example.roomxxx0102.logic.roomalgorithm
 
+import android.content.Context
+import com.example.roomxxx0102.logic.roomalgorithm.flow.PortalV3RoomAlgorithm
 import com.example.roomxxx0102.logic.presence.PresenceAlgorithmRegistry
 import com.example.roomxxx0102.logic.presence.PresenceEstimatorParams
 import com.example.roomxxx0102.logic.roomalgorithm.portal.PortalVisualTrackerRegistry
 
 object RoomAlgorithmRegistry {
+    const val PORTAL_V3_FLOW_ID = "portal_v3_flow"
     const val LEGACY_PRESENCE_ID = "legacy_presence"
     const val PORTAL_V2_ID = "portal_v2"
     const val PORTAL_V2_MIL_ID = "portal_v2_mil"
@@ -14,7 +17,8 @@ object RoomAlgorithmRegistry {
     data class CreationConfig(
         val presenceVersionId: String?,
         val presenceParams: PresenceEstimatorParams = PresenceEstimatorParams(),
-        val portalVisualTrackerId: String? = null
+        val portalVisualTrackerId: String? = null,
+        val appContext: Context? = null
     )
 
     private data class Registration(
@@ -23,6 +27,9 @@ object RoomAlgorithmRegistry {
     )
 
     private val registrations = listOf(
+        Registration(AlgorithmOption(PORTAL_V3_FLOW_ID, "Portal V3 · 门线与人体光流（实验）")) { config ->
+            PortalV3RoomAlgorithm(config.appContext)
+        },
         Registration(AlgorithmOption(LEGACY_PRESENCE_ID, "Legacy Presence")) { config ->
             LegacyPresenceRoomAlgorithm(config.presenceVersionId, config.presenceParams)
         },
