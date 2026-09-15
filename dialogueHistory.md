@@ -6641,3 +6641,17 @@ PortalVisualTrackerRegistry
 
 ---
 
+## [217] 2026-09-15 21:42:00 - 确认迁移 YOLO26 到 LiteRT w8a32
+
+**用户原文**：
+```text
+好啊，你准备怎么改，开始吧
+```
+
+**助手原文**：
+```text
+已按确认开始执行：将 YOLO26 Android 主链从 legacy FP16 TFLite/Interpreter 迁移到 Ultralytics 当前官方 LiteRT w8a32 资产与 LiteRT 2.x CompiledModel；保留现有阈值、外部 NMS、Tracker、ROI、房间与绘制业务链，并完成 Tensor、单测、Debug APK、资产与 ABI 验证后推送。
+```
+
+---
+

@@ -65,6 +65,9 @@ android {
         buildConfig = true
         viewBinding = true // 🔥 开启 ViewBinding
     }
+    androidResources {
+        noCompress += "tflite"
+    }
 }
 
 dependencies {
@@ -94,10 +97,8 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
 
-    // LiteRT
+    // LiteRT 2.x CompiledModel；GPU accelerator 已包含在 core，无需旧 litert-gpu / TFLite Support。
     implementation(libs.litert)
-    implementation(libs.litert.gpu)
-    implementation(libs.tensorflow.lite.support)
     implementation("com.google.mediapipe:tasks-vision:0.10.35")
 
     // Portal V2 本地短时视觉跟踪（OpenCV core video / TrackerMIL，不依赖 contrib）

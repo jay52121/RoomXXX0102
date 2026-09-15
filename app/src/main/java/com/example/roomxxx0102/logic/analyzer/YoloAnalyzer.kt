@@ -10,14 +10,8 @@ import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import com.example.roomxxx0102.ui.views.DetectionOverlayView
-import org.tensorflow.lite.DataType
-import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.gpu.GpuDelegate
-import org.tensorflow.lite.support.image.ImageProcessor
-import org.tensorflow.lite.support.image.TensorImage
-import java.io.FileInputStream
-import java.nio.channels.FileChannel
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -45,7 +39,7 @@ class YoloAnalyzer(
 ) : ImageAnalysis.Analyzer {
 
     companion object {
-        private const val MODEL_FILE_NAME = "yolo26s_float16.tflite"
+        private const val MODEL_FILE_NAME = "yolo26s_w8a32.tflite"
         private const val MODEL_ARCHITECTURE = "YOLO26s"
         private const val TAG = "YoloAnalyzer"
     }
@@ -55,24 +49,15 @@ class YoloAnalyzer(
     private val staticConfirmThreshold = 0.60f
     private val movementThreshold = 0.02f
 
-    private var interpreter: Interpreter? = null
-    private var gpuDelegate: GpuDelegate? = null
+    private var runner: LiteRtYoloRunner? = null
     private var inputWidth = 640
     private var inputHeight = 640
-    private var tensorImage: TensorImage? = null
-    private var outputData: Array<Array<FloatArray>>? = null
 
     private val trackerMap = ConcurrentHashMap<Int, ObjectHistory>()
     private var nextObjectId = 0
 
-    private var isChannelsFirst = true
     private var numClasses = 80
     private var numBoxes = 8400
-
-    private val imageProcessor = ImageProcessor.Builder()
-        .add(org.tensorflow.lite.support.common.ops.NormalizeOp(0f, 255f))
-        .add(org.tensorflow.lite.support.common.ops.CastOp(DataType.FLOAT32))
-        .build()
 
     init {
         setupInterpreter()
@@ -86,104 +71,35 @@ class YoloAnalyzer(
 
     private fun setupInterpreter() {
         try {
-            val afd = context.assets.openFd(MODEL_FILE_NAME)
-            val fis = FileInputStream(afd.fileDescriptor)
-            val modelBuffer = fis.channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
-            interpreter = createInterpreterWithFallback(modelBuffer)
-            val activeInterpreter = interpreter!!
-            require(activeInterpreter.getInputTensorCount() == 1) {
-                "$MODEL_ARCHITECTURE expects exactly 1 input tensor, got ${activeInterpreter.getInputTensorCount()}"
+            val activeRunner = LiteRtYoloRunner(
+                context = context,
+                modelAssetName = MODEL_FILE_NAME,
+                architecture = MODEL_ARCHITECTURE,
+                expectedOutputFeatures = 84,
+            )
+            runner = activeRunner
+            inputWidth = activeRunner.inputWidth
+            inputHeight = activeRunner.inputHeight
+            numClasses = activeRunner.numFeatures - 4
+            numBoxes = activeRunner.numAnchors
+            require(numClasses == 80) {
+                "$MODEL_ARCHITECTURE expected 80 classes, got $numClasses"
             }
-            require(activeInterpreter.getOutputTensorCount() == 1) {
-                "$MODEL_ARCHITECTURE expects exactly 1 output tensor, got ${activeInterpreter.getOutputTensorCount()}"
-            }
-
-            val inputTensor = activeInterpreter.getInputTensor(0)
-            val inputShape = inputTensor.shape()
             Log.i(
                 TAG,
-                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE input[0]=" +
-                    "shape=${inputShape.contentToString()} dtype=${inputTensor.dataType()}"
+                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE quantization=w8a32 " +
+                    "input=${activeRunner.nativeInputShape.contentToString()} output=${activeRunner.outputShape.contentToString()} " +
+                    "backend=${activeRunner.backend} personClass=0 externalNms=true",
             )
-            require(inputTensor.dataType() == DataType.FLOAT32) {
-                "$MODEL_ARCHITECTURE input dtype must be FLOAT32, got ${inputTensor.dataType()}"
-            }
-            require(inputShape.contentEquals(intArrayOf(1, 640, 640, 3))) {
-                "$MODEL_ARCHITECTURE unexpected input shape ${inputShape.contentToString()}"
-            }
-            inputHeight = inputShape[1]
-            inputWidth = inputShape[2]
-
-            tensorImage = TensorImage(DataType.FLOAT32)
-            val outputTensor = activeInterpreter.getOutputTensor(0)
-            val outputShape = outputTensor.shape()
-            Log.i(
-                TAG,
-                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE output[0]=" +
-                    "shape=${outputShape.contentToString()} dtype=${outputTensor.dataType()}"
-            )
-            require(outputTensor.dataType() == DataType.FLOAT32) {
-                "$MODEL_ARCHITECTURE output dtype must be FLOAT32, got ${outputTensor.dataType()}"
-            }
-            require(outputShape.contentEquals(intArrayOf(1, 84, 8400))) {
-                "$MODEL_ARCHITECTURE unexpected output shape ${outputShape.contentToString()}"
-            }
-            val dim1 = outputShape[1]
-            val dim2 = outputShape[2]
-            isChannelsFirst = true
-            numClasses = dim1 - 4
-            numBoxes = dim2
-            outputData = Array(1) { Array(dim1) { FloatArray(dim2) } }
-            Log.i(
-                TAG,
-                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE ready=true " +
-                    "classes=$numClasses boxes=$numBoxes externalNms=true"
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ 模型加载失败", e)
-        }
-    }
-
-    private fun createInterpreterWithFallback(modelBuffer: java.nio.ByteBuffer): Interpreter {
-        var candidateDelegate: GpuDelegate? = null
-        try {
-            candidateDelegate = GpuDelegate()
-            val gpuOptions = Interpreter.Options().apply { addDelegate(candidateDelegate) }
-            val gpuInterpreter = Interpreter(modelBuffer, gpuOptions)
-            gpuDelegate = candidateDelegate
-            Log.i(
-                TAG,
-                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE gpuDelegate=true backend=GPU"
-            )
-            return gpuInterpreter
-        } catch (gpuError: Throwable) {
-            try {
-                candidateDelegate?.close()
-            } catch (_: Throwable) {
-            }
-            gpuDelegate = null
-            Log.w(
-                TAG,
-                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE gpuDelegate=false fallback=XNNPACK",
-                gpuError
-            )
-        }
-
-        modelBuffer.rewind()
-        val cpuOptions = Interpreter.Options().apply {
-            setUseXNNPACK(true)
-            setNumThreads(4)
-        }
-        return Interpreter(modelBuffer, cpuOptions).also {
-            Log.i(
-                TAG,
-                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE gpuDelegate=false backend=XNNPACK"
-            )
+        } catch (e: Throwable) {
+            runner?.close()
+            runner = null
+            Log.e(TAG, "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE initializationFailed=true", e)
         }
     }
 
     override fun analyze(image: ImageProxy) {
-        if (interpreter == null) { image.close(); return }
+        if (runner == null) { image.close(); return }
         try {
             val bitmap = image.toBitmap()
             detectOnBitmap(bitmap, drawOnOverlay = false)
@@ -195,7 +111,7 @@ class YoloAnalyzer(
     }
 
     fun detectOnBitmap(bitmap: Bitmap, drawOnOverlay: Boolean = true) {
-        if (interpreter == null) return
+        val activeRunner = runner ?: return
         val t1 = System.currentTimeMillis()
         var letterboxedBitmap: Bitmap? = null
 
@@ -203,11 +119,16 @@ class YoloAnalyzer(
             val lb = letterbox(bitmap, inputWidth, inputHeight)
             letterboxedBitmap = lb.bitmap
 
-            tensorImage!!.load(letterboxedBitmap)
-            val input = imageProcessor.process(tensorImage)
-            interpreter!!.run(input.buffer, outputData)
-
-            val trackedResults = processAndTrack(lb.scale, lb.dx, lb.dy, bitmap.width, bitmap.height)
+            val output = activeRunner.run(letterboxedBitmap)
+            val trackedResults = processAndTrack(
+                output,
+                activeRunner,
+                lb.scale,
+                lb.dx,
+                lb.dy,
+                bitmap.width,
+                bitmap.height,
+            )
 
             val bgBitmap = if (drawOnOverlay) bitmap else null
             Log.i(
@@ -224,21 +145,32 @@ class YoloAnalyzer(
         }
     }
 
-    private fun processAndTrack(scale: Float, dx: Float, dy: Float, origW: Int, origH: Int): List<TrackedDetection> {
+    private fun processAndTrack(
+        output: FloatArray,
+        activeRunner: LiteRtYoloRunner,
+        scale: Float,
+        dx: Float,
+        dy: Float,
+        origW: Int,
+        origH: Int,
+    ): List<TrackedDetection> {
         val rawList = ArrayList<RawDetection>()
-        val matrix = outputData!![0]
 
-        // 1. 粗筛
+        // 1. 粗筛。保持既有“只取 person(class 0)”策略：raw head 的 feature 4 即 person 分数。
         for (i in 0 until numBoxes) {
-            val score = if (isChannelsFirst) matrix[4][i] else matrix[i][4]
+            val score = activeRunner.value(output, 4, i)
             if (score > detectThreshold) {
-                var cx: Float; var cy: Float; var w: Float; var h: Float
-                if (isChannelsFirst) {
-                    cx = matrix[0][i]; cy = matrix[1][i]; w = matrix[2][i]; h = matrix[3][i]
-                } else {
-                    val row = matrix[i]; cx = row[0]; cy = row[1]; w = row[2]; h = row[3]
+                var cx = activeRunner.value(output, 0, i)
+                var cy = activeRunner.value(output, 1, i)
+                var w = activeRunner.value(output, 2, i)
+                var h = activeRunner.value(output, 3, i)
+                val normalized = max(max(abs(cx), abs(cy)), max(abs(w), abs(h))) <= 2f
+                if (normalized) {
+                    cx *= inputWidth
+                    cy *= inputHeight
+                    w *= inputWidth
+                    h *= inputHeight
                 }
-                if (w < 1.0f) { cx *= inputWidth; cy *= inputHeight; w *= inputWidth; h *= inputHeight }
 
                 val realCx = (cx - dx) / scale / origW
                 val realCy = (cy - dy) / scale / origH

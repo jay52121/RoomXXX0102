@@ -1,5 +1,25 @@
 # Codex History
 
+## [394] 2026-09-15 21:42:00 - YOLO26 迁移到官方 LiteRT w8a32
+
+**用户指令**：
+> 将当前 YOLO26 legacy FP16 Android 部署升级为当前官方 LiteRT/w8a32 长期方案；无需 A/B，直接实施、验证并推送。
+
+**实现方案 (Implementation)**：
+
+*   **变更摘要**
+    *   任务目的：将 YOLO26s / YOLO26s-pose 从 Ultralytics 8.4.82 legacy FP16 TFLite + Interpreter/GpuDelegate 迁移到当前官方 w8a32 LiteRT 资产 + LiteRT 2.x CompiledModel，保持现有业务后处理行为。
+    *   官方模型：Ultralytics `yolo-flutter-app` v0.6.6 标准 Android 资产 `yolo26s_w8a32.tflite`（SHA256 `7a598838082251ef8e1d3b8f06f356ad532f8fe3a24c7eeeed68b52d28525036`）和 `yolo26s-pose_w8a32.tflite`（SHA256 `8409d9109f1bb374e28a9ff925205580e62cbcf73528b11777b667f8e28611f8`）；当前 Ultralytics v8.4.152 的等价导出契约为 `format="litert", quantize="w8a32", imgsz=640`。
+    *   Tensor 实测：Detection `[1, 3, 640, 640] FLOAT32 -> [1, 84, 8400] FLOAT32`；Pose `[1, 3, 640, 640] FLOAT32 -> [1, 56, 8400] FLOAT32`；均实际执行零输入推理通过。
+    *   Runtime：`com.google.ai.edge.litert:litert:2.2.0` `CompiledModel`，GPU 整图编译并完成 warmup 后才视为 GPU 成功，否则回退 CPU/XNNPACK 4 threads；按实际 NCHW/NHWC 输入布局打包 RGB。
+    *   解析兼容：Detection 继续只读取 person(class 0)、0.30 阈值、0.45 外部 NMS；Pose 继续 0.15 候选阈值、0.5 NMS、现有 Tracker/ROI，新增 raw head 的 features-first/anchors-first 与归一化/模型像素坐标兼容。
+    *   修改文件：`LiteRtYoloRunner.kt`、`YoloAnalyzer.kt`、`YoloPoseAnalyzer.kt`、`app/build.gradle.kts`、`gradle/libs.versions.toml`、两套 w8a32 模型、`codexHistory.md`、`dialogueHistory.md`；删除两套 legacy FP16 模型。
+    *   验证：`:app:testDebugUnitTest` 通过，`:app:assembleDebug` 通过；APK 仅含两套 w8a32 YOLO26 模型，未含旧 FP16 模型，native ABI 仅 arm64-v8a。
+    *   APK 大小：FP16 基线 `144195174` bytes；LiteRT w8a32 `128056649` bytes；变化 `-16138525` bytes。
+    *   设备安装：GitHub hosted runner 无 adb 设备，不伪称完成真机安装。
+
+---
+
 ## [393] 2026-09-15 03:16:58 - 替换为 YOLO26s FP16 TFLite
 
 **用户指令**：
