@@ -1,16 +1,67 @@
 from pathlib import Path
-import base64,zlib
-PATCH='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'
-# The compressed patch is checked by zlib and git apply before any validation run.
-Path('/tmp/v3-review.patch').write_bytes(zlib.decompress(base64.b64decode(PATCH)))
+import inspect
+
+
+def refine():
+    base = ROOT / 'app/src/main/java/com/example/roomxxx0102/logic/roomalgorithm/flow'
+    def edit(path, old, new):
+        text = path.read_text(encoding='utf-8')
+        assert text.count(old) == 1, (path, old)
+        path.write_text(text.replace(old, new), encoding='utf-8', newline='\n')
+    core = base / 'PortalV3Core.kt'
+    edit(core, '        var motion = 0.0', '        var motion = 0.0\n        val motionTrace = ArrayDeque<Pair<Long, FlowPoint>>()')
+    edit(core, '    private var events = mutableListOf<FlowEvent>()', '    private var events = mutableListOf<FlowEvent>()\n    private var observedTracks = emptySet<Int>()')
+    edit(core, '        events = mutableListOf(); notes = mutableListOf()', '        events = mutableListOf(); notes = mutableListOf()\n        observedTracks = detections?.map { it.id }?.toSet() ?: emptySet()')
+    edit(core, '                p.motion += flow.delta.distance(FlowPoint(0.0, 0.0), aspect)', '''                p.motion += flow.delta.distance(FlowPoint(0.0, 0.0), aspect)
+                p.motionTrace.add(timeMs to flow.delta)
+                while (p.motionTrace.isNotEmpty() && timeMs - p.motionTrace.first().first > 1500) p.motionTrace.removeFirst()''')
+    edit(core, '        val motionOk = if (p.imageTested) p.motion >= 0.005 else groundMotion >= 0.012', '''        val recentMotion = p.motionTrace.filter { t - it.first <= 1500 }.map { it.second }
+        val netMotion = FlowPoint(recentMotion.sumOf { it.x }, recentMotion.sumOf { it.y }).distance(FlowPoint(0.0,0.0),aspect)
+        val travel = recentMotion.sumOf { it.distance(FlowPoint(0.0,0.0),aspect) }
+        val motionOk = if (p.imageTested) netMotion >= 0.005 && netMotion >= travel * 0.45 else groundMotion >= 0.012''')
+    edit(core, 'it.track != p.track && t - it.lastDetection > 250 && it.room == firstRoom', 'it.track != p.track && it.track !in observedTracks && t - it.lastDetection > 250 && it.room == firstRoom')
+    edit(core, 'it.room == livingId && t - it.lastDetection > 450 }', 'it.room == livingId && it.track !in observedTracks && t - it.lastDetection > 450 }')
+    settings = base / 'PortalV3Settings.kt'
+    edit(settings, '        val fields=rooms.associate { r -> r.id to EditText(context).apply', '''        val fields=rooms.associate { r ->
+            layout.addView(TextView(context).apply { text=r.name })
+            r.id to EditText(context).apply''')
+    edit(settings, 'r.boundaryPoints.map { PresencePoint(it.x.toDouble(),it.y.toDouble()) }', 'if (!r.isLivingBlindZone && r.boundaryPoints.size >= 3) r.boundaryPoints.map { PresencePoint(it.x.toDouble(),it.y.toDouble()) } else emptyList()')
+    edit(base/'PortalV3Vision.kt', '            val cloud = clouds.getOrPut(d.id)', '            if (d.id !in clouds && clouds.size >= 4) continue\n            val cloud = clouds.getOrPut(d.id)')
+    test = ROOT / 'app/src/test/java/com/example/roomxxx0102/logic/roomalgorithm/flow/PortalV3CoreTest.kt'
+    text = test.read_text(encoding='utf-8')
+    position = text.rfind('}')
+    assert position > 0
+    extra = '''
+    @Test fun repeatedSubpixelJitterCannotAccumulateIntoHumanAdmission() {
+        val e=engine()
+        fun jitter(delta:Double)=FlowEvidence(1,delta=FlowPoint(delta,0.0),samples=(0..6).map { FlowSample(FlowPoint(.45,.3),FlowPoint(.45+delta,.3),it,5) },reliable=true)
+        var r=e.step(0,listOf(d(.8)),mapOf(1 to jitter(0.0)))
+        repeat(80) { i -> r=e.step(100+i*100L,listOf(d(.8)),mapOf(1 to jitter(if(i%2==0) .0008 else -.0008))) }
+        assertEquals(0,r.counts.values.sum())
+    }
+    @Test fun currentlyVisibleRoomPersonCannotBeConsumedAsAnAnonymousSlot() {
+        val e=engine()
+        e.step(0,listOf(d(.40,id=1,x=.40)))
+        e.step(100,listOf(d(.42,id=1,x=.40)))
+        e.step(200,listOf(d(.44,id=1,x=.40)))
+        e.step(600,listOf(d(.39,id=2,x=.55),d(.44,id=1,x=.40)))
+        e.step(1000,listOf(d(.41,id=2,x=.55),d(.44,id=1,x=.40)))
+        val r=e.step(1400,listOf(d(.43,id=2,x=.55),d(.44,id=1,x=.40)))
+        assertEquals(2,r.counts["A"])
+        assertEquals(2,r.people.count { it.accepted })
+    }
+'''
+    test.write_text(text[:position]+extra+text[position:],encoding='utf-8',newline='\n')
+
+
 p=Path(__file__).with_name('_portal_v3_apply.py')
 s=p.read_text(encoding='utf-8')
 def replace(old,new):
     global s
     assert s.count(old)==1,old
     s=s.replace(old,new)
-replace('write(ROOT/name, content)','write(ROOT/name, content.rstrip() + "\\n")')
-replace("run(['git','diff','--check'])", "run(['git','apply','--check','/tmp/v3-review.patch'])\nrun(['git','apply','/tmp/v3-review.patch'])\nrun(['git','diff','--check'])")
+replace('write(ROOT/name, content)', 'write(ROOT/name, content.rstrip() + "\\n")')
+replace("run(['git','diff','--check'])", inspect.getsource(refine)+"\nrefine()\nrun(['git','diff','--check'])")
 replace("parts+[Path(__file__),", "parts+[ROOT/'tools/_portal_v3_review.py',Path(__file__),")
 replace("allowed=set(payload['changed'])|", "allowed={'tools/_portal_v3_review.py'}|set(payload['changed'])|")
 p.write_text(s,encoding='utf-8',newline='\n')
