@@ -63,6 +63,18 @@ internal class PortalV3Core(
         }
     }
 
+    fun detachIdentitySource(): FlowDecision {
+        people.entries.removeAll { !it.value.accepted }
+        for (p in people.values) {
+            p.track = -p.number; p.bootstrap = true; p.lastDetection = -100000L
+            p.ground = null; p.lastStrong = -1L; p.history.clear(); p.attempt = null
+            p.terminal.clear(); p.terminalFrames.clear(); p.detectorMissingSince = -1L
+            p.motionTrace.clear(); p.motion = 0.0; p.conflict = false
+            p.status = "IDENTITY_SOURCE_CHANGED_RETAIN_COUNTS"
+        }
+        return snapshot(listOf("IDENTITY_SOURCE_CHANGED_RETAIN_COUNTS"))
+    }
+
     fun profileSamples(): Map<String, List<FlowPoint>> = samples.mapValues { it.value.toList() }
     fun restoreProfiles(profiles: Map<String, List<FlowPoint>>) {
         profiles.filterKeys { key -> gates.any { key == it.id + ":in" || key == it.id + ":out" } }
@@ -185,6 +197,9 @@ internal class PortalV3Core(
         val origin = gates.firstOrNull { it.id == p.originGate }
             ?.takeIf { initialRoom == livingId && it.distance(first) <= max(0.025, p.box.height * 0.22) }
         val firstRoom = origin?.room ?: initialRoom
+        if (people.values.any { it.number != p.number && it.accepted && it.bootstrap && it.room == null }) {
+            p.status = "UNRESOLVED_IDENTITY"; return
+        }
         if (firstRoom == livingId && origin == null) {
             val competing = gates.filter { it.distance(first) <= max(0.03, p.box.height * 0.22) }
             val latent = people.values.filter { other -> other.accepted && other.number != p.number && t - other.lastDetection > 250 && competing.any { it.room == other.room } }

@@ -32,8 +32,9 @@ class PortalV3RoomAlgorithm(private val context: Context? = null) : RoomAlgorith
         val nextScene = PortalV3Settings.sceneKey(input.rooms)
         val baseline = PortalV3Settings.baseline(context, PortalV3Settings.baselineKey(nextScene, input.sceneInfo.isVideoPlayback))
         val idSource = input.poses.firstOrNull()?.idSource?.name ?: identitySource
+        val applyStartCounts = baseline.known && (!input.sceneInfo.isVideoPlayback || (meta?.stamp?.timestampMs ?: input.timestampMs) <= 500L)
         val key = nextScene + input.doors.toString() + "|$aspect|${input.sceneInfo.isVideoPlayback}|${baseline.known}:${baseline.revision}"
-        if (core == null || fingerprint != key || epoch != sourceEpoch || (identitySource.isNotEmpty() && idSource.isNotEmpty() && identitySource != idSource)) {
+        if (core == null || fingerprint != key || epoch != sourceEpoch) {
             vision?.close()
             val polygon = living.polygon.map { FlowPoint(it.x, it.y) }
             val gates = input.doors.mapNotNull { d ->
@@ -41,12 +42,16 @@ class PortalV3RoomAlgorithm(private val context: Context? = null) : RoomAlgorith
                 val r = input.rooms.firstOrNull { it.roomId == target } ?: return@mapNotNull null
                 FlowGate.create(d.doorId,target,FlowPoint(d.a.x,d.a.y),FlowPoint(d.b.x,d.b.y),r.polygon.map { FlowPoint(it.x,it.y) },polygon,aspect,d.isEntranceDoor,r.isBlindZone)
             }
-            core = PortalV3Core(living.roomId,polygon,gates,input.rooms.map { it.roomId },aspect,baseline.counts)
+            core = PortalV3Core(living.roomId,polygon,gates,input.rooms.map { it.roomId },aspect,if(applyStartCounts) baseline.counts else emptyMap())
             core!!.restoreProfiles(PortalV3Settings.readProfiles(context,nextScene))
             vision = PortalV3Vision(gates)
             fingerprint=key; scene=nextScene; epoch=sourceEpoch; sequence=-1; lastTime=-1
-            lastDecision=null; initialKnown=baseline.known; originTried.clear()
+            lastDecision=null; initialKnown=applyStartCounts; originTried.clear()
             Log.i("PortalV3", "reset source=$sourceEpoch gates=${gates.size}/${input.doors.size} initialKnown=$initialKnown")
+        }
+        if (identitySource.isNotEmpty() && idSource.isNotEmpty() && identitySource != idSource) {
+            lastDecision = core!!.detachIdentitySource()
+            vision?.close(); vision = PortalV3Vision(core!!.gates); originTried.clear()
         }
         identitySource=idSource
         val engine=core!!; val visual=vision!!

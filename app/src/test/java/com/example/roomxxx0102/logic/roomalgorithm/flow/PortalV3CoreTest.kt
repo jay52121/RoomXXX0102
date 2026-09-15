@@ -214,4 +214,17 @@ class PortalV3CoreTest {
         assertEquals(2,r.counts["A"])
         assertEquals(2,r.people.count { it.accepted })
     }
+
+    @Test fun identityBackendChangePreservesOccupiedRoomSlots() {
+        val e=engine(); enter(e)
+        val detached=e.detachIdentitySource()
+        assertEquals(1,detached.counts["A"])
+        assertEquals(1,detached.counts.values.sum())
+        e.step(900,listOf(d(.43,id=99)))
+        e.step(1050,listOf(d(.45,id=99)))
+        e.step(1200,listOf(d(.47,id=99)))
+        e.step(1300,listOf(d(.53,id=99)))
+        val r=e.step(1400,listOf(d(.56,id=99)))
+        assertEquals(1,r.counts["L"]);assertEquals(1,r.counts.values.sum())
+    }
 }
