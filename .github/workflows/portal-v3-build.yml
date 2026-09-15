@@ -1,0 +1,29 @@
+name: Portal V3 validation
+on:
+  push:
+    branches: [codex/yolo26-litert-w8a32]
+    paths: ['.github/workflows/portal-v3-build.yml', 'tools/_portal_v3_apply.py']
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Source snapshot
+        run: |
+          python - <<'PY'
+          import pathlib, zipfile
+          with zipfile.ZipFile('/tmp/portal-source.zip','w',zipfile.ZIP_DEFLATED) as z:
+            for p in pathlib.Path('.').rglob('*'):
+              if p.is_file() and '.git' not in p.parts and p.suffix in ('.kt','.kts','.toml','.xml','.md','.py','.properties') and p.stat().st_size < 2000000:
+                z.write(p,str(p))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portal-source
+          path: /tmp/portal-source.zip
+          retention-days: 3
