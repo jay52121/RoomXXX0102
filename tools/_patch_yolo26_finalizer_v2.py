@@ -20,57 +20,102 @@ once('"litert_android": "2.1.5"', '"litert_android": "2.2.0"', "report runtime v
 
 # CompiledModel public Android API takes AssetManager + asset name (or file path), not a ByteBuffer.
 once(
-    "import java.io.FileInputStream\\nimport java.nio.ByteBuffer\\nimport java.nio.channels.FileChannel\\n",
+    """import java.io.FileInputStream
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
+""",
     "",
     "runner stale imports",
 )
 once(
-    '''        val mapped = mapAsset(context, modelAssetName)\n        val prepared = try {\n            prepare(mapped, Accelerator.GPU, "GPU")\n''',
-    '''        val prepared = try {\n            prepare(context, Accelerator.GPU, "GPU")\n''',
+    """        val mapped = mapAsset(context, modelAssetName)
+        val prepared = try {
+            prepare(mapped, Accelerator.GPU, "GPU")
+""",
+    """        val prepared = try {
+            prepare(context, Accelerator.GPU, "GPU")
+""",
     "runner GPU prepare",
 )
 once(
-    '''            prepare(mapped, Accelerator.CPU, "CPU/XNNPACK")\n''',
-    '''            prepare(context, Accelerator.CPU, "CPU/XNNPACK")\n''',
+    """            prepare(mapped, Accelerator.CPU, "CPU/XNNPACK")
+""",
+    """            prepare(context, Accelerator.CPU, "CPU/XNNPACK")
+""",
     "runner CPU prepare",
 )
 once(
-    '''    private fun prepare(modelBuffer: ByteBuffer, accelerator: Accelerator, backendName: String): Prepared {\n''',
-    '''    private fun prepare(context: Context, accelerator: Accelerator, backendName: String): Prepared {\n''',
+    """    private fun prepare(modelBuffer: ByteBuffer, accelerator: Accelerator, backendName: String): Prepared {
+""",
+    """    private fun prepare(context: Context, accelerator: Accelerator, backendName: String): Prepared {
+""",
     "prepare signature",
 )
 once(
-    '''        val compiled = CompiledModel.create(modelBuffer.duplicate().apply { rewind() }, options)\n''',
-    '''        val compiled = CompiledModel.create(context.assets, modelAssetName, options, null)\n''',
+    """        val compiled = CompiledModel.create(modelBuffer.duplicate().apply { rewind() }, options)
+""",
+    """        val compiled = CompiledModel.create(context.assets, modelAssetName, options, null)
+""",
     "compiled model create",
 )
 once(
-    '''    private fun mapAsset(context: Context, assetName: String): ByteBuffer {\n        val afd = context.assets.openFd(assetName)\n        FileInputStream(afd.fileDescriptor).use { stream ->\n            return stream.channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)\n        }\n    }\n\n''',
+    """    private fun mapAsset(context: Context, assetName: String): ByteBuffer {
+        val afd = context.assets.openFd(assetName)
+        FileInputStream(afd.fileDescriptor).use { stream ->
+            return stream.channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
+        }
+    }
+
+""",
     "",
     "remove mmap helper",
 )
 
 # CompiledModel assets must remain mmappable/uncompressed in the APK.
 once(
-    '''    write(APP_GRADLE, gradle)\n\n\ndef inspect_models() -> dict:\n''',
-    '''    gradle = replace_once(\n        gradle,\n        """    buildFeatures {\n        compose = true\n        buildConfig = true\n        viewBinding = true // 🔥 开启 ViewBinding\n    }\n}\n""",\n        """    buildFeatures {\n        compose = true\n        buildConfig = true\n        viewBinding = true // 🔥 开启 ViewBinding\n    }\n    androidResources {\n        noCompress += \"tflite\"\n    }\n}\n""",\n        "LiteRT uncompressed assets",\n    )\n    write(APP_GRADLE, gradle)\n\n\ndef inspect_models() -> dict:\n''',
+    """    write(APP_GRADLE, gradle)
+
+
+def inspect_models() -> dict:
+""",
+    """    gradle = replace_once(
+        gradle,
+        \"\"\"    buildFeatures {\n        compose = true\n        buildConfig = true\n        viewBinding = true // 🔥 开启 ViewBinding\n    }\n}\n\"\"\",
+        \"\"\"    buildFeatures {\n        compose = true\n        buildConfig = true\n        viewBinding = true // 🔥 开启 ViewBinding\n    }\n    androidResources {\n        noCompress += \\\"tflite\\\"\n    }\n}\n\"\"\",
+        \"LiteRT uncompressed assets\",
+    )
+    write(APP_GRADLE, gradle)
+
+
+def inspect_models() -> dict:
+""",
     "add noCompress patch",
 )
 
 # This patch helper is temporary too; the successful finalizer removes it before the real commit.
 once(
-    'SELF = Path(__file__).resolve()\nREPORT = ROOT / "yolo26_litert_report.json"\n',
-    'SELF = Path(__file__).resolve()\nPATCH_V2 = ROOT / "tools/_patch_yolo26_finalizer_v2.py"\nREPORT = ROOT / "yolo26_litert_report.json"\n',
+    """SELF = Path(__file__).resolve()
+REPORT = ROOT / "yolo26_litert_report.json"
+""",
+    """SELF = Path(__file__).resolve()
+PATCH_V2 = ROOT / "tools/_patch_yolo26_finalizer_v2.py"
+REPORT = ROOT / "yolo26_litert_report.json"
+""",
     "patch path constant",
 )
 once(
-    '    for path in (WORKFLOW, SELF, REPORT):\n',
-    '    for path in (WORKFLOW, SELF, PATCH_V2, REPORT):\n',
+    """    for path in (WORKFLOW, SELF, REPORT):
+""",
+    """    for path in (WORKFLOW, SELF, PATCH_V2, REPORT):
+""",
     "cleanup patch helper",
 )
 once(
-    '        "tools/_yolo26_litert_finalize.py",\n',
-    '        "tools/_yolo26_litert_finalize.py",\n        "tools/_patch_yolo26_finalizer_v2.py",\n',
+    """        "tools/_yolo26_litert_finalize.py",
+""",
+    """        "tools/_yolo26_litert_finalize.py",
+        "tools/_patch_yolo26_finalizer_v2.py",
+""",
     "allow patch helper deletion",
 )
 
