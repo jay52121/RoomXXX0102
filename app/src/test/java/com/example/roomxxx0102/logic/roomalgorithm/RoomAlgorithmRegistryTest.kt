@@ -8,6 +8,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RoomAlgorithmRegistryTest {
+    @Test fun allThreeGateMethodsAreSelectableAndUseDistinctKeys() {
+        val c=RoomAlgorithmRegistry.CreationConfig(null)
+        val ids=listOf("portal_v4_diff","portal_v4_lk","portal_v4_mog2")
+        val keys=ids.map { id ->
+            assertTrue(RoomAlgorithmRegistry.options().any { it.algorithmId==id })
+            val e=RoomAlgorithmRegistry.create(id,c)
+            assertEquals(id,e.algorithmId)
+            assertEquals(RoomAlgorithmRegistry.configurationKey(id,c),e.configurationKey)
+            e.configurationKey
+        }
+        assertEquals(3,keys.toSet().size)
+    }
+
     @Test
     fun portalV3IsSelectableWithoutChangingLegacyDefaults() {
         val config=RoomAlgorithmRegistry.CreationConfig(null)

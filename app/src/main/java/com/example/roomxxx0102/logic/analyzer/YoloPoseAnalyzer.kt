@@ -1,6 +1,7 @@
 package com.example.roomxxx0102.logic.analyzer
 
 import com.example.roomxxx0102.logic.roomalgorithm.flow.PortalFrameHub
+import com.example.roomxxx0102.logic.roomalgorithm.gate.GateRuntime
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
@@ -231,7 +232,7 @@ class YoloPoseAnalyzer(
             val inferenceTimeMs = System.currentTimeMillis() - startTimeMs
             val backgroundBitmap = if (drawOnOverlay) bitmap else null
             
-            onPoseAnalysisResultsUpdated(finalTrackedSubjects, backgroundBitmap, inferenceTimeMs, PortalFrameHub.PoseMetadata(sourceStamp, sourceRoi, true))
+            onPoseAnalysisResultsUpdated(finalTrackedSubjects, backgroundBitmap, inferenceTimeMs, PortalFrameHub.PoseMetadata(sourceStamp, sourceRoi, true, if (GateRuntime.enabled) bitmap else null))
 
         } catch (e: Exception) {
             Log.e(TAG, "Pose Detection Error", e)

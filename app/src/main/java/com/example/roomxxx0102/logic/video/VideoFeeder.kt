@@ -1,6 +1,9 @@
 package com.example.roomxxx0102.logic.video
 
 import com.example.roomxxx0102.logic.roomalgorithm.flow.PortalFrameHub
+import com.example.roomxxx0102.logic.roomalgorithm.gate.GateRuntime
+import com.example.roomxxx0102.logic.roomalgorithm.gate.GateSamplingPermit
+import android.os.SystemClock
 import android.content.Context
 import android.graphics.RectF
 import android.media.MediaMetadataRetriever
@@ -99,6 +102,7 @@ class VideoFeeder(
     private val inferenceExecutor = Executors.newSingleThreadExecutor()
     private val inferenceInFlight = AtomicBoolean(false)
     private var inferenceSkipStreak = 0
+    private val gateSampling = GateSamplingPermit()
 
     private val analyzeRunnable = object : Runnable {
         override fun run() {
@@ -124,6 +128,11 @@ class VideoFeeder(
                 if (skipUnchangedStillFrame) {
                     // 开启“静止时使用标准帧”后：画面未推进则不喂帧
                     handler.postDelayed(this, 100)
+                    return
+                }
+                if (GateRuntime.enabled && isPoseMode && player.isPlaying() && !hasPendingStep && !isStillMode) {
+                    sampleGateFrame(player, temporalAdvanced, suppressStagnantUnlock)
+                    handler.postDelayed(this, 8)
                     return
                 }
                 val bitmap = textureView.bitmap
@@ -374,6 +383,7 @@ class VideoFeeder(
                 "seekByMs request delta=$deltaMs mode=$seekMode " +
                     "before=$before target=$target duration=$duration isPlaying=${player.isPlaying()}"
             )
+            if (GateRuntime.enabled) PortalFrameHub.resetSource()
             player.seekTo(target.toLong(), seekMode)
             val debug = StepSeekDebug(
                 beforeMs = before,
@@ -581,6 +591,52 @@ class VideoFeeder(
             player?.stop()
             player?.release()
         } catch (e: Exception) {}
+    }
+
+    /** Reserve capacity BEFORE GPU readback. Busy periods contain no captures or pending image tasks. */
+    private fun sampleGateFrame(player: VideoPlayerFacade, temporalAdvanced: Boolean, suppressUnlock: Boolean) {
+        val start = SystemClock.elapsedRealtime()
+        if (!gateSampling.acquire(start, GateRuntime.sampleMs)) {
+            GateRuntime.skipped = gateSampling.skipped
+            return
+        }
+        if (!inferenceInFlight.compareAndSet(false, true)) { gateSampling.release(); return }
+        var submitted = false
+        try {
+            if (!textureView.isAvailable || textureView.width <= 0 || textureView.height <= 0) return
+            val originalEdge = maxOf(textureView.width, textureView.height)
+            // V4 readback resolution is explicit; use 2560 when testing small hand/ROI details.
+            val edge = GateRuntime.captureEdge
+            val scale = minOf(1.0, edge.toDouble() / originalEdge)
+            val w = (textureView.width * scale).toInt().coerceAtLeast(2)
+            val h = (textureView.height * scale).toInt().coerceAtLeast(2)
+            val bitmap = textureView.getBitmap(w, h) ?: return
+            val pos = player.getCurrentPositionMs() ?: 0
+            val stamp = PortalFrameHub.capture(bitmap, pos.toLong(), temporalAdvanced)
+            val roi = nextFrameRoi?.let(::RectF)
+            val handRoi = nextHandFrameRoi?.let(::RectF) ?: roi
+            GateRuntime.captureCostMs = SystemClock.elapsedRealtime() - start
+            lastAnalysisPositionMs = pos
+            handSmokeTester?.detect(bitmap, handRoi)
+            inferenceExecutor.execute {
+                try {
+                    if (stamp.epoch != PortalFrameHub.epoch) return@execute
+                    poseAnalyzer?.analyzeBitmapAndTrackPoses(bitmap, roi, drawOnOverlay = true,
+                        temporalAdvanced = temporalAdvanced, suppressStagnantUnlock = suppressUnlock, frameStamp = stamp)
+                } catch (e: Exception) {
+                    Log.e("PortalV4", "sample failed; not an empty detection", e)
+                } finally {
+                    GateRuntime.pipelineCostMs = SystemClock.elapsedRealtime() - start
+                    inferenceInFlight.set(false)
+                    gateSampling.release()
+                }
+            }
+            submitted = true
+        } catch (e: Exception) {
+            Log.e("PortalV4", "capture failed", e)
+        } finally {
+            if (!submitted) { inferenceInFlight.set(false); gateSampling.release() }
+        }
     }
 
     private fun submitInferenceTask(

@@ -1,6 +1,8 @@
 package com.example.roomxxx0102.ui.activities
 
 import com.example.roomxxx0102.logic.roomalgorithm.flow.PortalFrameHub
+import com.example.roomxxx0102.logic.roomalgorithm.gate.GateSettings
+import com.example.roomxxx0102.logic.roomalgorithm.gate.GateRuntime
 import com.example.roomxxx0102.data.model.BoundaryVertex
 import android.animation.ValueAnimator
 import android.widget.CheckBox
@@ -397,12 +399,13 @@ class MainActivity : ComponentActivity() {
             }
 
             // Presence 估计：独立工具类统一处理“位置判定/房间切换事件/持久化人数”
+            GateRuntime.poseCostMs = time
             val frameTimestampMs = sourceMeta.stamp.timestampMs
             val frameSeq = sourceMeta.stamp.sequence
             val frameWidth = sourceMeta.stamp.width
             val frameHeight = sourceMeta.stamp.height
             val roomResult = roomAlgorithm.processFrame(RoomAlgorithmFrameInput(
-                bitmap = bitmap,
+                bitmap = bitmap ?: sourceMeta.analysisBitmap,
                 timestampMs = frameTimestampMs,
                 frameSeq = frameSeq,
                 poses = results,
@@ -413,7 +416,7 @@ class MainActivity : ComponentActivity() {
                 sceneInfo = RoomAlgorithmSceneInfo(isVideoPlayback = isVideoMode),
                 poseMetadata = sourceMeta
             ))
-            if (roomAlgorithm.algorithmId == RoomAlgorithmRegistry.PORTAL_V3_FLOW_ID) {
+            if (roomAlgorithm.algorithmId == RoomAlgorithmRegistry.PORTAL_V3_FLOW_ID || GateSettings.isNewMethod(roomAlgorithm.algorithmId)) {
                 allRooms.forEach { it.personCount = roomResult.observedCounts[it.id] ?: 0 }
             }
             val poseSwitchDisplayByTrackId = roomResult.trackSwitchScores.mapNotNull { (trackId, hint) ->
@@ -2585,6 +2588,7 @@ class MainActivity : ComponentActivity() {
             }
             roomAlgorithm = RoomAlgorithmRegistry.create(AppSettings.roomAlgorithmId, creationConfig)
             PortalFrameHub.setEnabled(roomAlgorithm.algorithmId == RoomAlgorithmRegistry.PORTAL_V3_FLOW_ID)
+            GateSettings.activate(applicationContext, roomAlgorithm.algorithmId)
             roomAlgorithmFrameSeq = 0L
             roomPresenceChangeLogger.reset()
             Log.i(
@@ -4059,6 +4063,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         if (::roomAlgorithm.isInitialized) roomAlgorithm.reset()
         PortalFrameHub.setEnabled(false)
+        GateSettings.activate(applicationContext, null)
         splashHideHandler.removeCallbacksAndMessages(null)
         runtimeSwitchHandler.removeCallbacksAndMessages(null)
         splashLoadingAnimator?.cancel()
