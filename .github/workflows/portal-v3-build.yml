@@ -22,6 +22,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Apply final review
+        run: python tools/_portal_v3_review.py
       - name: Apply, test, build, archive and commit
         run: python tools/_portal_v3_apply.py
       - uses: actions/upload-artifact@v4
