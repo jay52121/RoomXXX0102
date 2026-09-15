@@ -46,6 +46,8 @@ internal data class FlowEvidence(
     val frameHealthy: Boolean = true,
     val backgroundReturn: Boolean = false,
     val reason: String = "",
+    val pixelChange: Double? = null,
+    val windowEvidence: List<FlowWindowEvidence> = emptyList(),
 ) {
     val live get() = samples.filter { it.current != null && it.age >= 2 }
     val cells get() = live.map { it.cell }.distinct().size
@@ -138,3 +140,26 @@ internal class FlowGroundEstimator {
 internal data class FlowEvent(val person: Int, val track: Int, val from: String, val to: String, val gate: String, val timeMs: Long, val inferred: Boolean)
 internal data class FlowPersonView(val person: Int, val track: Int, val room: String?, val ground: FlowGround?, val box: FlowBox, val status: String, val candidates: Set<String>, val accepted: Boolean)
 internal data class FlowDecision(val counts: Map<String, Int>, val lower: Map<String, Int>, val upper: Map<String, Int>, val unknown: Int, val events: List<FlowEvent>, val people: List<FlowPersonView>, val notes: List<String>)
+
+/** Window statistics are not optical flow and never extrapolate a ground point. */
+internal data class FlowWindowEvidence(
+    val gateId: String,
+    val contactCells: Int,
+    val peakPixels: Int,
+    val foregroundPixels: Int,
+    val clearForMs: Long,
+    val referenceKnown: Boolean,
+    val exclusive: Boolean,
+    val acquiredWhileVisible: Boolean,
+    val timeMs: Long,
+)
+internal data class FlowCorePolicy(
+    val windowMode: Boolean = false,
+    val gapMs: Long = 500,
+    val contactScale: Double = 0.07,
+    val confirmMs: Long = 100,
+    val admissionTravel: Double = 0.012,
+    val clearMs: Long = 200,
+    val clearRatio: Double = 0.08,
+    val terminalLifetimeMs: Long = 1200,
+)

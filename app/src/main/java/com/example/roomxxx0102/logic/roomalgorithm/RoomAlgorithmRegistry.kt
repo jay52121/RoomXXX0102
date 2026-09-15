@@ -1,6 +1,7 @@
 package com.example.roomxxx0102.logic.roomalgorithm
 
 import android.content.Context
+import com.example.roomxxx0102.logic.roomalgorithm.gate.*
 import com.example.roomxxx0102.logic.roomalgorithm.flow.PortalV3RoomAlgorithm
 import com.example.roomxxx0102.logic.presence.PresenceAlgorithmRegistry
 import com.example.roomxxx0102.logic.presence.PresenceEstimatorParams
@@ -26,7 +27,11 @@ object RoomAlgorithmRegistry {
         val factory: (CreationConfig) -> RoomAlgorithmEngine
     )
 
-    private val registrations = listOf(
+    private val registrations = GateMethod.entries.map { method ->
+        Registration(AlgorithmOption(method.id, method.label)) { config ->
+            GateRoomAlgorithm(config.appContext, GateSettings.load(config.appContext, method))
+        }
+    } + listOf(
         Registration(AlgorithmOption(PORTAL_V3_FLOW_ID, "Portal V3 · 门线与人体光流（实验）")) { config ->
             PortalV3RoomAlgorithm(config.appContext)
         },
@@ -58,6 +63,9 @@ object RoomAlgorithmRegistry {
 
     fun configurationKey(selectedId: String?, config: CreationConfig): String {
         val algorithmId = resolveAlgorithmId(selectedId)
+        GateMethod.from(algorithmId)?.let { method ->
+            return algorithmId + "|" + GateSettings.load(config.appContext, method).key
+        }
         val presenceVersion = PresenceAlgorithmRegistry.resolveVersionId(config.presenceVersionId)
         return when (algorithmId) {
             LEGACY_PRESENCE_ID -> "$algorithmId|$presenceVersion"

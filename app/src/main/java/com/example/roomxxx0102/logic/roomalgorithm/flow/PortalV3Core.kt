@@ -10,6 +10,7 @@ internal class PortalV3Core(
     private val roomIds: List<String>,
     private val aspect: Double,
     initialCounts: Map<String, Int> = emptyMap(),
+    private val policy: FlowCorePolicy = FlowCorePolicy(),
 ) {
     private data class Position(val t: Long, val ground: FlowGround)
     private data class Attempt(val gate: FlowGate, val from: String, val to: String, val t: Long, var frames: Int = 0, var last: Long = -1, val inferred: Boolean = false)
@@ -27,6 +28,8 @@ internal class PortalV3Core(
         var motion = 0.0
         val motionTrace = ArrayDeque<Pair<Long, FlowPoint>>()
         var imageTested = false
+        val pixelMotionTimes = ArrayDeque<Long>()
+        var windows = emptyList<FlowWindowEvidence>()
         var staticMotionTests = 0
         var lastFlow = -1L
         var detectorMissingSince = -1L
@@ -69,7 +72,7 @@ internal class PortalV3Core(
             p.track = -p.number; p.bootstrap = true; p.lastDetection = -100000L
             p.ground = null; p.lastStrong = -1L; p.history.clear(); p.attempt = null
             p.terminal.clear(); p.terminalFrames.clear(); p.detectorMissingSince = -1L
-            p.motionTrace.clear(); p.motion = 0.0; p.conflict = false
+            p.motionTrace.clear(); p.pixelMotionTimes.clear(); p.windows=emptyList(); p.motion = 0.0; p.conflict = false
             p.status = "IDENTITY_SOURCE_CHANGED_RETAIN_COUNTS"
         }
         return snapshot(listOf("IDENTITY_SOURCE_CHANGED_RETAIN_COUNTS"))
@@ -85,11 +88,11 @@ internal class PortalV3Core(
         events = mutableListOf(); notes = mutableListOf()
         observedTracks = detections?.map { it.id }?.toSet() ?: emptySet()
         if (timeMs <= lastTime) return snapshot(listOf("DUPLICATE_OR_REVERSED_FRAME"))
-        val gap = lastTime >= 0 && timeMs - lastTime > 500
+        val gap = lastTime >= 0 && timeMs - lastTime > policy.gapMs
         lastTime = timeMs
         if (gap || !frameHealthy) {
             people.values.forEach { p ->
-                p.attempt = null; p.terminal.clear(); p.terminalFrames.clear(); p.history.clear()
+                p.attempt = null; p.terminal.clear(); p.terminalFrames.clear(); p.history.clear(); p.windows = emptyList(); p.pixelMotionTimes.clear()
                 p.status = if (gap) "FRAME_GAP" else "FRAME_UNRELIABLE"
                 if (p.accepted) p.possible = roomIds.toSet()
             }
@@ -99,6 +102,11 @@ internal class PortalV3Core(
         for (p in people.values.toList()) {
             val flow = flows[p.track] ?: continue
             if (flow.imageAvailable) p.imageTested = true
+            if (policy.windowMode) {
+                if (flow.frameHealthy && (flow.pixelChange ?: 0.0) >= 0.025) p.pixelMotionTimes.add(timeMs)
+                while (p.pixelMotionTimes.isNotEmpty() && timeMs-p.pixelMotionTimes.first()>1200) p.pixelMotionTimes.removeFirst()
+                p.windows = if(flow.frameHealthy && !gap) flow.windowEvidence else emptyList()
+            }
             if (!flow.frameHealthy || gap) continue
             p.lastFlow = timeMs
             if (flow.reliable && flow.cells >= 3) {
@@ -166,7 +174,8 @@ internal class PortalV3Core(
             }
             for (p in people.values) {
                 if (p.number in used) continue
-                val tested = coverage == null || coverage.contains(p.box.center)
+                val tested = coverage == null || (coverage.contains(p.box.center) &&
+                    (!policy.windowMode || (coverage.contains(p.box.foot) && coverage.contains(FlowPoint(p.box.center.x,p.box.top)))))
                 if (tested && p.detectorMissingSince < 0) p.detectorMissingSince = timeMs
             }
         }
@@ -190,7 +199,9 @@ internal class PortalV3Core(
         val recentMotion = p.motionTrace.filter { t - it.first <= 1500 }.map { it.second }
         val netMotion = FlowPoint(recentMotion.sumOf { it.x }, recentMotion.sumOf { it.y }).distance(FlowPoint(0.0,0.0),aspect)
         val travel = recentMotion.sumOf { it.distance(FlowPoint(0.0,0.0),aspect) }
-        val motionOk = if (p.imageTested) netMotion >= 0.005 && netMotion >= travel * 0.45 else groundMotion >= 0.012
+        val motionOk = if (policy.windowMode) {
+            groundMotion >= policy.admissionTravel && (!p.imageTested || p.pixelMotionTimes.size >= 2)
+        } else if (p.imageTested) netMotion >= 0.005 && netMotion >= travel * 0.45 else groundMotion >= 0.012
         if (!motionOk) { p.status = "WAIT_HUMAN_MOTION"; return }
         val first = p.history.firstOrNull { it.ground.strong }?.ground?.point ?: return
         val initialRoom = locateInitial(first, p.box)
@@ -254,7 +265,7 @@ internal class PortalV3Core(
         while (p.history.isNotEmpty() && (t - p.history.first().t > 2200 || p.history.size > 40)) p.history.removeFirst()
     }
 
-    private fun band(p: Person) = (p.box.height * 0.07).coerceIn(0.009, 0.035)
+    private fun band(p: Person) = (p.box.height * policy.contactScale).coerceIn(0.009, if(policy.windowMode) 0.04 else 0.035)
     private fun margin(p: Person) = max(0.004, p.ground?.uncertainty ?: 0.012)
 
     private fun evaluateMeasured(p: Person, t: Long) {
@@ -318,7 +329,7 @@ internal class PortalV3Core(
         if (a.last != t) { a.last = t; a.frames++ }
         p.possible = setOf(a.from, a.to); p.status = "CROSSING_PENDING"
         // Two independently timed observations beyond the uncertainty band; no mandatory disappearance.
-        if (a.frames >= 2 && t - a.t >= 100 && t - p.lastEvent >= 250) commit(p, a, t)
+        if (a.frames >= 2 && t - a.t >= policy.confirmMs && t - p.lastEvent >= 250) commit(p, a, t)
     }
 
     private fun profileAgreement(key: String, motion: FlowPoint): Double {
@@ -351,7 +362,7 @@ internal class PortalV3Core(
 
     private fun evaluateHidden(p: Person, t: Long) {
         if (p.detectorMissingSince < 0 || t - p.detectorMissingSince < 150 || p.room != livingId || t - p.lastEvent < 350) return
-        if (t - p.lastStrong > 1200) {
+        if (t - p.lastStrong > policy.terminalLifetimeMs) {
             if (p.possible.isNotEmpty()) p.status = "AMBIGUOUS_PORTAL"
             return
         }
@@ -371,6 +382,21 @@ internal class PortalV3Core(
         p.possible = (options.map { it.room } + livingId).toSet()
         p.status = "AMBIGUOUS_PORTAL"
         if (eligible.isEmpty()) return
+        if (policy.windowMode) {
+            val supported = eligible.filter { g ->
+                val w = p.windows.firstOrNull { it.gateId == g.id } ?: return@filter false
+                val closeToThreshold = g.distance(last.ground.point) <= band(p) &&
+                    abs(g.side(last.ground.point)) <= max(last.ground.uncertainty*2, band(p)*0.4)
+                closeToThreshold && !g.isBlind && w.referenceKnown && w.exclusive && w.acquiredWhileVisible &&
+                    w.contactCells>=4 && w.peakPixels>=12 && t-w.timeMs in 0..policy.gapMs &&
+                    w.clearForMs>=policy.clearMs && w.foregroundPixels<=max(2,(w.peakPixels*policy.clearRatio).toInt())
+            }
+            if (supported.size==1 && t-p.detectorMissingSince>=250) {
+                val g=supported.single()
+                commit(p,Attempt(g,livingId,g.room,p.detectorMissingSince,inferred=true),t)
+            }
+            return // Pixel/window methods never reinterpret ordinary LK failure as a door transition.
+        }
         val ranked = eligible.map { gate -> gate to (p.terminal[gate.id]?.size ?: 0) }.sortedByDescending { it.second }
         val gate = ranked.first().first
         val votes = ranked.first().second
@@ -407,7 +433,7 @@ internal class PortalV3Core(
         events += FlowEvent(p.number, p.track, a.from, a.to, a.gate.id, a.t, a.inferred)
         p.room = a.to; p.possible = emptySet(); p.attempt = null
         p.status = if (a.inferred) "INFERRED_GATE_TRANSFER" else "MEASURED_GATE_TRANSFER"
-        p.lastEvent = t; p.terminal.clear(); p.terminalFrames.clear(); p.history.clear()
+        p.lastEvent = t; p.terminal.clear(); p.terminalFrames.clear(); p.history.clear(); p.windows=emptyList()
         p.detectorMissingSince = -1L
         notes += "TRANSFER:${p.number}:${a.from}->${a.to}:${a.gate.id}:${if (a.inferred) "VISUAL_OCCLUSION" else "GROUND_CROSSING"}"
     }

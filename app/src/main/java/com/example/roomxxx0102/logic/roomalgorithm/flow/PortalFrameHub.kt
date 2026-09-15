@@ -8,7 +8,7 @@ import android.os.SystemClock
 object PortalFrameHub {
     data class Stamp(val epoch: Long, val sequence: Long, val timestampMs: Long, val width: Int, val height: Int)
     internal data class GrayFrame(val stamp: Stamp, val width: Int, val height: Int, val pixels: ByteArray)
-    data class PoseMetadata(val stamp: Stamp, val roi: RectF?, val successful: Boolean)
+    data class PoseMetadata(val stamp: Stamp, val roi: RectF?, val successful: Boolean, val analysisBitmap: Bitmap? = null)
     @Volatile var enabled: Boolean = false
         private set
     @Volatile var epoch: Long = 1L
