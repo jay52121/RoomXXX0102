@@ -1,0 +1,47 @@
+name: Gate engines Android validation
+on:
+  push:
+    branches: [codex/portal-three-engines]
+    paths:
+      - .github/workflows/gate-engines-build.yml
+      - tools/_gate_integrate.py
+      - tools/_gate_validate.py
+      - app/src/main/java/com/example/roomxxx0102/logic/roomalgorithm/gate/**
+      - app/src/test/java/com/example/roomxxx0102/logic/roomalgorithm/gate/**
+permissions:
+  contents: write
+concurrency:
+  group: gate-engines-validation
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Integrate, test and build Android APK
+        run: python tools/_gate_validate.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gate-engines-test-report
+          path: |
+            /tmp/gate-validation.json
+            app/build/test-results/testDebugUnitTest/TEST-*.xml
+          retention-days: 14
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: gate-engines-apk-and-guides
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            docs/gate_engines/*.md
+          retention-days: 14
+          if-no-files-found: error
