@@ -1,5 +1,6 @@
 package com.example.roomxxx0102.ui.drawers
 
+import com.example.roomxxx0102.logic.roomalgorithm.flow.PortalV3Overlay
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
@@ -138,6 +139,7 @@ class PoseDrawer {
         drawHeight: Float,
         switchHints: Map<Int, Pair<Float, EventType>> = emptyMap()
     ) {
+        PortalV3Overlay.draw(canvas, drawLeft, drawTop, drawWidth, drawHeight)
         if (results.isEmpty()) {
             drawPortalVisualDebug(canvas, drawLeft, drawTop, drawWidth, drawHeight)
             return

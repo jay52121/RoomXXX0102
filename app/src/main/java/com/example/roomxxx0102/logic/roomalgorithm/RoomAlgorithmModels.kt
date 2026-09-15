@@ -1,5 +1,6 @@
 package com.example.roomxxx0102.logic.roomalgorithm
 
+import com.example.roomxxx0102.logic.roomalgorithm.flow.PortalFrameHub
 import android.graphics.Bitmap
 import com.example.roomxxx0102.data.model.PoseResult
 import com.example.roomxxx0102.logic.presence.PresenceDoorSnapshot
@@ -22,7 +23,8 @@ data class RoomAlgorithmFrameInput(
     val doors: List<PresenceDoorSnapshot>,
     val imageWidth: Int,
     val imageHeight: Int,
-    val sceneInfo: RoomAlgorithmSceneInfo
+    val sceneInfo: RoomAlgorithmSceneInfo,
+    val poseMetadata: PortalFrameHub.PoseMetadata? = null
 )
 
 data class RoomAlgorithmDebugInfo(

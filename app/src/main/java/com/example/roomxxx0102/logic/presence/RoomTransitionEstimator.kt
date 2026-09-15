@@ -253,7 +253,8 @@ data class PresenceSwitchEvent(
     val fromRoomId: String,
     val toRoomId: String,
     val doorId: String,
-    val reason: PresenceEventReason
+    val reason: PresenceEventReason,
+    val timestampMs: Long = -1L
 )
 
 /**

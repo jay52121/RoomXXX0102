@@ -1,5 +1,6 @@
 package com.example.roomxxx0102.ui.activities
 
+import com.example.roomxxx0102.logic.roomalgorithm.flow.PortalFrameHub
 import com.example.roomxxx0102.data.model.BoundaryVertex
 import android.animation.ValueAnimator
 import android.widget.CheckBox
@@ -356,7 +357,8 @@ class MainActivity : ComponentActivity() {
         ensureRoomAlgorithm()
 
         yoloAnalyzer = YoloAnalyzer(this, overlayView)
-        poseAnalyzer = YoloPoseAnalyzer(this) { results, bitmap, time ->
+        poseAnalyzer = YoloPoseAnalyzer(this) { results, bitmap, time, sourceMeta ->
+            if (sourceMeta.stamp.epoch != PortalFrameHub.epoch) return@YoloPoseAnalyzer
             Log.i(
                 "RoomPoseUiDiag",
                 "poseCallback results=${results.size} bitmapNull=${bitmap == null} " +
@@ -395,14 +397,10 @@ class MainActivity : ComponentActivity() {
             }
 
             // Presence 估计：独立工具类统一处理“位置判定/房间切换事件/持久化人数”
-            val frameTimestampMs = if (isVideoMode) {
-                videoFeeder?.peekLastAnalysisPositionMs()?.toLong() ?: -1L
-            } else {
-                SystemClock.elapsedRealtime()
-            }
-            val frameSeq = ++roomAlgorithmFrameSeq
-            val frameWidth = bitmap?.width ?: previewView.width.coerceAtLeast(1)
-            val frameHeight = bitmap?.height ?: previewView.height.coerceAtLeast(1)
+            val frameTimestampMs = sourceMeta.stamp.timestampMs
+            val frameSeq = sourceMeta.stamp.sequence
+            val frameWidth = sourceMeta.stamp.width
+            val frameHeight = sourceMeta.stamp.height
             val roomResult = roomAlgorithm.processFrame(RoomAlgorithmFrameInput(
                 bitmap = bitmap,
                 timestampMs = frameTimestampMs,
@@ -412,8 +410,12 @@ class MainActivity : ComponentActivity() {
                 doors = buildPresenceDoorSnapshots(allRooms),
                 imageWidth = frameWidth,
                 imageHeight = frameHeight,
-                sceneInfo = RoomAlgorithmSceneInfo(isVideoPlayback = isVideoMode)
+                sceneInfo = RoomAlgorithmSceneInfo(isVideoPlayback = isVideoMode),
+                poseMetadata = sourceMeta
             ))
+            if (roomAlgorithm.algorithmId == RoomAlgorithmRegistry.PORTAL_V3_FLOW_ID) {
+                allRooms.forEach { it.personCount = roomResult.observedCounts[it.id] ?: 0 }
+            }
             val poseSwitchDisplayByTrackId = roomResult.trackSwitchScores.mapNotNull { (trackId, hint) ->
                 val type = when (hint.type) {
                     PresenceSwitchDisplayType.ENTER_SUB_ROOM -> EventType.ENTER
@@ -2569,7 +2571,8 @@ class MainActivity : ComponentActivity() {
 
     private fun ensureRoomAlgorithm() {
         val creationConfig = RoomAlgorithmRegistry.CreationConfig(
-            presenceVersionId = AppSettings.presenceAlgorithmVersion
+            presenceVersionId = AppSettings.presenceAlgorithmVersion,
+            appContext = applicationContext
         )
         val desiredKey = RoomAlgorithmRegistry.configurationKey(
             selectedId = AppSettings.roomAlgorithmId,
@@ -2578,8 +2581,10 @@ class MainActivity : ComponentActivity() {
         if (!::roomAlgorithm.isInitialized || roomAlgorithm.configurationKey != desiredKey) {
             if (::roomAlgorithm.isInitialized) {
                 roomAlgorithm.reset()
+                PortalFrameHub.resetSource()
             }
             roomAlgorithm = RoomAlgorithmRegistry.create(AppSettings.roomAlgorithmId, creationConfig)
+            PortalFrameHub.setEnabled(roomAlgorithm.algorithmId == RoomAlgorithmRegistry.PORTAL_V3_FLOW_ID)
             roomAlgorithmFrameSeq = 0L
             roomPresenceChangeLogger.reset()
             Log.i(
@@ -3173,7 +3178,7 @@ class MainActivity : ComponentActivity() {
             val runtimeEvent = RuntimeRoomEvent(
                 type = mappedType,
                 frameIndex = frameIndex,
-                timestampMs = timestampMs
+                timestampMs = event.timestampMs.takeIf { it >= 0L } ?: timestampMs
             )
             runtimeValidationEvents.addLast(runtimeEvent)
             val fromName = roomNameById[event.fromRoomId] ?: event.fromRoomId
@@ -4005,6 +4010,7 @@ class MainActivity : ComponentActivity() {
         yoloAnalyzer?.reset()
         poseAnalyzer?.resetTrackingState()
         roomAlgorithm.reset()
+        PortalFrameHub.resetSource()
         roomAlgorithmFrameSeq = 0L
         roomPresenceChangeLogger.reset()
         roiTracker.resetSmoothing()
@@ -4051,6 +4057,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (::roomAlgorithm.isInitialized) roomAlgorithm.reset()
+        PortalFrameHub.setEnabled(false)
         splashHideHandler.removeCallbacksAndMessages(null)
         runtimeSwitchHandler.removeCallbacksAndMessages(null)
         splashLoadingAnimator?.cancel()

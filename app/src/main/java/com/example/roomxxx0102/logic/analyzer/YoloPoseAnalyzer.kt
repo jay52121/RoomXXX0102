@@ -1,5 +1,6 @@
 package com.example.roomxxx0102.logic.analyzer
 
+import com.example.roomxxx0102.logic.roomalgorithm.flow.PortalFrameHub
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
@@ -37,7 +38,7 @@ class YoloPoseAnalyzer(
      * @param inputBitmap 用于绘制覆盖层的原图 (可选)。
      * @param inferenceTimeMs 推理耗时 (毫秒)。
      */
-    private val onPoseAnalysisResultsUpdated: (List<PoseResult>, Bitmap?, Long) -> Unit
+    private val onPoseAnalysisResultsUpdated: (List<PoseResult>, Bitmap?, Long, PortalFrameHub.PoseMetadata) -> Unit
 ) : ImageAnalysis.Analyzer {
 
     companion object {
@@ -144,11 +145,14 @@ class YoloPoseAnalyzer(
         roi: RectF? = null,
         drawOnOverlay: Boolean = true,
         temporalAdvanced: Boolean = true,
-        suppressStagnantUnlock: Boolean = false
+        suppressStagnantUnlock: Boolean = false,
+        frameStamp: PortalFrameHub.Stamp? = null
     ) {
+        val sourceStamp = frameStamp ?: PortalFrameHub.capture(bitmap, advanced = temporalAdvanced)
+        val sourceRoi = roi?.let(::RectF)
         val frameId = ++heartbeatFrameId
         if (runner == null) {
-            if (drawOnOverlay) onPoseAnalysisResultsUpdated(emptyList(), bitmap, 0L)
+            onPoseAnalysisResultsUpdated(emptyList(), if (drawOnOverlay) bitmap else null, 0L, PortalFrameHub.PoseMetadata(sourceStamp, sourceRoi, false))
             return
         }
         
@@ -227,11 +231,11 @@ class YoloPoseAnalyzer(
             val inferenceTimeMs = System.currentTimeMillis() - startTimeMs
             val backgroundBitmap = if (drawOnOverlay) bitmap else null
             
-            onPoseAnalysisResultsUpdated(finalTrackedSubjects, backgroundBitmap, inferenceTimeMs)
+            onPoseAnalysisResultsUpdated(finalTrackedSubjects, backgroundBitmap, inferenceTimeMs, PortalFrameHub.PoseMetadata(sourceStamp, sourceRoi, true))
 
         } catch (e: Exception) {
             Log.e(TAG, "Pose Detection Error", e)
-            if (drawOnOverlay) onPoseAnalysisResultsUpdated(emptyList(), bitmap, 0L)
+            onPoseAnalysisResultsUpdated(emptyList(), if (drawOnOverlay) bitmap else null, 0L, PortalFrameHub.PoseMetadata(sourceStamp, sourceRoi, false))
         }
     }
 

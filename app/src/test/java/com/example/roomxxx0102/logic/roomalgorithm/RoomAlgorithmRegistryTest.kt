@@ -9,6 +9,15 @@ import org.junit.Test
 
 class RoomAlgorithmRegistryTest {
     @Test
+    fun portalV3IsSelectableWithoutChangingLegacyDefaults() {
+        val config=RoomAlgorithmRegistry.CreationConfig(null)
+        val v3=RoomAlgorithmRegistry.create(RoomAlgorithmRegistry.PORTAL_V3_FLOW_ID,config)
+        assertEquals("portal_v3_flow",v3.algorithmId)
+        assertEquals(RoomAlgorithmRegistry.LEGACY_PRESENCE_ID,RoomAlgorithmRegistry.resolveAlgorithmId(null))
+        assertTrue(RoomAlgorithmRegistry.options().any { it.algorithmId==v3.algorithmId })
+    }
+
+    @Test
     fun invalidAlgorithmIdFallsBackToLegacy() {
         val config = RoomAlgorithmRegistry.CreationConfig(
             presenceVersionId = PresenceAlgorithmRegistry.AUTO_LATEST
