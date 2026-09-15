@@ -10,7 +10,7 @@ activityCompose = "1.12.2"
 
 composeBom = "2025.12.01"
 camerax = "1.5.2" # CameraX 稳定版
-litert = "1.4.1"
+litert = "2.2.0"
 litertGpu = "1.4.1"
 mlkitObjectDetection = "17.0.2" # ML Kit Object Detection
 composeMaterialIconsExtended = "1.7.8" # Compose Material Icons Extended

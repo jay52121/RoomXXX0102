@@ -15,16 +15,7 @@ import com.example.roomxxx0102.logic.tracker.SimpleTrackerEngine
 import com.example.roomxxx0102.logic.tracker.TrackDetection
 import com.example.roomxxx0102.logic.tracker.TrackResult
 import com.example.roomxxx0102.logic.tracker.TrackerEngine
-import org.tensorflow.lite.DataType
-import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.gpu.GpuDelegate
-import org.tensorflow.lite.support.common.ops.CastOp
-import org.tensorflow.lite.support.common.ops.NormalizeOp
-import org.tensorflow.lite.support.image.ImageProcessor
-import org.tensorflow.lite.support.image.TensorImage
-import org.tensorflow.lite.support.image.ops.ResizeOp
-import java.io.FileInputStream
-import java.nio.channels.FileChannel
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -50,7 +41,7 @@ class YoloPoseAnalyzer(
 ) : ImageAnalysis.Analyzer {
 
     companion object {
-        private const val MODEL_FILE_NAME = "yolo26s_pose_float16.tflite"
+        private const val MODEL_FILE_NAME = "yolo26s-pose_w8a32.tflite"
         private const val MODEL_ARCHITECTURE = "YOLO26s-pose"
         private const val TAG = "YoloPoseAnalyzer"
 
@@ -69,15 +60,11 @@ class YoloPoseAnalyzer(
 
     }
 
-    private var interpreter: Interpreter? = null
-    private var gpuDelegate: GpuDelegate? = null
+    private var runner: LiteRtYoloRunner? = null
     
-    // [Model Input Size]: 通常为 640x640
+    // [Model Input Size]: YOLO26 官方移动端标准为 640x640
     private var modelInputWidth = 640
     private var modelInputHeight = 640
-    
-    private var tensorImage: TensorImage? = null
-    private var modelOutputBuffer: Array<Array<FloatArray>>? = null
 
     // [Tracking Engine]: 追踪引擎 (可切换本地/远程)
     private var trackerEngine: TrackerEngine = SimpleTrackerEngine()
@@ -85,13 +72,6 @@ class YoloPoseAnalyzer(
     private var lastShieldZones: List<RectF> = emptyList()
     private var heartbeatFrameId = 0
     private var lastUnlockMessage: String? = null
-
-    // [Preprocessing]: 图像预处理管线
-    private val imageProcessor = ImageProcessor.Builder()
-        .add(ResizeOp(640, 640, ResizeOp.ResizeMethod.BILINEAR)) 
-        .add(NormalizeOp(0f, 255f))
-        .add(CastOp(DataType.FLOAT32))
-        .build()
 
     init {
         initializeInterpreter()
@@ -113,110 +93,35 @@ class YoloPoseAnalyzer(
                 Log.e(TAG, "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE assetMissing=true")
                 return
             }
-
-            val afd = context.assets.openFd(MODEL_FILE_NAME)
-            val fis = FileInputStream(afd.fileDescriptor)
-            val buffer = fis.channel.map(FileChannel.MapMode.READ_ONLY, afd.startOffset, afd.declaredLength)
-            
-            interpreter = createInterpreterWithFallback(buffer)
-            val activeInterpreter = interpreter!!
-            require(activeInterpreter.getInputTensorCount() == 1) {
-                "$MODEL_ARCHITECTURE expects exactly 1 input tensor, got ${activeInterpreter.getInputTensorCount()}"
-            }
-            require(activeInterpreter.getOutputTensorCount() == 1) {
-                "$MODEL_ARCHITECTURE expects exactly 1 output tensor, got ${activeInterpreter.getOutputTensorCount()}"
-            }
-
-            val inputTensor = activeInterpreter.getInputTensor(0)
-            val inputShape = inputTensor.shape()
+            val activeRunner = LiteRtYoloRunner(
+                context = context,
+                modelAssetName = MODEL_FILE_NAME,
+                architecture = MODEL_ARCHITECTURE,
+                expectedOutputFeatures = 56,
+            )
+            runner = activeRunner
+            modelInputWidth = activeRunner.inputWidth
+            modelInputHeight = activeRunner.inputHeight
             Log.i(
                 TAG,
-                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE input[0]=" +
-                    "shape=${inputShape.contentToString()} dtype=${inputTensor.dataType()}"
+                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE quantization=w8a32 " +
+                    "input=${activeRunner.nativeInputShape.contentToString()} output=${activeRunner.outputShape.contentToString()} " +
+                    "backend=${activeRunner.backend} poseKeypoints=17 externalNms=true",
             )
-            require(inputTensor.dataType() == DataType.FLOAT32) {
-                "$MODEL_ARCHITECTURE input dtype must be FLOAT32, got ${inputTensor.dataType()}"
-            }
-            require(inputShape.contentEquals(intArrayOf(1, 640, 640, 3))) {
-                "$MODEL_ARCHITECTURE unexpected input shape ${inputShape.contentToString()}"
-            }
-            modelInputHeight = inputShape[1]
-            modelInputWidth = inputShape[2]
-
-            val outputTensor = activeInterpreter.getOutputTensor(0)
-            val outputShape = outputTensor.shape()
-            Log.i(
-                TAG,
-                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE output[0]=" +
-                    "shape=${outputShape.contentToString()} dtype=${outputTensor.dataType()}"
-            )
-            require(outputTensor.dataType() == DataType.FLOAT32) {
-                "$MODEL_ARCHITECTURE output dtype must be FLOAT32, got ${outputTensor.dataType()}"
-            }
-            require(outputShape.contentEquals(intArrayOf(1, 56, 8400))) {
-                "$MODEL_ARCHITECTURE unexpected output shape ${outputShape.contentToString()}"
-            }
-            val channels = outputShape[1]
-            val anchors = outputShape[2]
-            
-            modelOutputBuffer = Array(1) { Array(channels) { FloatArray(anchors) } }
-            tensorImage = TensorImage(DataType.FLOAT32)
-            Log.i(
-                TAG,
-                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE ready=true " +
-                    "channels=$channels anchors=$anchors externalNms=true"
-            )
-        } catch (e: Exception) {
-            interpreter = null
+        } catch (e: Throwable) {
+            runner?.close()
+            runner = null
             Log.e(
                 TAG,
                 "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE initializationFailed=true",
-                e
-            )
-        }
-    }
-
-    private fun createInterpreterWithFallback(modelBuffer: java.nio.ByteBuffer): Interpreter {
-        var candidateDelegate: GpuDelegate? = null
-        try {
-            candidateDelegate = GpuDelegate()
-            val gpuOptions = Interpreter.Options().apply { addDelegate(candidateDelegate) }
-            val gpuInterpreter = Interpreter(modelBuffer, gpuOptions)
-            gpuDelegate = candidateDelegate
-            Log.i(
-                TAG,
-                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE gpuDelegate=true backend=GPU"
-            )
-            return gpuInterpreter
-        } catch (gpuError: Throwable) {
-            try {
-                candidateDelegate?.close()
-            } catch (_: Throwable) {
-            }
-            gpuDelegate = null
-            Log.w(
-                TAG,
-                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE gpuDelegate=false fallback=XNNPACK",
-                gpuError
-            )
-        }
-
-        modelBuffer.rewind()
-        val cpuOptions = Interpreter.Options().apply {
-            setUseXNNPACK(true)
-            setNumThreads(4)
-        }
-        return Interpreter(modelBuffer, cpuOptions).also {
-            Log.i(
-                TAG,
-                "model=$MODEL_FILE_NAME architecture=$MODEL_ARCHITECTURE gpuDelegate=false backend=XNNPACK"
+                e,
             )
         }
     }
 
     // CameraX 接口实现
     override fun analyze(image: ImageProxy) {
-        if (interpreter == null) { image.close(); return }
+        if (runner == null) { image.close(); return }
         try {
             val bitmap = image.toBitmap()
             analyzeBitmapAndTrackPoses(bitmap, null, drawOnOverlay = false)
@@ -242,7 +147,7 @@ class YoloPoseAnalyzer(
         suppressStagnantUnlock: Boolean = false
     ) {
         val frameId = ++heartbeatFrameId
-        if (interpreter == null) {
+        if (runner == null) {
             if (drawOnOverlay) onPoseAnalysisResultsUpdated(emptyList(), bitmap, 0L)
             return
         }
@@ -269,15 +174,23 @@ class YoloPoseAnalyzer(
                 roiPx = null
             }
 
-            // 2. 加载与预处理
-            tensorImage!!.load(inputBitmap)
-            val input = imageProcessor.process(tensorImage)
-            
-            // 3. 模型推理
-            interpreter!!.run(input.buffer, modelOutputBuffer)
+            // 2. 保持原有 ResizeOp 的几何行为：ROI/全图直接双线性缩放到 640x640，不改成 letterbox。
+            val modelBitmap = if (inputBitmap.width == modelInputWidth && inputBitmap.height == modelInputHeight) {
+                inputBitmap
+            } else {
+                Bitmap.createScaledBitmap(inputBitmap, modelInputWidth, modelInputHeight, true)
+            }
+
+            // 3. 模型推理。LiteRT-Torch 模型通常为 NCHW，Runner 会按实际 Tensor layout 打包 RGB。
+            val activeRunner = runner ?: return
+            val output = try {
+                activeRunner.run(modelBitmap)
+            } finally {
+                if (modelBitmap !== inputBitmap) modelBitmap.recycle()
+            }
 
             // 4. 提取原始数据 (Raw Parsing)
-            val rawPoseCandidates = extractRawPosesFromModelOutput(modelOutputBuffer!![0], roiPx, bitmap.width, bitmap.height)
+            val rawPoseCandidates = extractRawPosesFromModelOutput(output, activeRunner, roiPx, bitmap.width, bitmap.height)
             if (roiPx != null) {
                 val tb = rawPoseCandidates.firstOrNull()?.box
                 RoiLogAggregator.updateRoiCoord(roiPx, tb)
@@ -403,29 +316,34 @@ class YoloPoseAnalyzer(
      * 🔥 新增：支持 ROI 坐标逆映射
      */
     private fun extractRawPosesFromModelOutput(
-        outputTensor: Array<FloatArray>, 
-        roiPx: RectF?, 
-        fullWidth: Int, 
-        fullHeight: Int
+        outputTensor: FloatArray,
+        activeRunner: LiteRtYoloRunner,
+        roiPx: RectF?,
+        fullWidth: Int,
+        fullHeight: Int,
     ): MutableList<PoseResult> {
         val results = ArrayList<PoseResult>()
-        if (outputTensor.isEmpty() || outputTensor[0].isEmpty()) return results
-        
-        val numAnchors = outputTensor[0].size 
-        val numChannels = outputTensor.size
-        
-        if (numChannels < 56) return results
+        val numAnchors = activeRunner.numAnchors
+        val numChannels = activeRunner.numFeatures
+        if (outputTensor.isEmpty() || numChannels < 56) return results
 
         for (i in 0 until numAnchors) {
-            val score = outputTensor[4][i]
+            val score = activeRunner.value(outputTensor, 4, i)
             
             if (score > MIN_CANDIDATE_SCORE_THRESHOLD) {
-                var cx = outputTensor[0][i]
-                var cy = outputTensor[1][i]
-                var w = outputTensor[2][i]
-                var h = outputTensor[3][i]
+                var cx = activeRunner.value(outputTensor, 0, i)
+                var cy = activeRunner.value(outputTensor, 1, i)
+                var w = activeRunner.value(outputTensor, 2, i)
+                var h = activeRunner.value(outputTensor, 3, i)
 
-                // 模型输出按归一化坐标处理（允许轻微越界，例如 >1）
+                // 新 LiteRT raw head 可能输出模型像素坐标，也可能是 0..1；统一归一化后再进入既有 ROI 映射。
+                val outputIsNormalized = max(max(abs(cx), abs(cy)), max(abs(w), abs(h))) <= 2f
+                if (!outputIsNormalized) {
+                    cx /= modelInputWidth
+                    cy /= modelInputHeight
+                    w /= modelInputWidth
+                    h /= modelInputHeight
+                }
 
                 if (roiPx != null) {
                     val roiW = roiPx.width()
@@ -448,13 +366,13 @@ class YoloPoseAnalyzer(
 
                 val keypoints = ArrayList<Keypoint>(17)
                 for (k in 0 until 17) {
-                    val rawKx = outputTensor[5 + k * 3][i]
-                    val rawKy = outputTensor[6 + k * 3][i]
-                    var kx = rawKx
-                    var ky = rawKy
-                    val kConf = outputTensor[7 + k * 3][i]
+                    val rawKx = activeRunner.value(outputTensor, 5 + k * 3, i)
+                    val rawKy = activeRunner.value(outputTensor, 6 + k * 3, i)
+                    var kx = if (outputIsNormalized) rawKx else rawKx / modelInputWidth
+                    var ky = if (outputIsNormalized) rawKy else rawKy / modelInputHeight
+                    val kConf = activeRunner.value(outputTensor, 7 + k * 3, i)
                     
-                    // 关键点按归一化坐标处理（允许轻微越界，例如 >1）
+                    // 关键点与 bbox 使用同一输出坐标尺度，归一化后继续既有 ROI 逆映射。
                     
                     if (roiPx != null) {
                         val roiW = roiPx.width()
