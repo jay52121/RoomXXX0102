@@ -1,0 +1,36 @@
+name: Temporary YOLO26 LiteRT w8a32 validation
+
+on:
+  pull_request:
+    branches:
+      - "9月新房间判定算法"
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.head_ref == 'codex/yolo26-litert-w8a32'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/yolo26-litert-w8a32
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install LiteRT tensor inspector
+        run: python -m pip install --disable-pip-version-check ai-edge-litert
+
+      - name: Migrate, validate, archive and commit
+        run: python tools/_yolo26_litert_finalize.py
