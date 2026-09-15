@@ -1,0 +1,28 @@
+name: Portal V4 Android verification
+on:
+  push:
+    branches: [codex/portal-v4-three-methods]
+    paths: [.github/workflows/portal-v4-verify.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect source without models or local environment
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile,subprocess
+          with zipfile.ZipFile('/tmp/portal-v4-source.zip','w',zipfile.ZIP_DEFLATED) as z:
+            for name in subprocess.check_output(['git','ls-files'],text=True).splitlines():
+              p=Path(name)
+              if p.suffix in ('.kt','.kts','.toml','.xml','.md','.py','.properties') and p.name not in ('local.properties',) and p.stat().st_size<1500000:
+                z.write(p,name)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portal-v4-source
+          path: /tmp/portal-v4-source.zip
+          retention-days: 3
