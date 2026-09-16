@@ -21,6 +21,10 @@ class PortalV4CoreTest {
             FlowJoint(FlowPoint(x+if(i%2==0) .025 else -.025,y-k),.95)
         },.9,true,false,origin
     )
+    private fun upperOnlyPerson(y:Double,id:Int=1,x:Double=.45):FlowDetection {
+        val d=person(y,id,x)
+        return d.copy(joints=d.joints.mapIndexed { i,j -> if(i>=13) j.copy(score=.05) else j })
+    }
     private fun admitLiving(c:PortalV4Core) {
         c.step(0,listOf(person(.83)))
         c.step(100,listOf(person(.81)))
@@ -29,6 +33,9 @@ class PortalV4CoreTest {
     }
     private fun depth(t:Long,v:Double,gate:String="A",id:Int=1,pixels:Int=240)=PortalDepthEvidence(
         gate,id,t,(v-.10).coerceAtLeast(0.0),v,(v+.16).coerceAtMost(1.0),pixels,true
+    )
+    private fun body(t:Long,ratio:Double,along:Double=.5,gate:String="A",id:Int=1)=PortalBodyEvidence(
+        gate,id,t,ratio,ratio,8,240,(240*ratio).toInt(),along,0.02,true
     )
 
     @Test fun strongFiniteGroundCrossingCommitsImmediately() {
@@ -112,11 +119,64 @@ class PortalV4CoreTest {
         assertEquals(1,r.counts["L"])
     }
 
-    @Test fun frameGapCancelsEpisodeWithoutMovingLedger() {
+    @Test fun sparseAnalysisGapKeepsGroundCrossingContinuity() {
         val c=core();admitLiving(c)
-        c.step(300,listOf(person(.525)),depths=mapOf(1 to listOf(depth(300,.10))))
-        val r=c.step(800,listOf(person(.47)),depths=mapOf(1 to listOf(depth(800,.70))))
+        c.step(300,listOf(person(.53)))
+        val r=c.step(800,listOf(person(.47)))
+        assertEquals(1,r.events.size)
+        assertEquals("A",r.events.single().to)
+    }
+
+    @Test fun failedInferenceHoldsEpisodeInsteadOfErasingHistory() {
+        val c=core();admitLiving(c)
+        c.step(300,listOf(person(.53)))
+        val held=c.step(650,null,frameHealthy=false)
+        assertTrue(held.events.isEmpty())
+        val r=c.step(900,listOf(person(.47)))
+        assertEquals(1,r.events.size)
+        assertEquals("A",r.events.single().to)
+    }
+
+    @Test fun wholeBodyAbsorptionCommitsOnlyAfterDisappearanceWitness() {
+        val c=core();admitLiving(c)
+        c.step(300,listOf(person(.525)),bodies=mapOf(1 to listOf(body(300,.30,.42))))
+        val peak=c.step(500,listOf(person(.525)),bodies=mapOf(1 to listOf(body(500,.88,.48))))
+        assertTrue(peak.events.isEmpty())
+        c.step(800,emptyList())
+        val r=c.step(1450,emptyList())
+        assertEquals(1,r.events.size)
+        assertEquals("A",r.events.single().to)
+        assertEquals(1,r.counts["A"])
+        assertTrue(r.events.single().inferred)
+    }
+
+    @Test fun bodyThatTraversesAlongDoorIsPassByNotEntry() {
+        val c=core();admitLiving(c)
+        c.step(300,listOf(person(.525)),bodies=mapOf(1 to listOf(body(300,.28,.18))))
+        c.step(500,listOf(person(.525)),bodies=mapOf(1 to listOf(body(500,.86,.48))))
+        val r=c.step(850,listOf(person(.525)),bodies=mapOf(1 to listOf(body(850,.30,.84))))
         assertTrue(r.events.isEmpty())
         assertEquals(1,r.counts["L"])
+        assertEquals(0,r.counts["A"])
+        assertTrue(r.notes.any{it.startsWith("PASS_BY:")})
+    }
+
+    @Test fun personVisibleBeyondApertureCancelsDeferredVisualEntry() {
+        val c=core();admitLiving(c)
+        c.step(300,listOf(upperOnlyPerson(.525)),bodies=mapOf(1 to listOf(body(300,.25,.25))),depths=mapOf(1 to listOf(depth(300,.08))))
+        c.step(500,listOf(upperOnlyPerson(.525)),bodies=mapOf(1 to listOf(body(500,.88,.50))),depths=mapOf(1 to listOf(depth(500,.32))))
+        c.step(700,listOf(upperOnlyPerson(.525)),bodies=mapOf(1 to listOf(body(700,.86,.52))),depths=mapOf(1 to listOf(depth(700,.55))))
+        // Keep portal evidence for one more sample so the old admitted ground estimate ages out;
+        // knees/feet are intentionally unavailable, matching the dining-table occlusion case.
+        c.step(800,listOf(upperOnlyPerson(.525)),bodies=mapOf(1 to listOf(body(800,.84,.53))),depths=mapOf(1 to listOf(depth(800,.55))))
+        // Still the same accepted person, now fully visible to the side of the aperture. No current
+        // portal body evidence is present because the portal sensor may already have gone idle.
+        // Move just fully beyond the aperture (left edge .61 > gate right .60) without
+        // violating the tracker continuity guard for the same biological person.
+        val r=c.step(1400,listOf(upperOnlyPerson(.70,x=.68)))
+        assertTrue(r.events.isEmpty())
+        assertEquals(1,r.counts["L"])
+        assertEquals(0,r.counts["A"])
+        assertTrue(r.notes.any{it.startsWith("PASS_BY_VISIBLE:")})
     }
 }

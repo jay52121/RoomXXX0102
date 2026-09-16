@@ -33,6 +33,12 @@ internal class PortalV4Core(
         var sourcePoint: FlowPoint?,
         val depths: ArrayDeque<DepthObs> = ArrayDeque(),
         var phase: PortalEpisodePhase = PortalEpisodePhase.CONTACT,
+        var lastEvidenceAt: Long = startedAt,
+        var minAbsorption: Double = 1.0,
+        var peakAbsorption: Double = 0.0,
+        var peakAbsorptionAt: Long = -1L,
+        var peakAlong: Double? = null,
+        var visualReadyAt: Long = -1L,
     )
     private data class WaitClear(val gate: FlowGate, val committedAt: Long, var clearSince: Long = -1L)
     private class Person(val number: Int, var track: Int, var box: FlowBox, val born: Long) {
@@ -97,25 +103,25 @@ internal class PortalV4Core(
         flows: Map<Int, FlowEvidence> = emptyMap(),
         coverage: FlowBox? = null,
         frameHealthy: Boolean = true,
+        bodies: Map<Int, List<PortalBodyEvidence>> = emptyMap(),
     ): FlowDecision {
         events = mutableListOf(); notes = mutableListOf()
         if (timeMs <= lastTime) return snapshot(listOf("DUPLICATE_OR_REVERSED_FRAME"))
-        val gap = lastTime >= 0 && timeMs - lastTime > policy.gapMs
+        val analysisGapMs = if(lastTime>=0) timeMs-lastTime else -1L
         lastTime = timeMs
         observedTracks = detections?.map { it.id }?.toSet() ?: emptySet()
-        if (gap || !frameHealthy) {
-            people.values.forEach { p ->
-                p.episode = null; p.possible = emptySet(); p.groundHistory.clear(); p.centerHistory.clear()
-                p.status = if (gap) "FRAME_GAP" else "FRAME_UNRELIABLE"
-            }
-            if (!frameHealthy) return snapshot(listOf("FRAME_UNRELIABLE_NO_TRANSITIONS"))
+        if (!frameHealthy) {
+            people.values.filter{it.accepted}.forEach { p -> if(p.waitClear==null)p.status="FRAME_UNRELIABLE_HOLD" }
+            return snapshot(listOf("FRAME_UNRELIABLE_HOLD_STATE"))
         }
+        if(analysisGapMs>policy.gapMs) notes += "SPARSE_ANALYSIS_GAP:${analysisGapMs}ms"
 
         if (detections != null) processDetections(timeMs, detections, coverage, depths)
 
         for (p in people.values.toList()) {
             if (!p.accepted || p.conflict) continue
             val currentDepths = depths[p.track].orEmpty()
+            val currentBodies = bodies[p.track].orEmpty()
             val flow = flows[p.track]
             if (p.track !in observedTracks) {
                 if (p.detectorMissingSince < 0) p.detectorMissingSince = timeMs
@@ -124,8 +130,8 @@ internal class PortalV4Core(
             if (p.waitClear != null) {
                 updateWaitClear(p, timeMs, currentDepths)
             } else {
-                ensureEpisode(p, timeMs, currentDepths)
-                evaluateEpisode(p, timeMs, currentDepths, flow)
+                ensureEpisode(p, timeMs, currentDepths, currentBodies)
+                evaluateEpisode(p, timeMs, currentDepths, currentBodies, flow)
             }
             if (timeMs - p.lastStrong > 500) p.ground = null
             if (p.episode == null && p.waitClear == null && p.status !in setOf("CONFIRMED_PERSON", "STABLE_ROOM")) {
@@ -177,7 +183,7 @@ internal class PortalV4Core(
                 if (measured.strong) {
                     p.lastStrong = t
                     p.groundHistory.add(GroundObs(t, measured))
-                    while (p.groundHistory.isNotEmpty() && t - p.groundHistory.first().t > 1800) p.groundHistory.removeFirst()
+                    while (p.groundHistory.isNotEmpty() && t - p.groundHistory.first().t > policy.depthHistoryMs) p.groundHistory.removeFirst()
                 }
             }
             if (d.locked && d.bodyValid() && !p.conflict) {
@@ -238,18 +244,20 @@ internal class PortalV4Core(
         }
     }
 
-    private fun ensureEpisode(p: Person, t: Long, depths: List<PortalDepthEvidence>) {
+    private fun ensureEpisode(p: Person, t: Long, depths: List<PortalDepthEvidence>, bodies: List<PortalBodyEvidence>) {
         if (p.episode != null || p.room == null) return
         val eligible = if (p.room == livingId) gates.filter { !it.isBlind } else gates.filter { !it.isBlind && it.room == p.room }
         if (eligible.isEmpty()) return
         data class Candidate(val gate: FlowGate, val score: Double)
         val candidates = eligible.mapNotNull { gate ->
             val depth = depths.firstOrNull { it.gateId == gate.id && it.exclusive && it.ownedPixels >= policy.depthMinPixels }
+            val body = bodies.firstOrNull { it.gateId == gate.id && it.exclusive && it.absorption >= 0.16 }
             val g = p.ground
             val groundNear = g != null && gate.along(g.point) in -0.18..1.18 && gate.distance(g.point) <= contactBand(p)
             val originBoost = p.originGate == gate.id
-            if (depth == null && !groundNear && !originBoost) null else {
+            if (depth == null && body == null && !groundNear && !originBoost) null else {
                 val score = (if (originBoost) 20.0 else 0.0) + (if (depth != null) 10.0 + depth.p80 else 0.0) +
+                    (if (body != null) 6.0 + body.absorption * 4.0 else 0.0) +
                     (if (groundNear) 5.0 - gate.distance(g!!.point) else 0.0)
                 Candidate(gate, score)
             }
@@ -273,19 +281,30 @@ internal class PortalV4Core(
         }?.ground?.point
     }
 
-    private fun evaluateEpisode(p: Person, t: Long, depths: List<PortalDepthEvidence>, flow: FlowEvidence?) {
+    private fun evaluateEpisode(p: Person, t: Long, depths: List<PortalDepthEvidence>, bodies: List<PortalBodyEvidence>, flow: FlowEvidence?) {
         val e = p.episode ?: return
-        if (t - e.startedAt > policy.episodeTimeoutMs) {
-            p.episode = null; p.possible = emptySet(); p.status = "PORTAL_EPISODE_TIMEOUT"; return
-        }
         val currentDepth = depths.firstOrNull { it.gateId == e.gate.id && it.exclusive && it.ownedPixels >= policy.depthMinPixels }
+        val currentBody = bodies.firstOrNull { it.gateId == e.gate.id && it.exclusive }
+        val bodyScore = currentBody?.absorption
         if (currentDepth != null) {
-            e.depths.add(DepthObs(t, currentDepth)); e.phase = PortalEpisodePhase.TRANSITING
-            while (e.depths.isNotEmpty() && t - e.depths.first().t > policy.episodeTimeoutMs) e.depths.removeFirst()
+            e.depths.add(DepthObs(t, currentDepth)); e.phase = PortalEpisodePhase.TRANSITING;e.lastEvidenceAt=t
+            while (e.depths.isNotEmpty() && t - e.depths.first().t > policy.depthHistoryMs) e.depths.removeFirst()
             p.lastDepth = currentDepth.median
+        }
+        if(currentBody!=null&&bodyScore!=null){
+            e.lastEvidenceAt=t;e.minAbsorption=minOf(e.minAbsorption,bodyScore)
+            if(bodyScore>e.peakAbsorption){e.peakAbsorption=bodyScore;e.peakAbsorptionAt=t;e.peakAlong=currentBody.centerAlong}
+            if(bodyScore>=policy.absorptionArmRatio)e.phase=PortalEpisodePhase.TRANSITING
         }
 
         val g = p.ground
+        if(g?.strong==true&&e.gate.along(g.point) in -0.22..1.22&&e.gate.distance(g.point)<=contactBand(p)*2.5)e.lastEvidenceAt=t
+        if (t - e.startedAt > policy.episodeTimeoutMs) {
+            p.episode = null; p.possible = emptySet(); p.status = "PORTAL_EPISODE_HARD_TIMEOUT"; return
+        }
+        if(t-e.lastEvidenceAt>policy.episodeIdleMs){
+            p.episode=null;p.possible=emptySet();p.status="PORTAL_EPISODE_IDLE_TIMEOUT";return
+        }
         if (g?.strong == true) {
             val side = e.gate.side(g.point); p.lastGroundSide = side
             val margin = max(0.004, g.uncertainty * 1.35)
@@ -304,8 +323,49 @@ internal class PortalV4Core(
             }
         }
 
+        if(e.from==livingId&&currentBody!=null&&bodyScore!=null&&e.peakAbsorption>=policy.absorptionArmRatio){
+            val peakAlong=e.peakAlong
+            if(bodyScore<=policy.absorptionReleaseRatio&&peakAlong!=null&&abs(currentBody.centerAlong-peakAlong)>=policy.absorptionPassByAlong){
+                p.episode=null;p.possible=emptySet();p.lastEvidence="BODY_PASS_BY";p.status="PASSED_PORTAL"
+                notes+="PASS_BY:${p.number}:${e.gate.id}"
+                return
+            }
+        }
+        // If the person was strongly absorbed by the aperture but is now clearly visible again with
+        // the whole detection box outside that aperture, the earlier visual evidence was a pass-by.
+        // This is intentionally a veto only: bbox geometry is never allowed to prove a transfer.
+        if(e.from==livingId&&e.peakAbsorption>=policy.absorptionArmRatio&&p.track in observedTracks&&
+            currentBody==null&&!boxOverlapsAperture(e.gate,p.box)){
+            p.episode=null;p.possible=emptySet();p.lastEvidence="BODY_PASS_BY_VISIBLE";p.status="PASSED_PORTAL"
+            notes+="PASS_BY_VISIBLE:${p.number}:${e.gate.id}"
+            return
+        }
+
         if (depthCommits(e)) {
-            commit(p, e, t, inferred = true, evidence = "PORTAL_DEPTH_MIGRATION")
+            if(e.from==livingId&&e.peakAbsorption>=policy.absorptionArmRatio){
+                if(e.visualReadyAt<0)e.visualReadyAt=t
+                p.lastEvidence="DEPTH_READY_WAIT_WITNESS"
+            }else{
+                commit(p, e, t, inferred = true, evidence = "PORTAL_DEPTH_MIGRATION")
+                return
+            }
+        }
+        if(e.from==livingId&&e.visualReadyAt>=0&&t-e.visualReadyAt>=policy.visualWitnessMs){
+            val peakAlong=e.peakAlong
+            val tangentialStable=currentBody==null||peakAlong==null||abs(currentBody.centerAlong-peakAlong)<policy.absorptionPassByAlong
+            val visiblyAbsorbed=bodyScore!=null&&bodyScore>=policy.absorptionArmRatio
+            val disappeared=p.detectorMissingSince>=0&&t-p.detectorMissingSince>=policy.visualWitnessMs
+            if(tangentialStable&&(visiblyAbsorbed||disappeared)){
+                commit(p,e,t,inferred=true,evidence="PORTAL_DEPTH_MIGRATION_WITNESSED")
+                return
+            }
+        }
+
+        val absorptionFresh=e.peakAbsorptionAt>=0&&t-e.peakAbsorptionAt<=policy.absorptionPeakFreshMs
+        val sawApproach=e.minAbsorption<=policy.absorptionArmRatio
+        if(e.from==livingId&&absorptionFresh&&sawApproach&&e.peakAbsorption>=policy.absorptionCommitRatio&&
+            p.detectorMissingSince>=0&&t-p.detectorMissingSince>=policy.visualWitnessMs){
+            commit(p,e,t,inferred=true,evidence="PORTAL_BODY_ABSORPTION")
             return
         }
 
@@ -321,7 +381,11 @@ internal class PortalV4Core(
             }
         }
         p.status = if (e.to == livingId) "TRANSITING_OUT" else "TRANSITING_IN"
-        p.lastEvidence = currentDepth?.let { "DEPTH:${"%.2f".format(it.median)}" }
+        p.lastEvidence = when {
+            currentBody!=null -> "BODY:${"%.2f".format(bodyScore)}"
+            currentDepth!=null -> "DEPTH:${"%.2f".format(currentDepth.median)}"
+            else -> p.lastEvidence
+        }
     }
 
     private fun depthCommits(e: Episode): Boolean {
@@ -375,6 +439,13 @@ internal class PortalV4Core(
     private fun lowerBodyNearThreshold(g: FlowGate, box: FlowBox, p: Person): Boolean {
         val foot = box.foot
         return g.along(foot) in -0.25..1.25 && g.distance(foot) <= clearBand(p) * 1.15
+    }
+
+    private fun boxOverlapsAperture(g: FlowGate, box: FlowBox): Boolean {
+        if(g.aperture.isEmpty()) return false
+        val l=g.aperture.minOf{it.x};val r=g.aperture.maxOf{it.x}
+        val t=g.aperture.minOf{it.y};val b=g.aperture.maxOf{it.y}
+        return box.right>l&&box.left<r&&box.bottom>t&&box.top<b
     }
 
     private fun contactBand(p: Person) = max(0.018, p.box.height * policy.contactScale * 1.35)
