@@ -6,9 +6,16 @@ class GateConfigTest {
     @Test fun methodsHaveDistinctStableIds() { assertEquals(3,GateMethod.entries.map { it.id }.toSet().size) }
     @Test fun unknownMethodIsNotSilentlyMog2() { assertEquals(null,GateMethod.from("removed")) }
     @Test fun invalidConfigCannotRemoveComputeBounds() {
-        val c=GateConfig(GateMethod.OPTICAL_FLOW,points=999999,visionEdge=9999,sampleMs=0,fbError=Double.NaN,clearRatio=Double.POSITIVE_INFINITY).checked()
-        assertEquals(384,c.points);assertEquals(960,c.visionEdge);assertEquals(33,c.sampleMs)
+        val c=GateConfig(GateMethod.OPTICAL_FLOW,points=999999,visionEdge=9999,sampleMs=0,fbError=Double.NaN,
+            clearRatio=Double.POSITIVE_INFINITY,maxActiveGates=99,historyMs=99,holdMs=99999,armScore=Double.NaN).checked()
+        assertEquals(256,c.points);assertEquals(960,c.visionEdge);assertEquals(33,c.sampleMs)
         assertEquals(1.5,c.fbError,0.0);assertEquals(0.08,c.clearRatio,0.0)
+        assertEquals(3,c.maxActiveGates);assertEquals(600,c.historyMs);assertEquals(1600,c.holdMs);assertEquals(.25,c.armScore,0.0)
+    }
+    @Test fun eventRoiDefaultsKeepNativeSourceOneSecondHistoryAndTwoGateCap() {
+        val c=GateConfig(GateMethod.DIFFERENCE)
+        assertEquals(1000,c.historyMs);assertEquals(900,c.holdMs);assertEquals(2,c.maxActiveGates)
+        assertEquals(2560,c.captureEdge);assertEquals(128,GateConfig(GateMethod.OPTICAL_FLOW).points)
     }
     @Test fun onlyOneInferencePermitCanExist() {
         val p=GateSamplingPermit();assertTrue(p.acquire(100,50))

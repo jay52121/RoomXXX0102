@@ -1,9 +1,9 @@
 package com.example.roomxxx0102.logic.roomalgorithm.gate
 
 internal enum class GateMethod(val id: String, val label: String) {
-    DIFFERENCE("portal_v4_diff", "V4-A \u5dee\u5206\u4e0e\u95e8\u5e95\u8fb9\uff08\u901f\u5ea6\u4f18\u5148\uff09"),
-    OPTICAL_FLOW("portal_v4_lk", "V4-B \u5c40\u90e8\u53cc\u5411\u5149\u6d41\uff08\u7cbe\u5ea6\u5019\u9009\uff09"),
-    MOG2("portal_v4_mog2", "V4-C OpenCV MOG2\uff08\u80cc\u666f\u5206\u79bb\uff09");
+    DIFFERENCE("portal_v4_diff", "V4-A 差分与门底边（速度优先）"),
+    OPTICAL_FLOW("portal_v4_lk", "V4-B 局部双向光流（精度候选）"),
+    MOG2("portal_v4_mog2", "V4-C OpenCV MOG2（背景分离）");
     companion object { fun from(id: String?) = entries.firstOrNull { it.id == id } }
 }
 
@@ -11,7 +11,10 @@ internal enum class GateMethod(val id: String, val label: String) {
 internal data class GateConfig(
     val method: GateMethod,
     val sampleMs: Int = 50,
-    val captureEdge: Int = 1280,
+    // 2560 means the current ~2232-wide test video is captured without a Portal-specific downscale.
+    // Pose still performs its own model resize; V4.1 crops each portal directly from this source bitmap.
+    val captureEdge: Int = 2560,
+    // Legacy compatibility only. EventGateVision never uses a whole-frame visionEdge working image.
     val visionEdge: Int = if (method == GateMethod.OPTICAL_FLOW) 640 else 480,
     val maxGapMs: Int = 300,
     val pixelThreshold: Int = 18,
@@ -22,23 +25,35 @@ internal data class GateConfig(
     val confirmMs: Int = 120,
     val admissionTravel: Double = 0.012,
     val episodeMs: Int = 1400,
-    val points: Int = 192,
+    val points: Int = 128,
     val fbError: Double = 1.5,
     val pyramidLevel: Int = 2,
     val optionalBudgetMs: Int = 30,
     val mogVariance: Double = 16.0,
     val backgroundRate: Double = 0.025,
+    // Event-driven V4.1 controls.
+    val historyMs: Int = 1000,
+    val holdMs: Int = 900,
+    val armScore: Double = 0.25,
+    val armDistanceScale: Double = 0.28,
+    val cropPadding: Double = 0.015,
+    val maxActiveGates: Int = 2,
+    val contourMinArea: Double = 6.0,
 ) {
     fun checked() = copy(
-        sampleMs=sampleMs.coerceIn(33,200), captureEdge=captureEdge.coerceIn(640,2560),
+        sampleMs=sampleMs.coerceIn(33,200), captureEdge=captureEdge.coerceIn(960,2560),
         visionEdge=visionEdge.coerceIn(320,960), maxGapMs=maxGapMs.coerceIn(150,500),
         pixelThreshold=pixelThreshold.coerceIn(8,60), backgroundMs=backgroundMs.coerceIn(300,5000),
         clearMs=clearMs.coerceIn(120,1000), clearRatio=finite(clearRatio,0.08).coerceIn(0.02,0.20),
         contactScale=finite(contactScale,0.10).coerceIn(0.05,0.20), confirmMs=confirmMs.coerceIn(100,600),
         admissionTravel=finite(admissionTravel,0.012).coerceIn(0.005,0.04), episodeMs=episodeMs.coerceIn(600,2500),
-        points=points.coerceIn(64,384), fbError=finite(fbError,1.5).coerceIn(0.5,3.0),
-        pyramidLevel=pyramidLevel.coerceIn(1,3), optionalBudgetMs=optionalBudgetMs.coerceIn(10,60),
-        mogVariance=finite(mogVariance,16.0).coerceIn(8.0,64.0), backgroundRate=finite(backgroundRate,0.025).coerceIn(0.002,0.08)
+        points=points.coerceIn(48,256), fbError=finite(fbError,1.5).coerceIn(0.5,3.0),
+        pyramidLevel=pyramidLevel.coerceIn(1,3), optionalBudgetMs=optionalBudgetMs.coerceIn(10,80),
+        mogVariance=finite(mogVariance,16.0).coerceIn(8.0,64.0), backgroundRate=finite(backgroundRate,0.025).coerceIn(0.002,0.08),
+        historyMs=historyMs.coerceIn(600,1600), holdMs=holdMs.coerceIn(400,1600),
+        armScore=finite(armScore,0.25).coerceIn(0.10,0.80), armDistanceScale=finite(armDistanceScale,0.28).coerceIn(0.12,0.50),
+        cropPadding=finite(cropPadding,0.015).coerceIn(0.0,0.08), maxActiveGates=maxActiveGates.coerceIn(1,3),
+        contourMinArea=finite(contourMinArea,6.0).coerceIn(2.0,80.0)
     )
     val key get() = toString()
     private fun finite(v: Double, default: Double) = if(v.isFinite()) v else default

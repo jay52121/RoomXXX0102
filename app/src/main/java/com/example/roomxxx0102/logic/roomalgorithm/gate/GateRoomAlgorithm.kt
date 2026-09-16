@@ -6,13 +6,13 @@ import com.example.roomxxx0102.logic.roomalgorithm.*
 import com.example.roomxxx0102.logic.roomalgorithm.flow.*
 import com.example.roomxxx0102.logic.presence.*
 
-/** Three real measurement backends share one ledger and the same ground-crossing policy. */
+/** Three measurement backends share one ledger and one event-driven portal scheduler. */
 class GateRoomAlgorithm internal constructor(private val context:Context?,private val config:GateConfig):RoomAlgorithmEngine {
     override val algorithmId=config.method.id
     override val configurationKey=algorithmId+"|"+config.key
-    override val runtimeTag="GateV4-${config.method.name}-1.0"
+    override val runtimeTag="GateV4.1-${config.method.name}-EVENT_ROI"
     private var core:PortalV3Core?=null
-    private var vision:GateVision?=null
+    private var vision:GateEventVision?=null
     private var lastDecision:FlowDecision?=null
     private var roomCache=emptyList<PresenceRoomSnapshot>()
     private var doorCache=emptyList<PresenceDoorSnapshot>()
@@ -20,7 +20,7 @@ class GateRoomAlgorithm internal constructor(private val context:Context?,privat
     private var initialKnown=false;private var baselineRevision=-1L
     private var identitySource="";private var geometryAspect=0.0
     private var logAt=-1L
-    private var lastResult:GateVisionResult?=null
+    private var lastResult:GateEventVisionResult?=null
 
     @Synchronized override fun processFrame(input:RoomAlgorithmFrameInput):RoomAlgorithmFrameResult {
         val meta=input.poseMetadata
@@ -45,16 +45,16 @@ class GateRoomAlgorithm internal constructor(private val context:Context?,privat
                 if(initialKnown) baseline.counts else emptyMap(),
                 FlowCorePolicy(true,config.maxGapMs.toLong(),config.contactScale,config.confirmMs.toLong(),config.admissionTravel,
                     config.clearMs.toLong(),config.clearRatio,config.episodeMs.toLong()))
-            vision=GateVision.create(gates,config)
+            vision=GateEventVision.create(gates,config)
             roomCache=input.rooms.toList();doorCache=input.doors.toList();baselineRevision=baseline.revision
             epoch=sourceEpoch;lastTime=-1;lastSequence=-1;lastDecision=null;identitySource="";lastResult=null;geometryAspect=aspect
-            Log.i("PortalV4","method=$algorithmId gates=${gates.size}/${input.doors.size} initialKnown=$initialKnown config=$config")
+            Log.i("PortalV4","runtime=$runtimeTag method=$algorithmId gates=${gates.size}/${input.doors.size} initialKnown=$initialKnown config=$config")
         }
         if(seq<=lastSequence || time<=lastTime) return result(input,emptyList(),listOf("DUPLICATE_OR_REVERSED_FRAME"))
         val engine=core!!
         val source=input.poses.firstOrNull()?.idSource?.name?:identitySource
         if(identitySource.isNotEmpty() && source!=identitySource) {
-            lastDecision=engine.detachIdentitySource();vision?.close();vision=GateVision.create(engine.gates,config)
+            lastDecision=engine.detachIdentitySource();vision?.close();vision=GateEventVision.create(engine.gates,config)
         }
         identitySource=source
         val detections=input.poses.map { d -> FlowDetection(d.id,FlowBox(d.box.left.toDouble(),d.box.top.toDouble(),d.box.right.toDouble(),d.box.bottom.toDouble()),
@@ -74,9 +74,9 @@ class GateRoomAlgorithm internal constructor(private val context:Context?,privat
         GateOverlay.publish(config.method.label,decision,engine.gates,visual,initialKnown,input.rooms.associate { it.roomId to it.roomName },config)
         if(time-logAt>=1000 || decision.events.isNotEmpty()) {
             logAt=time
-            Log.i("PortalV4","method=$algorithmId t=$time seq=$seq poseMs=${GateRuntime.poseCostMs} visionMs=${visual?.costMs?:0} " +
-                "roomMs=${(System.nanoTime()-start)/1000000} points=${visual?.points?:0} queue=0 skipped=${GateRuntime.skipped} " +
-                "events=${decision.events} notes=$notes")
+            Log.i("PortalV4","runtime=$runtimeTag t=$time seq=$seq poseMs=${GateRuntime.poseCostMs} visionMs=${visual?.costMs?:0} " +
+                "roomMs=${(System.nanoTime()-start)/1000000} activeGates=${visual?.activeGates?:0} historyKB=${(visual?.historyBytes?:0)/1024} " +
+                "points=${visual?.points?:0} queue=0 skipped=${GateRuntime.skipped} events=${decision.events} notes=$notes")
         }
         return result(input,decision.events,notes)
     }
@@ -87,8 +87,9 @@ class GateRoomAlgorithm internal constructor(private val context:Context?,privat
         return RoomAlgorithmFrameResult(observed,counts,
             events.map { PresenceSwitchEvent(it.track,it.from,it.to,it.gate,if(it.inferred) PresenceEventReason.PENDING_CONFIRMED else PresenceEventReason.VISIBLE_SWITCH,it.timeMs) },
             emptyMap(),notes.takeLast(12),emptyMap(),RoomAlgorithmDebugInfo(config.method.label,
-                mapOf("initialKnown" to initialKnown.toString(),"lower" to d?.lower.toString(),"upperKnownPeople" to d?.upper.toString(),
-                    "visionMs" to (lastResult?.costMs?:0).toString(),"queueDepth" to "0","config" to config.key)))
+                mapOf("runtime" to runtimeTag,"initialKnown" to initialKnown.toString(),"lower" to d?.lower.toString(),"upperKnownPeople" to d?.upper.toString(),
+                    "visionMs" to (lastResult?.costMs?:0).toString(),"activeGates" to (lastResult?.activeGates?:0).toString(),
+                    "historyKB" to ((lastResult?.historyBytes?:0)/1024).toString(),"queueDepth" to "0","config" to config.key)))
     }
     @Synchronized override fun reset() {
         vision?.close();vision=null;core=null;lastDecision=null;lastResult=null
