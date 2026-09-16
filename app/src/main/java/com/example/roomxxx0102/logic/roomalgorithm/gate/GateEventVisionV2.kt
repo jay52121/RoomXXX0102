@@ -21,6 +21,8 @@ internal data class GateEventTileView(
     val phase: GateSensorPhase,
     val owner: Int?,
     val referenceKnown: Boolean,
+    val schedulerDistance: Double? = null,
+    val contact: Boolean = false,
 )
 
 internal data class GateEventVisionResult(
@@ -35,6 +37,7 @@ internal data class GateEventVisionResult(
     val notes: List<String>,
     val origin: Pair<Int,String>? = null,
     val depths: Map<Int, List<PortalDepthEvidence>> = emptyMap(),
+    val diagnostics: List<GatePortalDiagnostic> = emptyList(),
 )
 
 /**
@@ -72,7 +75,13 @@ internal class GateEventVision private constructor(
         }
         fun release(){resetEpisode(true);mask.release()}
     }
-    private data class ActiveResult(val view:GateEventTileView,val evidence:FlowEvidence,val note:String?,val depth:PortalDepthEvidence?)
+    private data class ActiveResult(
+        val view:GateEventTileView,
+        val evidence:FlowEvidence,
+        val note:String?,
+        val depth:PortalDepthEvidence?,
+        val diagnostic:GatePortalDiagnostic?,
+    )
 
     private val scheduler=GateActivityScheduler(cfg)
     private val lk=if(cfg.method==GateMethod.OPTICAL_FLOW) GateEventLk(cfg) else null
@@ -86,6 +95,7 @@ internal class GateEventVision private constructor(
     fun update(source:Bitmap,timeMs:Long,detections:List<FlowDetection>,people:List<FlowPersonView>,coverage:FlowBox?):GateEventVisionResult {
         val started=System.nanoTime();val notes=mutableListOf<String>();val flows=linkedMapOf<Int,FlowEvidence>()
         val depths=linkedMapOf<Int,MutableList<PortalDepthEvidence>>()
+        val diagnostics=mutableListOf<GatePortalDiagnostic>()
         val views=mutableListOf<GateEventTileView>();val samples=mutableListOf<FlowSample>();var origin:Pair<Int,String>?=null
         val current=linkedMapOf<String,Mat>()
         try {
@@ -127,6 +137,7 @@ internal class GateEventVision private constructor(
                 val result=processActive(state,gray,detection,decision,timeMs,coverage,exclusive,started)
                 views+=result.view;flows[owner]=merge(flows[owner],result.evidence);samples+=result.evidence.samples;result.note?.let(notes::add)
                 result.depth?.let{depths.getOrPut(owner){mutableListOf()}.add(it)}
+                result.diagnostic?.let(diagnostics::add)
             }
 
             // Late exit: once the strict tracker locks a person (~0.5s in normal footage), replay only
@@ -153,7 +164,10 @@ internal class GateEventVision private constructor(
             // Active frames are also retained; append after replay so the current answer cannot leak into history.
             for(id in processing){ val state=states[id]?:continue;val gray=current[id]?:continue;appendHistory(state,timeMs,gray) }
             current.values.forEach{it.release()};previousTime=timeMs;if(originTried.size>64)originTried.clear()
-            return GateEventVisionResult(flows,views,samples,healthy,elapsed(started),lk?.pointCount?:0,processing.size,historyBytes(),notes,origin,depths.mapValues{it.value.toList()})
+            return GateEventVisionResult(
+                flows,views,samples,healthy,elapsed(started),lk?.pointCount?:0,processing.size,historyBytes(),notes,origin,
+                depths.mapValues{it.value.toList()},diagnostics.toList()
+            )
         }catch(e:Exception){
             GateMaskDebug.clear()
             current.values.forEach{runCatching{it.release()}}
@@ -205,9 +219,28 @@ internal class GateEventVision private constructor(
                 }
             }
             val depth=if(owner>=0) portalDepthEvidence(state,owner,debugOwned,timeMs,exclusive) else null
+            val diagnostic=if(GateDiagnosticBus.isCapturing()) GatePortalDiagnostic(
+                gateId=state.gate.id,
+                ownerTrack=state.owner,
+                phase=decision.phase.name,
+                schedulerDistance=decision.distance.takeIf{it.isFinite()},
+                contact=decision.contact,
+                referenceKnown=state.referenceKnown,
+                exclusive=exclusive,
+                foregroundPixels=remaining,
+                peakPixels=state.clear.peak,
+                clearForMs=clearFor,
+                historyFrames=state.history.size,
+                bodyMotionRatio=pixelChange,
+                motion=maskDigest(state,motion),
+                owned=maskDigest(state,debugOwned),
+            ) else null
             gray.copyTo(state.previous);state.lastProcessed=timeMs
-            val view=GateEventTileView(state.gate.id,rectBox(state.rect),emptyList(),remaining,ownCount,state.history.size,decision.phase,state.owner,state.referenceKnown)
-            return ActiveResult(view,evidence,if(lk?.budgetExceeded==true)"OPTIONAL_LK_BUDGET_REACHED" else null,depth)
+            val view=GateEventTileView(
+                state.gate.id,rectBox(state.rect),emptyList(),remaining,ownCount,state.history.size,decision.phase,state.owner,
+                state.referenceKnown,decision.distance.takeIf{it.isFinite()},decision.contact
+            )
+            return ActiveResult(view,evidence,if(lk?.budgetExceeded==true)"OPTIONAL_LK_BUDGET_REACHED" else null,depth,diagnostic)
         }finally{ownership?.release();raw.release();foreground.release();diff.release();motion.release()}
     }
 
@@ -278,13 +311,47 @@ internal class GateEventVision private constructor(
     private fun viewIdle(state:PortalState,d:GateSensorDecision):GateEventTileView {
         // ARMED/OFF does no pixel processing, so never leave a stale ACTIVE mask on screen.
         GateMaskDebug.clearGate(state.gate.id)
-        return GateEventTileView(state.gate.id,rectBox(state.rect),emptyList(),0,if(state.owned.empty())0 else Core.countNonZero(state.owned),state.history.size,d.phase,d.ownerTrack,state.referenceKnown)
+        return GateEventTileView(
+            state.gate.id,rectBox(state.rect),emptyList(),0,if(state.owned.empty())0 else Core.countNonZero(state.owned),
+            state.history.size,d.phase,d.ownerTrack,state.referenceKnown,d.distance.takeIf{it.isFinite()},d.contact
+        )
     }
     private fun overlapsGate(g:FlowGate,d:FlowDetection):Boolean {
         val l=g.aperture.minOf{it.x};val r=g.aperture.maxOf{it.x};val t=g.aperture.minOf{it.y};val b=g.aperture.maxOf{it.y}
         val lowerTop=d.box.top+d.box.height*.50
         return d.box.right>l&&d.box.left<r&&d.box.bottom>t&&lowerTop<b
     }
+    /** 诊断专用：8个门深度带 x 4个门宽带，占用率量化到0..255。 */
+    private fun maskDigest(state:PortalState,mask:Mat?):GateMaskDigest? {
+        if(mask==null||mask.empty())return null
+        val w=mask.cols();val h=mask.rows();if(w<=0||h<=0)return null
+        val bytes=ByteArray(w*h);mask.get(0,0,bytes)
+        val gateBytes=ByteArray(w*h);state.mask.get(0,0,gateBytes)
+        val depthScale=max(0.004,state.gate.aperture.maxOfOrNull{(-state.gate.side(it)).coerceAtLeast(0.0)}?:0.0)
+        val bins=IntArray(64);val hits=IntArray(32);val capacity=IntArray(32);var count=0
+        for(y in 0 until h)for(x in 0 until w){
+            val offset=y*w+x
+            if((gateBytes[offset].toInt() and 255)==0)continue
+            val p=FlowPoint((state.rect.x+x+.5)/sourceWidth,(state.rect.y+y+.5)/sourceHeight)
+            val depth=(-state.gate.side(p)/depthScale).coerceIn(0.0,1.0)
+            val along=state.gate.along(p).coerceIn(0.0,1.0)
+            val di=(depth*8.0).toInt().coerceIn(0,7)
+            val ui=(along*4.0).toInt().coerceIn(0,3)
+            val gi=di*4+ui
+            capacity[gi]++
+            if((bytes[offset].toInt() and 255)==0)continue
+            hits[gi]++;bins[(depth*63.0).roundToInt().coerceIn(0,63)]++;count++
+        }
+        if(count==0)return GateMaskDigest(0,null,null,null,List(32){0})
+        fun q(frac:Double):Double{
+            val target=max(1,ceil(count*frac).toInt());var seen=0
+            for(i in bins.indices){seen+=bins[i];if(seen>=target)return i/63.0}
+            return 1.0
+        }
+        val grid=List(32){i->if(capacity[i]<=0)0 else ((hits[i]*255.0/capacity[i]).roundToInt()).coerceIn(0,255)}
+        return GateMaskDigest(count,q(.20),q(.50),q(.80),grid)
+    }
+
     private fun portalDepthEvidence(state:PortalState,track:Int,mask:Mat?,timeMs:Long,exclusive:Boolean):PortalDepthEvidence? {
         if(mask==null||mask.empty())return null
         val w=mask.cols();val h=mask.rows();if(w<=0||h<=0)return null
