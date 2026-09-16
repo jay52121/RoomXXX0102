@@ -21,18 +21,20 @@ jobs:
           java-version: '17'
           cache: gradle
       - name: Apply V4.2 integration patch
-        run: python tools/patch_portal_v42_core.py
+        run: |
+          python tools/patch_portal_v42_core.py
+          python tools/patch_portal_v42_waitclear.py
       - name: Unit tests and debug APK
         run: |
           chmod +x gradlew
           ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
       - name: Remove temporary patch machinery
-        run: python -c "from pathlib import Path; [p.unlink() for p in [Path('.github/workflows/portal-v42-episode-core.yml'), Path('tools/patch_portal_v42_core.py')] if p.exists()]"
+        run: python -c "from pathlib import Path; [p.unlink() for p in [Path('.github/workflows/portal-v42-episode-core.yml'), Path('tools/patch_portal_v42_core.py'), Path('tools/patch_portal_v42_waitclear.py')] if p.exists()]"
       - name: Commit verified V4.2 source
         run: |
           git config user.name "OpenAI Codex"
           git config user.email "codex@openai.com"
-          git add -A app/src/main/java/com/example/roomxxx0102/logic/roomalgorithm/gate app/src/test/java/com/example/roomxxx0102/logic/roomalgorithm/gate .github/workflows/portal-v42-episode-core.yml tools/patch_portal_v42_core.py
+          git add -A app/src/main/java/com/example/roomxxx0102/logic/roomalgorithm/gate app/src/test/java/com/example/roomxxx0102/logic/roomalgorithm/gate .github/workflows/portal-v42-episode-core.yml tools/patch_portal_v42_core.py tools/patch_portal_v42_waitclear.py
           git commit -m "feat: replace V4 transition core with portal episodes"
           git push origin HEAD:codex/portal-v42-episode-core
       - name: Upload APK
