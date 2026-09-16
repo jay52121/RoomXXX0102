@@ -1,1 +1,1 @@
-我先只改“人体视觉证据怎么画”，不碰开关门/开关灯逻辑：把当前误导性的填充外轮廓拆成 **真实 MotionMask、真实 ForegroundMask、HumanOwnedMask** 三层，并保证调试显示不再把轮廓内部没变化的像素涂黄。
+开始。我这轮会**冻结现有视觉层**，只重写 V4 的“进出门大脑”：新增 `PortalV4Core` + Portal depth 证据 + 单次门 episode 状态机 + `WAIT_CLEAR` 防反跳，并先把单人单门往返做成确定性测试，再接回现有 A/B/C 三套视觉。
