@@ -7,10 +7,10 @@ import com.example.roomxxx0102.logic.roomalgorithm.flow.*
 import java.util.Locale
 
 object GateOverlay {
-    private data class Snapshot(val label:String,val d:FlowDecision,val gates:List<FlowGate>,val v:GateEventVisionResult?,val known:Boolean,val names:Map<String,String>)
+    private data class Snapshot(val label:String,val d:FlowDecision,val gates:List<FlowGate>,val v:GateEventVisionResult?,val known:Boolean,val names:Map<String,String>,val coreDebug:Map<Int,PortalV4PersonDebug>)
     @Volatile private var snapshot:Snapshot?=null
-    internal fun publish(label:String,d:FlowDecision,gates:List<FlowGate>,v:GateEventVisionResult?,known:Boolean,names:Map<String,String>,config:GateConfig) {
-        snapshot=Snapshot(label,d,gates.toList(),v,known,names.toMap())
+    internal fun publish(label:String,d:FlowDecision,gates:List<FlowGate>,v:GateEventVisionResult?,known:Boolean,names:Map<String,String>,config:GateConfig,coreDebug:Map<Int,PortalV4PersonDebug> = emptyMap()) {
+        snapshot=Snapshot(label,d,gates.toList(),v,known,names.toMap(),coreDebug)
     }
     fun clear() { snapshot=null }
     fun snapshotPanelLines(): List<String> {
@@ -31,6 +31,11 @@ object GateOverlay {
         val masks=s.v?.tiles.orEmpty().mapNotNull { GateMaskDebug.snapshot(it.gate) }
         lines+="像素 动态 ${masks.sumOf{it.motionPixels}}  背景差 ${masks.sumOf{it.backgroundPixels}}  人体 ${masks.sumOf{it.ownedPixels}}"
         lines+="黄色=逐像素帧间变化  橙色=逐像素参考背景差  青色=人体归属  绿色线=B版光流"
+        s.coreDebug.values.filter{it.phase!=null}.take(3).forEach { d ->
+            val depth=d.depth?.let{String.format(Locale.US,"%.2f",it)}?:"-"
+            val side=d.groundSide?.let{String.format(Locale.US,"%.3f",it)}?:"-"
+            lines+="#${d.track} ${d.phase} ${d.direction?:""} gate=${d.gateId?:"-"} depth=$depth side=$side ${d.evidence?:""}"
+        }
         if(s.v==null) lines+="本地视觉不可用：仅使用门底边"
         if(s.v?.notes?.any { it.contains("SCENE_CHANGED") }==true) lines+="稀疏全局采样检测到画面整体变化"
         return lines
@@ -104,9 +109,20 @@ object GateOverlay {
                 "PERSON_OVERLAP","IDENTITY_CONFLICT","UNRESOLVED_IDENTITY"->"身份待定"
                 "INFERRED_GATE_TRANSFER"->"门口遮挡迁移"
                 "MEASURED_GATE_TRANSFER"->"脚点跨门确认"
-                else->if(person.accepted) "已接纳" else "待观察"
+                "TRANSITING_IN"->"进门中"
+                "TRANSITING_OUT"->"出门中"
+                "WAIT_CLEAR"->"已提交·等待离门"
+                "STABLE_LIVING"->"稳定客厅"
+                "STABLE_ROOM"->"稳定房内"
+                else->if(person.accepted) person.status else "待观察"
             }
-            canvas.drawText("#${person.person} $status",x(person.box.left),y(person.box.top).coerceAtLeast(top+20*unit),paint)
+            val textY=y(person.box.top).coerceAtLeast(top+20*unit)
+            canvas.drawText("#${person.person} $status",x(person.box.left),textY,paint)
+            s.coreDebug[person.track]?.let { d ->
+                val depth=d.depth?.let{String.format(Locale.US,"%.2f",it)}?:"-"
+                val side=d.groundSide?.let{String.format(Locale.US,"%.3f",it)}?:"-"
+                canvas.drawText("${d.phase?:"STABLE"} ${d.direction?:""} D=$depth S=$side ${d.evidence?:""}",x(person.box.left),textY+16*unit,paint)
+            }
         }
         canvas.restoreToCount(save)
     }

@@ -358,7 +358,9 @@ internal class PortalV4Core(
         val groundNear = p.ground?.let { g ->
             w.gate.along(g.point) in -0.20..1.20 && w.gate.distance(g.point) <= clearBand(p)
         } == true
-        val bodyNear = p.track in observedTracks && lowerBodyOverlaps(w.gate, p.box)
+        // WAIT_CLEAR is a threshold lock, not an aperture lock. A long portal may extend deep
+        // into the sub-room, so bbox overlap with the whole aperture must not block a later exit.
+        val bodyNear = p.track in observedTracks && lowerBodyNearThreshold(w.gate, p.box, p)
         val near = depthNear || groundNear || bodyNear
         if (near) {
             w.clearSince = -1L; p.status = "WAIT_CLEAR"; return
@@ -370,11 +372,9 @@ internal class PortalV4Core(
         } else p.status = "WAIT_CLEAR"
     }
 
-    private fun lowerBodyOverlaps(g: FlowGate, box: FlowBox): Boolean {
-        val l = g.aperture.minOf { it.x }; val r = g.aperture.maxOf { it.x }
-        val top = g.aperture.minOf { it.y }; val bottom = g.aperture.maxOf { it.y }
-        val lowerTop = box.top + box.height * 0.55
-        return box.right > l && box.left < r && box.bottom > top && lowerTop < bottom
+    private fun lowerBodyNearThreshold(g: FlowGate, box: FlowBox, p: Person): Boolean {
+        val foot = box.foot
+        return g.along(foot) in -0.25..1.25 && g.distance(foot) <= clearBand(p) * 1.15
     }
 
     private fun contactBand(p: Person) = max(0.018, p.box.height * policy.contactScale * 1.35)
