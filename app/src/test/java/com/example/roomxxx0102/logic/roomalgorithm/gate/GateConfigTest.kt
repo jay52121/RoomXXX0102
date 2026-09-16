@@ -12,10 +12,10 @@ class GateConfigTest {
         assertEquals(1.5,c.fbError,0.0);assertEquals(0.08,c.clearRatio,0.0)
         assertEquals(3,c.maxActiveGates);assertEquals(600,c.historyMs);assertEquals(1600,c.holdMs);assertEquals(.25,c.armScore,0.0)
     }
-    @Test fun eventRoiDefaultsKeepOneSecondHistoryAndTwoGateCap() {
+    @Test fun eventRoiDefaultsKeepNativeSourceOneSecondHistoryAndTwoGateCap() {
         val c=GateConfig(GateMethod.DIFFERENCE)
         assertEquals(1000,c.historyMs);assertEquals(900,c.holdMs);assertEquals(2,c.maxActiveGates)
-        assertEquals(1920,c.captureEdge);assertEquals(128,GateConfig(GateMethod.OPTICAL_FLOW).points)
+        assertEquals(2560,c.captureEdge);assertEquals(128,GateConfig(GateMethod.OPTICAL_FLOW).points)
     }
     @Test fun onlyOneInferencePermitCanExist() {
         val p=GateSamplingPermit();assertTrue(p.acquire(100,50))
