@@ -8284,3 +8284,12 @@ ROI抖动日志:
     *   涉及方法：无
 
 ---
+
+
+## 2026-09-17 V4.3 continuity + whole-body absorption
+- Sparse YOLO/Pose analysis intervals are no longer treated as video discontinuities. Epoch/seek/time reversal remains the hard continuity boundary.
+- Failed inference holds the portal episode instead of erasing Ground/Depth/body history.
+- Portal episode lifetime is evidence-driven with an idle timeout plus a separate hard stale cap.
+- Added whole-body portal absorption evidence from all visible pose points plus local body-mask overlap; feet are not required.
+- Visual-only entry is delayed by a witness interval. If the same body emerges along the other side of the aperture, it is classified as pass-by and the pending transfer is cancelled. This specifically protects the occluded-foot children-room doorway case.
+- Door opening/closing and lighting-state modelling remain separate future work; the new absorption evidence itself is person-bound and does not promote raw door motion to a transfer.

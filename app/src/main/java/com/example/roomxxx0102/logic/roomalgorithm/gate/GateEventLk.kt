@@ -67,7 +67,7 @@ internal class GateEventLk(private val cfg: GateConfig) {
             return FlowEvidence(owner, imageAvailable = true, reliable = false, reason = "LK_BUDGET_SKIP")
         }
         val state = states.getOrPut(gate.id) { State(owner, timeMs) }
-        if (state.owner != owner || timeMs <= state.time || timeMs - state.time > cfg.maxGapMs) {
+        if (state.owner != owner || timeMs <= state.time || timeMs - state.time > max(1200L, cfg.maxGapMs.toLong() * 4L)) {
             state.owner = owner
             state.dots = emptyList()
             state.seeded = -10000L
