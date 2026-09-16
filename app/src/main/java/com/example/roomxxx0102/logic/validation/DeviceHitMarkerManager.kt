@@ -168,11 +168,22 @@ class DeviceHitMarkerManager {
             videoKey.startsWith("uri:") -> {
                 val uriString = videoKey.removePrefix("uri:")
                 val uri = runCatching { Uri.parse(uriString) }.getOrNull()
-                uri?.lastPathSegment?.substringAfterLast('/') ?: ""
+                resolveUriVideoName(uri)
             }
             else -> ""
         }
         val candidate = if (rawName.isNotBlank()) rawName else "video_${videoKey.hashCode().toUInt().toString(16)}"
         return candidate.replace(Regex("[^A-Za-z0-9._-]"), "_")
+    }
+
+    private fun resolveUriVideoName(uri: Uri?): String {
+        uri ?: return ""
+        val segment = uri.lastPathSegment?.substringAfterLast('/') ?: return ""
+        val mediaId = when {
+            segment.startsWith("video:") -> segment.substringAfter("video:")
+            uri.authority == "media" && uri.pathSegments.contains("video") -> segment
+            else -> ""
+        }
+        return if (mediaId.isNotBlank() && mediaId.all(Char::isDigit)) "video_$mediaId" else segment
     }
 }

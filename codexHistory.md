@@ -1,5 +1,17 @@
 # Codex History
 
+## [408] 2026-09-17 01:20:39 - 恢复旧视频事件刻度并修复标注栏遮挡
+
+**用户指令**：
+> 修复当前 roomxxxmp4 视频旧事件未映射、进度条无刻度，以及事件标注按钮不显示的问题。
+
+**实现方案**：
+
+* **视频标识兼容**：`EventMarkerManager` 将 Media Documents URI 的 `video:1000012482` 与 MediaStore URI 的 `1000012482` 统一归一为 `video_1000012482`，直接复用既有 33 条事件文件，不删除或重写旧数据。
+* **设备标注同步**：`DeviceHitMarkerManager` 使用相同归一规则，避免设备命中标注在 URI 表达变化后再次丢失。
+* **层级修复**：事件标注栏 elevation 提高到 20dp，稳定显示在 10dp 的全屏雷达层之上。
+* **验证**：`:app:testDebugUnitTest` 与 `:app:assembleDebug` 通过；Debug APK 真机覆盖安装并启动成功。真机确认顶部 33 条旧事件刻度恢复，开启雷达、调试面板并切到静止中后事件标注按钮正常显示。
+
 ## [407] 2026-09-16 23:44:00 - V4.2 Portal Episode Core 重写进出门状态机
 
 **用户指令**：
