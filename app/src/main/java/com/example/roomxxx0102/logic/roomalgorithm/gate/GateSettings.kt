@@ -11,7 +11,7 @@ object GateSettings {
     private data class Field(val key:String,val title:String,val min:Double,val max:Double)
     private val common=listOf(
         Field("sampleMs","采样周期 ms（50=最高20帧）",33.0,200.0),
-        Field("captureEdge","源截图长边像素（门 ROI 从这里直接裁）",960.0,2560.0),
+        Field("captureEdge","源截图长边像素（2560=当前约2232宽视频不缩小）",960.0,2560.0),
         Field("maxGapMs","连续视觉最大间隔 ms",150.0,500.0),
         Field("pixelThreshold","局部门口亮度差阈值",8.0,60.0),
         Field("historyMs","每扇门只存不算的回溯历史 ms",600.0,1600.0),
@@ -34,9 +34,18 @@ object GateSettings {
         Field("optionalBudgetMs","可选光流/回溯预算 ms",10.0,80.0))
     private val mog=listOf(Field("mogVariance","MOG2 方差阈值",8.0,64.0),Field("backgroundRate","MOG2 预热学习率",0.002,0.08))
     internal fun load(c:Context?,m:GateMethod):GateConfig {
-        val d=GateConfig(m,captureEdge=1920,points=128)
+        val d=GateConfig(m,captureEdge=2560,points=128)
         if(c==null) return d
-        return try { decode(d,JSONObject(prefs(c).getString(m.id,"{}")!!)).checked() } catch(_:Exception) { d }
+        return try {
+            val j=JSONObject(prefs(c).getString(m.id,"{}")!!)
+            // Settings saved by pre-Event-ROI V4 used captureEdge as part of an additional whole-frame
+            // downscale chain. Its old 1280/1920 value must not silently keep the new local crops soft.
+            if(!j.has("historyMs")) {
+                j.remove("captureEdge")
+                j.remove("visionEdge")
+            }
+            decode(d,j).checked()
+        } catch(_:Exception) { d }
     }
     private fun encode(d:GateConfig)=JSONObject().apply {
         put("sampleMs",d.sampleMs);put("captureEdge",d.captureEdge);put("visionEdge",d.visionEdge);put("maxGapMs",d.maxGapMs)
@@ -65,7 +74,7 @@ object GateSettings {
         val config=load(context,method);val json=encode(config)
         val fields=common+when(method) { GateMethod.OPTICAL_FLOW->optical;GateMethod.MOG2->mog;else->emptyList() }
         val layout=LinearLayout(context).apply { orientation=LinearLayout.VERTICAL;setPadding(24,16,24,16) }
-        layout.addView(TextView(context).apply { text="V4.1 不再把整幅视频缩成 480/640 后做视觉。源截图只用于 Pose 和直接裁门；所有门平时仅保存约 1 秒局部历史，只有候选人体与门接触后的 1～2 扇门才运行差分/MOG2/LK。参数按方案独立保存。" })
+        layout.addView(TextView(context).apply { text="V4.1 不再把整幅视频缩成 480/640 后做视觉。当前约 2232 宽视频默认保留原始截图尺寸；所有门平时只以约 10fps 保存 1 秒局部历史，只有候选人体真正接触后的 1～2 扇门才运行差分/MOG2/LK。参数按方案独立保存。" })
         val edits=fields.associate { f ->
             layout.addView(TextView(context).apply { text="${f.title} [${f.min}..${f.max}]" })
             f.key to EditText(context).apply { inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL;setText(json.get(f.key).toString());layout.addView(this) }
