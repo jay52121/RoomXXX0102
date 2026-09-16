@@ -8,12 +8,8 @@ on:
 permissions:
   contents: write
 
-env:
-  CI_COMMIT_MARKER: event-diagnostic-recorder-applied
-
 jobs:
   build:
-    if: github.event.head_commit.message != 'ci: event-diagnostic-recorder-applied'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,9 +31,9 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add app/src/main app/src/test
           if git diff --cached --quiet; then
-            echo 'No generated changes to commit'
+            echo no-generated-changes
           else
-            git commit -m 'ci: event-diagnostic-recorder-applied'
+            git commit -m event-diagnostic-recorder-applied
             git push origin HEAD:codex/event-diagnostic-recorder-v1
           fi
       - name: Upload debug APK
