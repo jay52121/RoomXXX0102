@@ -11,9 +11,10 @@ internal enum class GateMethod(val id: String, val label: String) {
 internal data class GateConfig(
     val method: GateMethod,
     val sampleMs: Int = 50,
-    // Source bitmap is shared with Pose. Portal V4 no longer downsizes the whole image to visionEdge.
-    val captureEdge: Int = 1920,
-    // Kept only so the old GateVision source remains build-compatible; EventGateVision ignores it.
+    // 2560 means the current ~2232-wide test video is captured without a Portal-specific downscale.
+    // Pose still performs its own model resize; V4.1 crops each portal directly from this source bitmap.
+    val captureEdge: Int = 2560,
+    // Legacy compatibility only. EventGateVision never uses a whole-frame visionEdge working image.
     val visionEdge: Int = if (method == GateMethod.OPTICAL_FLOW) 640 else 480,
     val maxGapMs: Int = 300,
     val pixelThreshold: Int = 18,
