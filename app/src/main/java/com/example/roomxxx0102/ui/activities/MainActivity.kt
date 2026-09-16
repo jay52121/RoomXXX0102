@@ -687,6 +687,11 @@ class MainActivity : ComponentActivity() {
         }
 
         videoFeeder = VideoFeeder(this, textureView).apply {
+            // startVideoMode 会重建 VideoFeeder；诊断回放参数必须挂在新实例上。
+            loopPlayback = !isDiagnosticReplayActive
+            onPlaybackCompleted = if (isDiagnosticReplayActive) {
+                { runOnUiThread { finishDiagnosticReplay() } }
+            } else null
             this.yoloAnalyzer = this@MainActivity.yoloAnalyzer
             this.poseAnalyzer = this@MainActivity.poseAnalyzer
             this.handSmokeTester = HandSmokeTester(this@MainActivity).also {
