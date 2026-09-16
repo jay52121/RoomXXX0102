@@ -13,6 +13,20 @@ object PortalV3Overlay {
         value=Snapshot(d,g.toList(),s.take(1800),known,names.toMap(),cost,notes.toList())
     }
     fun clear() { value=null }
+    fun snapshotPanelLines(): List<String> {
+        val s=value?:return emptyList()
+        val lines=mutableListOf<String>()
+        lines+="V3 " + if(s.known) "\u8d77\u59cb\u4eba\u6570\u5df2\u8bbe\u7f6e" else "\u4ec5\u5df2\u77e5\u4eba\u6570\uff08\u9690\u85cf\u521d\u503c\u672a\u77e5\uff09"
+        s.decision.counts.entries.toList().chunked(3).forEach { group ->
+            lines+=group.joinToString("  ") { (id,n) ->
+                val lo=s.decision.lower[id]?:n;val hi=s.decision.upper[id]?:n
+                "${s.names[id]?:id}:" + (if(s.known) "$n" else "\u5df2\u77e5$n") + if(lo!=hi) "[$lo..$hi]" else ""
+            }
+        }
+        lines+="\u5149\u6d41 ${s.cost}ms / ${s.samples.count { it.current!=null }}\u70b9; \u672a\u5b9a\u4f4d ${s.decision.unknown}"
+        if(s.notes.any { it.contains("CAMERA_MOVED") }) lines+="\u6444\u50cf\u5934\u5df2\u79fb\u52a8\uff1a\u8bf7\u91cd\u7f6e\u5e76\u68c0\u67e5\u6807\u5b9a"
+        return lines
+    }
     fun draw(canvas:Canvas,left:Float,top:Float,width:Float,height:Float) {
         val s=value?:return
         val unit=(height/700f).coerceIn(0.65f,1.8f)
@@ -53,21 +67,6 @@ object PortalV3Overlay {
             }
             canvas.drawText("V3 #${person.person} $state",x(person.box.left).coerceIn(left,(left+width-160f*unit).coerceAtLeast(left)),y(person.box.top).coerceAtLeast(top+20f*unit),p)
         }
-        p.clearShadowLayer();p.color=Color.argb(190,0,0,0)
-        val lines=mutableListOf<String>()
-        lines+="V3 " + if(s.known) "\u8d77\u59cb\u4eba\u6570\u5df2\u8bbe\u7f6e" else "\u4ec5\u5df2\u77e5\u4eba\u6570\uff08\u9690\u85cf\u521d\u503c\u672a\u77e5\uff09"
-        s.decision.counts.entries.toList().chunked(3).forEach { group ->
-            lines+=group.joinToString("  ") { (id,n) ->
-                val lo=s.decision.lower[id]?:n;val hi=s.decision.upper[id]?:n
-                "${s.names[id]?:id}:" + (if(s.known) "$n" else "\u5df2\u77e5$n") + if(lo!=hi) "[$lo..$hi]" else ""
-            }
-        }
-        lines+="\u5149\u6d41 ${s.cost}ms / ${s.samples.count { it.current!=null }}\u70b9; \u672a\u5b9a\u4f4d ${s.decision.unknown}"
-        if(s.notes.any { it.contains("CAMERA_MOVED") }) lines+="\u6444\u50cf\u5934\u5df2\u79fb\u52a8\uff1a\u8bf7\u91cd\u7f6e\u5e76\u68c0\u67e5\u6807\u5b9a"
-        val panelWidth=(410f*unit).coerceAtMost(width)
-        canvas.drawRect(left+5,top+5,left+panelWidth,top+12+lines.size*23f*unit,p)
-        p.color=Color.WHITE
-        lines.forEachIndexed { i,line -> canvas.drawText(line,left+12,top+(29+i*23)*unit,p) }
         canvas.restoreToCount(saved)
     }
 }

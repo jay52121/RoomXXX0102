@@ -14,6 +14,25 @@ object GateOverlay {
         snapshot=Snapshot(label,d,gates.toList(),v,known,names.toMap())
     }
     fun clear() { snapshot=null }
+    fun snapshotPanelLines(): List<String> {
+        val s=snapshot?:return emptyList()
+        val lines=mutableListOf(s.label)
+        lines+=if(s.known) "\u521d\u59cb\u4eba\u6570\u5df2\u8bbe\u5b9a" else "\u4ec5\u663e\u793a\u5df2\u77e5\u4eba\u6570\uff1b\u9690\u85cf\u521d\u503c\u672a\u77e5"
+        val exterior=s.gates.filter { it.isExterior }.map { it.room }.toSet()
+        s.d.counts.filterKeys { it !in exterior }.entries.chunked(3).forEach { group ->
+            lines+=group.joinToString("  ") { (id,n) ->
+                val lo=s.d.lower[id]?:n;val hi=s.d.upper[id]?:n
+                "${s.names[id]?:id}:$n"+if(lo!=hi) "[$lo..$hi]" else ""
+            }
+        }
+        lines+="\u8f93\u51fa ${String.format(Locale.US,"%.1f",GateRuntime.outputFps)}fps  Pose ${GateRuntime.poseCostMs}ms"
+        lines+="\u89c6\u89c9 ${s.v?.costMs?:0}ms  \u5149\u6d41 ${s.v?.points?:0}\u70b9  \u6574\u8f6e ${GateRuntime.pipelineCostMs}ms"
+        lines+="\u622a\u56fe ${GateRuntime.captureCostMs}ms  \u6392\u961f 0  \u8df3\u91c7\u8bf7\u6c42 ${GateRuntime.skipped}"
+        lines+="\u9ec4\u683c=\u524d\u666f\uff08\u975e\u4eba\u4f53\u5206\u5272\uff09 \u7eff\u70b9=B\u7248\u771f\u5b9e\u5149\u6d41"
+        if(s.v==null) lines+="\u672c\u5730\u89c6\u89c9\u4e0d\u53ef\u7528\uff1a\u4ec5\u4f7f\u7528\u95e8\u5e95\u8fb9"
+        if(s.v?.notes?.any { it.contains("SCENE_CHANGED") }==true) lines+="\u753b\u9762\u6574\u4f53\u53d8\u5316\uff1a\u8bf7\u68c0\u67e5\u5149\u7167\u6216\u673a\u4f4d"
+        return lines
+    }
     fun draw(canvas:Canvas,left:Float,top:Float,width:Float,height:Float) {
         val s=snapshot?:return
         val unit=(height/720f).coerceIn(.65f,1.6f)
@@ -69,25 +88,6 @@ object GateOverlay {
             }
             canvas.drawText("#${person.person} $status",x(person.box.left),y(person.box.top).coerceAtLeast(top+20*unit),paint)
         }
-        val lines=mutableListOf(s.label)
-        lines+=if(s.known) "\u521d\u59cb\u4eba\u6570\u5df2\u8bbe\u5b9a" else "\u4ec5\u663e\u793a\u5df2\u77e5\u4eba\u6570\uff1b\u9690\u85cf\u521d\u503c\u672a\u77e5"
-        val exterior=s.gates.filter { it.isExterior }.map { it.room }.toSet()
-        s.d.counts.filterKeys { it !in exterior }.entries.chunked(3).forEach { group ->
-            lines+=group.joinToString("  ") { (id,n) ->
-                val lo=s.d.lower[id]?:n;val hi=s.d.upper[id]?:n
-                "${s.names[id]?:id}:$n"+if(lo!=hi) "[$lo..$hi]" else ""
-            }
-        }
-        lines+="\u8f93\u51fa ${String.format(Locale.US,"%.1f",GateRuntime.outputFps)}fps  Pose ${GateRuntime.poseCostMs}ms"
-        lines+="\u89c6\u89c9 ${s.v?.costMs?:0}ms  \u5149\u6d41 ${s.v?.points?:0}\u70b9  \u6574\u8f6e ${GateRuntime.pipelineCostMs}ms"
-        lines+="\u622a\u56fe ${GateRuntime.captureCostMs}ms  \u6392\u961f 0  \u8df3\u91c7\u8bf7\u6c42 ${GateRuntime.skipped}"
-        lines+="\u9ec4\u683c=\u524d\u666f\uff08\u975e\u4eba\u4f53\u5206\u5272\uff09 \u7eff\u70b9=B\u7248\u771f\u5b9e\u5149\u6d41"
-        if(s.v==null) lines+="\u672c\u5730\u89c6\u89c9\u4e0d\u53ef\u7528\uff1a\u4ec5\u4f7f\u7528\u95e8\u5e95\u8fb9"
-        if(s.v?.notes?.any { it.contains("SCENE_CHANGED") }==true) lines+="\u753b\u9762\u6574\u4f53\u53d8\u5316\uff1a\u8bf7\u68c0\u67e5\u5149\u7167\u6216\u673a\u4f4d"
-        paint.color=Color.argb(195,0,0,0)
-        canvas.drawRect(left+5,top+5,left+minOf(width,510*unit),top+(lines.size*23+15)*unit,paint)
-        paint.color=Color.WHITE
-        lines.forEachIndexed { i,line->canvas.drawText(line,left+12,top+(30+i*23)*unit,paint) }
         canvas.restoreToCount(save)
     }
 }

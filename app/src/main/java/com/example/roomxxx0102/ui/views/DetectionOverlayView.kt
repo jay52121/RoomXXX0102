@@ -14,6 +14,8 @@ import android.util.AttributeSet
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
+import com.example.roomxxx0102.logic.roomalgorithm.flow.PortalV3Overlay
+import com.example.roomxxx0102.logic.roomalgorithm.gate.GateOverlay
 import android.view.ViewConfiguration
 import com.example.roomxxx0102.data.model.BoundaryVertex
 import com.example.roomxxx0102.data.model.DeviceConfig
@@ -1076,6 +1078,8 @@ class DetectionOverlayView @JvmOverloads constructor(
 
     private fun buildPersonPanelLines(): List<String> {
         return mutableListOf<String>().apply {
+            addAll(GateOverlay.snapshotPanelLines())
+            addAll(PortalV3Overlay.snapshotPanelLines())
             add(debugInfo)
             roiRatio?.let { ratio ->
                 add("当前Pose ROI占比=${String.format("%.2f", ratio)}")
