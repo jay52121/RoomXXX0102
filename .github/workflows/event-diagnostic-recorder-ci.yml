@@ -21,6 +21,8 @@ jobs:
           java-version: '17'
       - name: Apply recorder patch
         run: python3 tools/_apply_event_diagnostic_recorder.py
+      - name: CI packaging compatibility
+        run: touch kws-sdk/consumer-rules.pro
       - name: Run unit tests and build debug APK
         run: |
           chmod +x gradlew
