@@ -3,6 +3,7 @@ package com.example.roomxxx0102.ui.activities
 import com.example.roomxxx0102.logic.roomalgorithm.flow.PortalFrameHub
 import com.example.roomxxx0102.logic.roomalgorithm.gate.GateSettings
 import com.example.roomxxx0102.logic.roomalgorithm.gate.GateRuntime
+import com.example.roomxxx0102.logic.roomalgorithm.gate.GateDiagnosticBus
 import com.example.roomxxx0102.data.model.BoundaryVertex
 import android.animation.ValueAnimator
 import android.widget.CheckBox
@@ -89,6 +90,8 @@ import com.example.roomxxx0102.logic.roomalgorithm.RoomAlgorithmSceneInfo
 import com.example.roomxxx0102.logic.validation.DeviceHitMarkedEvent
 import com.example.roomxxx0102.logic.validation.DeviceHitMarkerManager
 import com.example.roomxxx0102.logic.validation.EventMarkerManager
+import com.example.roomxxx0102.logic.validation.EventDiagnosticRecorder
+import com.example.roomxxx0102.logic.validation.GitHubDiagnosticUploader
 import com.example.roomxxx0102.logic.validation.EventType
 import com.example.roomxxx0102.logic.validation.MarkedEvent
 import com.example.roomxxx0102.logic.validation.RuntimeRoomEvent
@@ -283,6 +286,15 @@ class MainActivity : ComponentActivity() {
     private var roomAlgorithmFrameSeq = 0L
     private val roomPresenceChangeLogger = RoomPresenceChangeLogger("ROOM_PRESENCE_CHANGE")
     private val eventMarkerManager = EventMarkerManager()
+    private data class DiagnosticReplaySavedSettings(
+        val roomAlgorithmId: String,
+        val pauseOnRoomSwitch: Boolean,
+        val smartMatchPause: Boolean,
+    )
+    private var diagnosticReplaySavedSettings: DiagnosticReplaySavedSettings? = null
+    private var diagnosticRecorder: EventDiagnosticRecorder? = null
+    private var isDiagnosticReplayActive = false
+    private var btnDiagnosticReplay: Button? = null
     private val deviceHitMarkerManager = DeviceHitMarkerManager()
     private val runtimeValidationEvents: ArrayDeque<RuntimeRoomEvent> = ArrayDeque()
     private val matchedMarkedEventKeys: MutableSet<String> = mutableSetOf()
@@ -416,6 +428,9 @@ class MainActivity : ComponentActivity() {
                 sceneInfo = RoomAlgorithmSceneInfo(isVideoPlayback = isVideoMode),
                 poseMetadata = sourceMeta
             ))
+            if (isDiagnosticReplayActive) {
+                GateDiagnosticBus.frameFor(frameSeq)?.let { diagnosticRecorder?.recordFrame(it) }
+            }
             if (roomAlgorithm.algorithmId == RoomAlgorithmRegistry.PORTAL_V3_FLOW_ID || GateSettings.isNewMethod(roomAlgorithm.algorithmId)) {
                 allRooms.forEach { it.personCount = roomResult.observedCounts[it.id] ?: 0 }
             }
@@ -673,6 +688,11 @@ class MainActivity : ComponentActivity() {
         }
 
         videoFeeder = VideoFeeder(this, textureView).apply {
+            // startVideoMode 会重建 VideoFeeder；诊断回放参数必须挂在新实例上。
+            loopPlayback = !isDiagnosticReplayActive
+            onPlaybackCompleted = if (isDiagnosticReplayActive) {
+                { runOnUiThread { finishDiagnosticReplay() } }
+            } else null
             this.yoloAnalyzer = this@MainActivity.yoloAnalyzer
             this.poseAnalyzer = this@MainActivity.poseAnalyzer
             this.handSmokeTester = HandSmokeTester(this@MainActivity).also {
@@ -1319,6 +1339,7 @@ class MainActivity : ComponentActivity() {
         val btnMarkExitEvent = findViewById<Button>(R.id.btnMarkExitEvent)
         val btnJumpNextEvent = findViewById<Button>(R.id.btnJumpNextEvent)
         val btnDeleteCurrentEvent = findViewById<Button>(R.id.btnDeleteCurrentEvent)
+        btnDiagnosticReplay = findViewById(R.id.btnDiagnosticReplay)
         btnHandOverlay = findViewById(R.id.btnHandOverlay)
         btnPause.setOnClickListener { togglePause(it as Button) }
         btnPause.setOnLongClickListener {
@@ -1349,6 +1370,11 @@ class MainActivity : ComponentActivity() {
             if (copied) {
                 Toast.makeText(this, "已复制调试面板信息", Toast.LENGTH_SHORT).show()
             }
+            true
+        }
+        btnDiagnosticReplay?.setOnClickListener { startDiagnosticReplay() }
+        btnDiagnosticReplay?.setOnLongClickListener {
+            showDiagnosticGitHubTokenDialog(startAfterSave = false)
             true
         }
         btnHandOverlay?.setOnClickListener {
@@ -2209,6 +2235,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun cycleObserveMode() {
+        if (isDiagnosticReplayActive) {
+            Toast.makeText(this, "诊断回放中不能切换观察模式", Toast.LENGTH_SHORT).show()
+            return
+        }
         val nextMode = when (currentObserveMode) {
             ObserveMode.PERSON -> ObserveMode.HAND
             ObserveMode.HAND -> ObserveMode.AUDIO
@@ -2619,6 +2649,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun toggleRuntimeMode() {
+        if (isDiagnosticReplayActive) {
+            Toast.makeText(this, "诊断回放中不能切换运行模式", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (isVideoMode) {
             switchToCameraRuntimeMode()
         } else {
@@ -3595,6 +3629,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onSeekBackwardRequested() {
+        if (isDiagnosticReplayActive) return
         val beforePos = videoFeeder?.getCurrentPositionMs()
         val beforePlay = videoFeeder?.isPlaying()
         if (currentPlayState == PlayState.STILL) {
@@ -3614,6 +3649,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onSeekForwardRequested() {
+        if (isDiagnosticReplayActive) return
         val beforePos = videoFeeder?.getCurrentPositionMs()
         val beforePlay = videoFeeder?.isPlaying()
         if (currentPlayState == PlayState.STILL) {
@@ -3921,9 +3957,170 @@ class MainActivity : ComponentActivity() {
         )
         btn.setTextColor(Color.parseColor(if (isDebugPanelEnabled) "#FFFFFF" else "#9FB4D0"))
         refreshEventMarkerControls()
+        refreshDiagnosticReplayButton()
+    }
+
+    private fun refreshDiagnosticReplayButton() {
+        val button = btnDiagnosticReplay ?: return
+        val show = isDiagnosticReplayActive || (isDebugPanelEnabled && isVideoMode && currentObserveMode == ObserveMode.PERSON)
+        button.visibility = if (show) View.VISIBLE else View.GONE
+        button.isEnabled = !isDiagnosticReplayActive
+        button.alpha = if (isDiagnosticReplayActive) 0.65f else 1f
+        button.text = if (isDiagnosticReplayActive) "诊断录制中" else "诊断回放"
+    }
+
+    private fun showDiagnosticGitHubTokenDialog(startAfterSave: Boolean) {
+        val hasSavedToken = GitHubDiagnosticUploader.hasToken(applicationContext)
+        val input = EditText(this).apply {
+            hint = if (hasSavedToken) "已保存 Token；输入新 Token 可替换" else "github_pat_..."
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            isSingleLine = true
+        }
+        val builder = AlertDialog.Builder(this)
+            .setTitle("GitHub 诊断上传")
+            .setMessage(
+                "请输入 GitHub Fine-grained Token。只需要 jay52121/RoomXXX0102 的 Contents: Read and write。\n\n" +
+                    "诊断 JSON 会上传到 diagnostics 分支的 v4a/日期/ 目录。Token 只保存在本机应用私有 noBackupFilesDir，不进入源码、日志或诊断 JSON。"
+            )
+            .setView(input)
+            .setPositiveButton("保存") { _, _ ->
+                val token = input.text.toString().trim()
+                if (token.isBlank()) {
+                    Toast.makeText(this, "Token 不能为空", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                runCatching { GitHubDiagnosticUploader.saveToken(applicationContext, token) }
+                    .onSuccess {
+                        Toast.makeText(this, "GitHub Token 已保存在本机", Toast.LENGTH_SHORT).show()
+                        if (startAfterSave) startDiagnosticReplay()
+                    }
+                    .onFailure { error ->
+                        Toast.makeText(this, "保存 Token 失败：${error.message}", Toast.LENGTH_LONG).show()
+                    }
+            }
+            .setNegativeButton("取消", null)
+        if (hasSavedToken) {
+            builder.setNeutralButton("清除 Token") { _, _ ->
+                GitHubDiagnosticUploader.clearToken(applicationContext)
+                Toast.makeText(this, "已清除 GitHub Token", Toast.LENGTH_SHORT).show()
+            }
+        }
+        builder.show()
+    }
+
+    private fun startDiagnosticReplay() {
+        if (isDiagnosticReplayActive) return
+        if (!isVideoMode) {
+            Toast.makeText(this, "诊断回放仅支持回顾视频", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!GitHubDiagnosticUploader.hasToken(applicationContext)) {
+            showDiagnosticGitHubTokenDialog(startAfterSave = true)
+            return
+        }
+        val rooms = RoomRepository.getAllRooms()
+        val living = rooms.firstOrNull { it.isSovereignTerritory }
+        if (living == null) {
+            Toast.makeText(this, "缺少客厅标定，无法开始诊断", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val roomNames = rooms.associate { it.id to it.name }
+        val gateNames = buildPresenceDoorSnapshots(rooms).associate { door ->
+            val target = if (door.roomAId == living.id) door.roomBId else door.roomAId
+            door.doorId to (roomNames[target] ?: target)
+        }
+        diagnosticReplaySavedSettings = DiagnosticReplaySavedSettings(
+            roomAlgorithmId = AppSettings.roomAlgorithmId,
+            pauseOnRoomSwitch = AppSettings.isPauseOnRoomSwitchEnabled,
+            smartMatchPause = AppSettings.isSmartMatchPauseEnabled,
+        )
+        diagnosticRecorder = EventDiagnosticRecorder(
+            context = applicationContext,
+            markedEvents = eventMarkerManager.getEvents(),
+            roomNames = roomNames,
+            gateNames = gateNames,
+        )
+        isDiagnosticReplayActive = true
+        GateDiagnosticBus.beginCapture()
+        AppSettings.setRoomAlgorithmId("portal_v4_diff")
+        AppSettings.setPauseOnRoomSwitchEnabled(false)
+        AppSettings.setSmartMatchPauseEnabled(false)
+        ensureRoomAlgorithm()
+        videoFeeder?.loopPlayback = false
+        videoFeeder?.onPlaybackCompleted = {
+            runOnUiThread { finishDiagnosticReplay() }
+        }
+        hardRestartPlayback()
+        refreshDiagnosticReplayButton()
+        val gtCount = eventMarkerManager.getEvents().size
+        val text = if (gtCount > 0) "诊断回放开始：$gtCount 个人工事件" else "诊断回放开始：无人工事件，仅记录误报"
+        showCenterBanner(text, CenterBannerDomain.ROOM, 5000L)
+    }
+
+    private fun finishDiagnosticReplay() {
+        if (!isDiagnosticReplayActive) return
+        val recorder = diagnosticRecorder
+        val fileResult = runCatching { recorder?.finish() }
+        isDiagnosticReplayActive = false
+        diagnosticRecorder = null
+        videoFeeder?.onPlaybackCompleted = null
+        videoFeeder?.loopPlayback = true
+        GateDiagnosticBus.endCapture()
+        restoreDiagnosticReplaySettings(recreateAlgorithm = true)
+        currentPlayState = PlayState.STILL
+        videoFeeder?.pause()
+        videoFeeder?.setStillMode(true)
+        refreshPlayStateButton()
+        refreshSeekButtons()
+        refreshDiagnosticReplayButton()
+        fileResult.onSuccess { file ->
+            if (file != null) {
+                copyTextToClipboard("event_diagnostic_path", file.absolutePath)
+                Toast.makeText(this, "诊断完成，正在上传 GitHub：${file.name}", Toast.LENGTH_LONG).show()
+                showCenterBanner("诊断完成，正在上传 GitHub…", CenterBannerDomain.ROOM, 10000L)
+                GitHubDiagnosticUploader.uploadAsync(applicationContext, file) { upload ->
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        if (upload.success) {
+                            copyTextToClipboard("event_diagnostic_github", "diagnostics:${upload.remotePath}")
+                            Toast.makeText(this, "诊断已上传 GitHub", Toast.LENGTH_LONG).show()
+                            showCenterBanner(
+                                "诊断已上传 GitHub：diagnostics/${upload.remotePath}",
+                                CenterBannerDomain.ROOM,
+                                10000L
+                            )
+                        } else {
+                            Toast.makeText(this, "GitHub 上传失败，本地 JSON 已保留", Toast.LENGTH_LONG).show()
+                            showCenterBanner(
+                                "GitHub 上传失败：${upload.message}；本地文件已保留",
+                                CenterBannerDomain.ROOM,
+                                10000L
+                            )
+                            Log.w("EventDiagnostic", "GitHub upload failed: ${upload.message}")
+                        }
+                    }
+                }
+            }
+        }.onFailure { error ->
+            Toast.makeText(this, "诊断文件生成失败：${error.message}", Toast.LENGTH_LONG).show()
+            Log.e("EventDiagnostic", "finish failed", error)
+        }
+    }
+
+    private fun restoreDiagnosticReplaySettings(recreateAlgorithm: Boolean) {
+        val saved = diagnosticReplaySavedSettings ?: return
+        diagnosticReplaySavedSettings = null
+        AppSettings.setRoomAlgorithmId(saved.roomAlgorithmId)
+        AppSettings.setPauseOnRoomSwitchEnabled(saved.pauseOnRoomSwitch)
+        AppSettings.setSmartMatchPauseEnabled(saved.smartMatchPause)
+        if (recreateAlgorithm) ensureRoomAlgorithm()
     }
 
     private fun togglePause(btn: Button) {
+        if (isDiagnosticReplayActive) {
+            Toast.makeText(this, "诊断回放将自动完整播放", Toast.LENGTH_SHORT).show()
+            return
+        }
         stopSeekHold()
         if (!isVideoMode) {
             toggleLiveStillState(btn)
@@ -4061,6 +4258,14 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (isDiagnosticReplayActive) {
+            isDiagnosticReplayActive = false
+            diagnosticRecorder = null
+            GateDiagnosticBus.endCapture()
+            videoFeeder?.onPlaybackCompleted = null
+            videoFeeder?.loopPlayback = true
+            restoreDiagnosticReplaySettings(recreateAlgorithm = false)
+        }
         if (::roomAlgorithm.isInitialized) roomAlgorithm.reset()
         PortalFrameHub.setEnabled(false)
         GateSettings.activate(applicationContext, null)

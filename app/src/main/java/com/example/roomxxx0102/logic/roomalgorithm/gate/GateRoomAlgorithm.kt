@@ -43,6 +43,7 @@ class GateRoomAlgorithm internal constructor(private val context:Context?,privat
             initialKnown=baseline.known && (!input.sceneInfo.isVideoPlayback || time<=500)
             core=PortalV4Core(living.roomId,polygon,gates,input.rooms.map { it.roomId },aspect,
                 if(initialKnown) baseline.counts else emptyMap(),PortalV4Policy.from(config))
+            if(GateDiagnosticBus.isCapturing()) GateDiagnosticBus.configure(config)
             vision=GateEventVision.create(gates,config)
             roomCache=input.rooms.toList();doorCache=input.doors.toList();baselineRevision=baseline.revision
             epoch=sourceEpoch;lastTime=-1;lastSequence=-1;lastDecision=null;identitySource="";lastResult=null;geometryAspect=aspect
@@ -68,8 +69,46 @@ class GateRoomAlgorithm internal constructor(private val context:Context?,privat
         val decision=engine.step(time,detections=if(successful) anchored else null,depths=visual?.depths.orEmpty(),flows=visual?.flows.orEmpty(),coverage=roi,frameHealthy=successful && visual?.healthy!=false)
         lastDecision=decision;lastSequence=seq;lastTime=time
         val notes=decision.notes+visual?.notes.orEmpty()+if(vision==null) listOf("NATIVE_UNAVAILABLE_GROUND_ONLY") else emptyList()
+        val debug=engine.debugSnapshot()
+        if(GateDiagnosticBus.isCapturing()) {
+            val detailed=visual?.diagnostics.orEmpty().associateBy{it.gateId}
+            val portals=visual?.tiles.orEmpty().map{tile->
+                detailed[tile.gate]?:GatePortalDiagnostic(
+                    gateId=tile.gate,ownerTrack=tile.owner,phase=tile.phase.name,
+                    schedulerDistance=tile.schedulerDistance,contact=tile.contact,referenceKnown=tile.referenceKnown,
+                    exclusive=null,foregroundPixels=tile.foreground,peakPixels=0,clearForMs=0L,
+                    historyFrames=tile.historyFrames,bodyMotionRatio=null,motion=null,owned=null
+                )
+            }
+            val people=decision.people.map{person->
+                val d=debug[person.track]
+                val gate=d?.gateId?.let{id->engine.gates.firstOrNull{it.id==id}}
+                val ground=person.ground
+                GateDiagnosticPerson(
+                    person=person.person,track=person.track,room=person.room,status=person.status,
+                    accepted=person.accepted,candidates=person.candidates.sorted(),box=person.box,
+                    groundX=ground?.point?.x,groundY=ground?.point?.y,groundStrong=ground?.strong,
+                    groundUncertainty=ground?.uncertainty,groundSource=ground?.source,gateId=d?.gateId,
+                    phase=d?.phase?.name,direction=d?.direction,depth=d?.depth,groundSide=d?.groundSide,
+                    groundDistance=if(gate!=null&&ground!=null)gate.distance(ground.point)else null,
+                    groundAlong=if(gate!=null&&ground!=null)gate.along(ground.point)else null,
+                    evidence=d?.evidence
+                )
+            }
+            val diagEvents=decision.events.map{event->
+                val direction=when{event.from==living.roomId->"ENTER";event.to==living.roomId->"EXIT";else->"INTERNAL"}
+                GateDiagnosticEvent(
+                    person=event.person,track=event.track,from=event.from,to=event.to,gateId=event.gate,
+                    direction=direction,timeMs=event.timeMs,inferred=event.inferred,reason=debug[event.track]?.evidence
+                )
+            }
+            GateDiagnosticBus.publish(GateDiagnosticFrame(
+                timeMs=time,frameSeq=seq,runtimeTag=runtimeTag,activeGates=visual?.activeGates?:0,
+                people=people,portals=portals,events=diagEvents,counts=decision.counts,notes=notes.takeLast(12)
+            ))
+        }
         GateRuntime.output(android.os.SystemClock.elapsedRealtime())
-        GateOverlay.publish(config.method.label,decision,engine.gates,visual,initialKnown,input.rooms.associate { it.roomId to it.roomName },config,engine.debugSnapshot())
+        GateOverlay.publish(config.method.label,decision,engine.gates,visual,initialKnown,input.rooms.associate { it.roomId to it.roomName },config,debug)
         if(time-logAt>=1000 || decision.events.isNotEmpty()) {
             logAt=time
             Log.i("PortalV4","runtime=$runtimeTag t=$time seq=$seq poseMs=${GateRuntime.poseCostMs} visionMs=${visual?.costMs?:0} " +
