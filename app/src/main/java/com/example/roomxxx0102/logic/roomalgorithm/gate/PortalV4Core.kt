@@ -331,6 +331,15 @@ internal class PortalV4Core(
                 return
             }
         }
+        // If the person was strongly absorbed by the aperture but is now clearly visible again with
+        // the whole detection box outside that aperture, the earlier visual evidence was a pass-by.
+        // This is intentionally a veto only: bbox geometry is never allowed to prove a transfer.
+        if(e.from==livingId&&e.peakAbsorption>=policy.absorptionArmRatio&&p.track in observedTracks&&
+            currentBody==null&&!boxOverlapsAperture(e.gate,p.box)){
+            p.episode=null;p.possible=emptySet();p.lastEvidence="BODY_PASS_BY_VISIBLE";p.status="PASSED_PORTAL"
+            notes+="PASS_BY_VISIBLE:${p.number}:${e.gate.id}"
+            return
+        }
 
         if (depthCommits(e)) {
             if(e.from==livingId&&e.peakAbsorption>=policy.absorptionArmRatio){
@@ -344,7 +353,9 @@ internal class PortalV4Core(
         if(e.from==livingId&&e.visualReadyAt>=0&&t-e.visualReadyAt>=policy.visualWitnessMs){
             val peakAlong=e.peakAlong
             val tangentialStable=currentBody==null||peakAlong==null||abs(currentBody.centerAlong-peakAlong)<policy.absorptionPassByAlong
-            if(tangentialStable){
+            val visiblyAbsorbed=bodyScore!=null&&bodyScore>=policy.absorptionArmRatio
+            val disappeared=p.detectorMissingSince>=0&&t-p.detectorMissingSince>=policy.visualWitnessMs
+            if(tangentialStable&&(visiblyAbsorbed||disappeared)){
                 commit(p,e,t,inferred=true,evidence="PORTAL_DEPTH_MIGRATION_WITNESSED")
                 return
             }
@@ -428,6 +439,13 @@ internal class PortalV4Core(
     private fun lowerBodyNearThreshold(g: FlowGate, box: FlowBox, p: Person): Boolean {
         val foot = box.foot
         return g.along(foot) in -0.25..1.25 && g.distance(foot) <= clearBand(p) * 1.15
+    }
+
+    private fun boxOverlapsAperture(g: FlowGate, box: FlowBox): Boolean {
+        if(g.aperture.isEmpty()) return false
+        val l=g.aperture.minOf{it.x};val r=g.aperture.maxOf{it.x}
+        val t=g.aperture.minOf{it.y};val b=g.aperture.maxOf{it.y}
+        return box.right>l&&box.left<r&&box.bottom>t&&box.top<b
     }
 
     private fun contactBand(p: Person) = max(0.018, p.box.height * policy.contactScale * 1.35)

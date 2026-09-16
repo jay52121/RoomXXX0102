@@ -156,4 +156,18 @@ class PortalV4CoreTest {
         assertEquals(0,r.counts["A"])
         assertTrue(r.notes.any{it.startsWith("PASS_BY:")})
     }
+
+    @Test fun personVisibleBeyondApertureCancelsDeferredVisualEntry() {
+        val c=core();admitLiving(c)
+        c.step(300,listOf(person(.525)),bodies=mapOf(1 to listOf(body(300,.25,.25))),depths=mapOf(1 to listOf(depth(300,.08))))
+        c.step(500,listOf(person(.525)),bodies=mapOf(1 to listOf(body(500,.88,.50))),depths=mapOf(1 to listOf(depth(500,.32))))
+        c.step(700,listOf(person(.525)),bodies=mapOf(1 to listOf(body(700,.86,.52))),depths=mapOf(1 to listOf(depth(700,.55))))
+        // Still the same accepted person, now fully visible to the side of the aperture. No current
+        // portal body evidence is present because the portal sensor may already have gone idle.
+        val r=c.step(1400,listOf(person(.70,x=.84)))
+        assertTrue(r.events.isEmpty())
+        assertEquals(1,r.counts["L"])
+        assertEquals(0,r.counts["A"])
+        assertTrue(r.notes.any{it.startsWith("PASS_BY_VISIBLE:")})
+    }
 }
