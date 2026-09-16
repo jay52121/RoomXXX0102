@@ -1,0 +1,30 @@
+name: Archive V4.1 exact mask task
+on:
+  push:
+    branches:
+      - codex/portal-v41-mask-overlay-final
+    paths:
+      - .github/workflows/v41-mask-history.yml
+permissions:
+  contents: write
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Archive dialogue and codex history
+        run: |
+          python tools/dialogue_archive.py append-turn --user-file tools/_dialogue_user_current.txt --assistant-file tools/_dialogue_assistant_current.txt --title "V4.1 人体调试改为逐像素真实 Mask" --time "2026-09-16 23:27:00" --history-file dialogueHistory.md
+          python -c "from pathlib import Path; p=Path('codexHistory.md'); t=p.read_text(encoding='utf-8'); e=Path('tools/_codex_entry_current.txt').read_text(encoding='utf-8'); m='# Codex History\n\n'; assert t.startswith(m); p.write_text(t if e.splitlines()[0] in t else m+e+t[len(m):],encoding='utf-8')"
+      - name: Remove temporary history machinery
+        run: python -c "from pathlib import Path; [p.unlink() for p in [Path('.github/workflows/v41-mask-history.yml'), Path('tools/_codex_entry_current.txt')] if p.exists()]"
+      - name: Commit archive
+        run: |
+          git config user.name "OpenAI Codex"
+          git config user.email "codex@openai.com"
+          git add codexHistory.md dialogueHistory.md tools/_dialogue_user_current.txt tools/_dialogue_assistant_current.txt
+          git add -A .github/workflows/v41-mask-history.yml tools/_codex_entry_current.txt
+          git commit -m "docs: archive exact pixel mask visualization"
+          git push origin HEAD:codex/portal-v41-mask-overlay-final
