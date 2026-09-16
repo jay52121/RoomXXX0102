@@ -206,6 +206,22 @@
             android:textStyle="bold" />
 
         <Button
+            android:id="@+id/btnDiagnosticReplay"
+            android:layout_width="86dp"
+            android:layout_height="38dp"
+            android:layout_marginBottom="7dp"
+            android:background="@drawable/bg_side_action_button_active"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="6dp"
+            android:text="诊断回放"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <Button
             android:id="@+id/btnHandOverlay"
             android:layout_width="86dp"
             android:layout_height="38dp"

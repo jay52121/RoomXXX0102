@@ -88,6 +88,10 @@ class VideoFeeder(
     private var lastObservedFrameDigest: String? = null
     // +1 帧补偿触发时回调给上层 UI，用于显示横幅提示。
     var onStepNudge: ((String) -> Unit)? = null
+    /** 诊断回放使用：关闭循环，并在真实播放到末尾后生成一次完成回调。 */
+    var loopPlayback: Boolean = true
+    var onPlaybackCompleted: (() -> Unit)? = null
+    private var playbackCompletionDelivered = false
     private val frameStepController = FrameStepController(
         getDurationMs = { videoPlayer?.getDurationMs() },
         issueSeekToMs = { targetMs ->
@@ -110,6 +114,17 @@ class VideoFeeder(
             val player = videoPlayer
             if (!isAnalyzing || player == null) {
                 return
+            }
+            if (!loopPlayback && !playbackCompletionDelivered && !isStillMode && !player.isPlaying()) {
+                val duration = player.getDurationMs() ?: -1
+                val position = player.getCurrentPositionMs() ?: -1
+                val endTolerance = maxOf(180, frameStepMs * 3)
+                if (duration > 0 && position >= duration - endTolerance) {
+                    playbackCompletionDelivered = true
+                    isAnalyzing = false
+                    onPlaybackCompleted?.invoke()
+                    return
+                }
             }
             
             // 🔥 新逻辑：只要正在播放，或者处于静止模式，就继续识别
@@ -206,6 +221,7 @@ class VideoFeeder(
 
     private fun setupMediaPlayer(filePath: String? = null, uri: Uri? = null) {
         stop()
+        playbackCompletionDelivered = false
         lastAppliedVideoLayout = null
         frameStepController.resetAnchor("video_start")
         frameStepMs = estimateFrameStepMs(filePath, uri)
@@ -267,7 +283,7 @@ class VideoFeeder(
                         Log.e("VideoFeeder", "❌ ExoVideoPlayer 错误", error)
                     }
                 })
-                prepare(filePath = filePath, uri = uri, looping = true)
+                prepare(filePath = filePath, uri = uri, looping = loopPlayback)
             }
         } catch (e: Exception) {
             Log.e("VideoFeeder", "❌ 启动失败", e)
