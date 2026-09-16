@@ -1,4 +1,4 @@
-name: Archive Portal V4.1 dialogue
+name: Update Portal V4.1 codex history
 on:
   push:
     branches:
@@ -8,18 +8,17 @@ on:
 permissions:
   contents: write
 jobs:
-  archive:
+  history:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Archive exact turn
-        run: python tools/dialogue_archive.py append-turn --user-file tools/_dialogue_user_current.txt --assistant-file tools/_dialogue_assistant_current.txt --title "V4.1 Event ROI 门口事件视觉重构" --time "2026-09-16 19:45:00" --history-file dialogueHistory.md
-      - name: Commit archive
+      - name: Insert newest-first codex entry
         run: |
+          python -c "from pathlib import Path; p=Path('codexHistory.md'); t=p.read_text(encoding='utf-8'); e=Path('tools/_codex_entry_current.txt').read_text(encoding='utf-8'); m='# Codex History\\n\\n'; assert t.startswith(m); p.write_text(t if e.splitlines()[0] in t else m+e+t[len(m):],encoding='utf-8')"
           git config user.name "OpenAI Codex"
           git config user.email "codex@openai.com"
-          git add dialogueHistory.md
-          git commit -m "docs: archive Portal V4.1 Event ROI dialogue"
+          git add codexHistory.md
+          git commit -m "docs: record Portal V4.1 Event ROI redesign"
           git push origin HEAD:codex/portal-v4-event-roi
