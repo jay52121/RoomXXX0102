@@ -151,6 +151,7 @@ internal class GateEventVision private constructor(
             current.values.forEach{it.release()};previousTime=timeMs;if(originTried.size>64)originTried.clear()
             return GateEventVisionResult(flows,views,samples,healthy,elapsed(started),lk?.pointCount?:0,processing.size,historyBytes(),notes,origin)
         }catch(e:Exception){
+            GateMaskDebug.clear()
             current.values.forEach{runCatching{it.release()}}
             return GateEventVisionResult(emptyMap(),views,emptyList(),false,elapsed(started),0,0,historyBytes(),listOf("EVENT_VISION_ERROR:${e.javaClass.simpleName}"),null)
         }
@@ -180,6 +181,14 @@ internal class GateEventVision private constructor(
             }else if(!state.owned.empty()){
                 val expanded=Mat();try{Imgproc.dilate(state.owned,expanded,growKernel);Core.bitwise_and(expanded,foreground,state.owned);ownCount=Core.countNonZero(state.owned)}finally{expanded.release()}
             }
+            val debugOwned=when {
+                ownership!=null&&!ownership.empty()->ownership
+                !state.owned.empty()->state.owned
+                else->null
+            }
+            // Debug only: expose exact thresholded pixels. The raw fixed-reference mask is
+            // intentionally shown before morphology so tiny threshold crossings remain visible.
+            GateMaskDebug.publish(state.gate.id,state.rect,sourceWidth,sourceHeight,motion,raw,debugOwned)
             val remaining=max(Core.countNonZero(foreground),Core.countNonZero(raw))
             val inspected=detection?.let{coverage==null||coverage.contains(it.box.center)}?:true
             val clearFor=state.clear.observe(timeMs,remaining,ownCount,state.referenceKnown&&state.acquiredWhileVisible&&inspected,cfg.maxGapMs,cfg.clearRatio)
@@ -192,7 +201,7 @@ internal class GateEventVision private constructor(
                 }
             }
             gray.copyTo(state.previous);state.lastProcessed=timeMs
-            val view=GateEventTileView(state.gate.id,rectBox(state.rect),contourView(foreground,state.rect),remaining,ownCount,state.history.size,decision.phase,state.owner,state.referenceKnown)
+            val view=GateEventTileView(state.gate.id,rectBox(state.rect),emptyList(),remaining,ownCount,state.history.size,decision.phase,state.owner,state.referenceKnown)
             return ActiveResult(view,evidence,if(lk?.budgetExceeded==true)"OPTIONAL_LK_BUDGET_REACHED" else null)
         }finally{ownership?.release();raw.release();foreground.release();diff.release();motion.release()}
     }
@@ -238,7 +247,7 @@ internal class GateEventVision private constructor(
     }
     private fun ensureGeometry(w:Int,h:Int){
         if(w==sourceWidth&&h==sourceHeight&&states.isNotEmpty())return
-        states.values.forEach{it.release()};states.clear();scheduler.reset();lk?.reset();sourceWidth=w;sourceHeight=h;previousTime=-1;sceneSamples=null
+        states.values.forEach{it.release()};states.clear();GateMaskDebug.clear();scheduler.reset();lk?.reset();sourceWidth=w;sourceHeight=h;previousTime=-1;sceneSamples=null
         for(g in gates){if(g.isBlind||g.aperture.size<3)continue;val rect=cropRect(g,w,h);val mask=Mat.zeros(rect.height,rect.width,CvType.CV_8UC1)
             val polygon=MatOfPoint(*g.aperture.map{p->Point(p.x*w-rect.x,p.y*h-rect.y)}.toTypedArray());try{Imgproc.fillConvexPoly(mask,polygon,Scalar(255.0))}finally{polygon.release()};states[g.id]=PortalState(g,rect,mask)}
     }
@@ -261,15 +270,16 @@ internal class GateEventVision private constructor(
     private fun occupiedFineCells(mask:Mat):Set<Int>{
         val bytes=ByteArray(mask.rows()*mask.cols());mask.get(0,0,bytes);val counts=IntArray(96);val w=mask.cols();val h=mask.rows();for(y in 0 until h)for(x in 0 until w)if((bytes[y*w+x].toInt() and 255)!=0){val cx=(x*8/w.coerceAtLeast(1)).coerceIn(0,7);val cy=(y*12/h.coerceAtLeast(1)).coerceIn(0,11);counts[cy*8+cx]++};return counts.indices.filter{counts[it]>=3}.toSet()
     }
-    private fun contourView(mask:Mat,rect:Rect):List<List<FlowPoint>>{
-        val work=mask.clone();val hierarchy=Mat();val contours=mutableListOf<MatOfPoint>();try{Imgproc.findContours(work,contours,hierarchy,Imgproc.RETR_EXTERNAL,Imgproc.CHAIN_APPROX_SIMPLE);return contours.filter{Imgproc.contourArea(it)>=cfg.contourMinArea}.sortedByDescending{Imgproc.contourArea(it)}.take(10).map{c->val a=c.toArray();val stride=max(1,a.size/48);a.filterIndexed{i,_->i%stride==0}.map{q->FlowPoint((q.x+rect.x)/sourceWidth,(q.y+rect.y)/sourceHeight)}}.filter{it.size>=3}}finally{contours.forEach{it.release()};hierarchy.release();work.release()}
+    private fun viewIdle(state:PortalState,d:GateSensorDecision):GateEventTileView {
+        // ARMED/OFF does no pixel processing, so never leave a stale ACTIVE mask on screen.
+        GateMaskDebug.clearGate(state.gate.id)
+        return GateEventTileView(state.gate.id,rectBox(state.rect),emptyList(),0,if(state.owned.empty())0 else Core.countNonZero(state.owned),state.history.size,d.phase,d.ownerTrack,state.referenceKnown)
     }
-    private fun viewIdle(state:PortalState,d:GateSensorDecision)=GateEventTileView(state.gate.id,rectBox(state.rect),emptyList(),0,if(state.owned.empty())0 else Core.countNonZero(state.owned),state.history.size,d.phase,d.ownerTrack,state.referenceKnown)
     private fun rectBox(r:Rect)=FlowBox(r.x.toDouble()/sourceWidth,r.y.toDouble()/sourceHeight,(r.x+r.width).toDouble()/sourceWidth,(r.y+r.height).toDouble()/sourceHeight)
     private fun sceneChanged(source:Bitmap):Boolean{
         val now=IntArray(24);var i=0;for(gy in 1..4)for(gx in 1..6){val c=source.getPixel((source.width*gx/7).coerceIn(0,source.width-1),(source.height*gy/5).coerceIn(0,source.height-1));now[i++]=(Color.red(c)*77+Color.green(c)*150+Color.blue(c)*29) shr 8};val old=sceneSamples;sceneSamples=now;if(old==null)return false;val deltas=now.indices.map{now[it]-old[it]};return deltas.count{abs(it)>max(18,cfg.pixelThreshold)}>=16||abs(median(deltas.map{it.toDouble()}))>18
     }
     private fun historyBytes():Long=states.values.sumOf{s->s.history.sumOf{it.gray.total()*it.gray.elemSize().toLong()}}
     private fun elapsed(started:Long)=(System.nanoTime()-started)/1_000_000L
-    override fun close(){states.values.forEach{it.release()};states.clear();scheduler.reset();lk?.reset();openKernel.release();growKernel.release();sceneSamples=null}
+    override fun close(){states.values.forEach{it.release()};states.clear();GateMaskDebug.clear();scheduler.reset();lk?.reset();openKernel.release();growKernel.release();sceneSamples=null}
 }

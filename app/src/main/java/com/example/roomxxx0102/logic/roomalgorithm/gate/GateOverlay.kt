@@ -3,7 +3,6 @@ package com.example.roomxxx0102.logic.roomalgorithm.gate
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Path
 import com.example.roomxxx0102.logic.roomalgorithm.flow.*
 import java.util.Locale
 
@@ -29,7 +28,9 @@ object GateOverlay {
         lines+="视觉 ${s.v?.costMs?:0}ms  活跃门 ${s.v?.activeGates?:0}  光流 ${s.v?.points?:0}点"
         lines+="门历史 ${(s.v?.historyBytes?:0)/1024}KB  整轮 ${GateRuntime.pipelineCostMs}ms"
         lines+="截图 ${GateRuntime.captureCostMs}ms  队列 0  跳采请求 ${GateRuntime.skipped}"
-        lines+="黄色轮廓=真实局部门前景  绿色线=B版局部双向光流"
+        val masks=s.v?.tiles.orEmpty().mapNotNull { GateMaskDebug.snapshot(it.gate) }
+        lines+="像素 动态 ${masks.sumOf{it.motionPixels}}  背景差 ${masks.sumOf{it.backgroundPixels}}  人体 ${masks.sumOf{it.ownedPixels}}"
+        lines+="黄色=逐像素帧间变化  橙色=逐像素参考背景差  青色=人体归属  绿色线=B版光流"
         if(s.v==null) lines+="本地视觉不可用：仅使用门底边"
         if(s.v?.notes?.any { it.contains("SCENE_CHANGED") }==true) lines+="稀疏全局采样检测到画面整体变化"
         return lines
@@ -42,23 +43,24 @@ object GateOverlay {
         fun y(a:Double)=top+(a*height).toFloat()
         val save=canvas.save();canvas.clipRect(left,top,left+width,top+height)
 
-        // Draw the actual foreground contours. The old 4x8 filled debug bricks are deliberately gone.
+        fun drawMaskRuns(runs:List<GatePixelRun>,color:Int) {
+            paint.style=Paint.Style.FILL
+            paint.color=color
+            paint.isAntiAlias=false
+            runs.forEach { run ->
+                canvas.drawRect(x(run.left),y(run.top),x(run.right),y(run.bottom),paint)
+            }
+            paint.isAntiAlias=true
+        }
+
+        // Exact-pixel debug rendering. Horizontal runs are only a compact transport format: every
+        // painted source pixel was non-zero in the corresponding binary mask; holes stay unpainted.
         for(tile in s.v?.tiles.orEmpty()) {
             if(tile.phase==GateSensorPhase.OFF) continue
-            paint.style=Paint.Style.FILL
-            paint.color=Color.argb(if(tile.phase==GateSensorPhase.HOLD) 45 else 72,255,190,0)
-            tile.contours.forEach { contour ->
-                if(contour.size<3) return@forEach
-                val path=Path()
-                contour.forEachIndexed { i,p -> if(i==0) path.moveTo(x(p.x),y(p.y)) else path.lineTo(x(p.x),y(p.y)) }
-                path.close();canvas.drawPath(path,paint)
-            }
-            paint.style=Paint.Style.STROKE
-            paint.color=Color.argb(180,255,210,0)
-            tile.contours.forEach { contour ->
-                if(contour.size<3) return@forEach
-                val path=Path();contour.forEachIndexed { i,p -> if(i==0) path.moveTo(x(p.x),y(p.y)) else path.lineTo(x(p.x),y(p.y)) };path.close()
-                canvas.drawPath(path,paint)
+            GateMaskDebug.snapshot(tile.gate)?.let { mask ->
+                drawMaskRuns(mask.backgroundRuns,Color.argb(72,255,128,0))
+                drawMaskRuns(mask.motionRuns,Color.argb(145,255,235,0))
+                drawMaskRuns(mask.ownedRuns,Color.argb(190,0,220,255))
             }
             paint.style=Paint.Style.FILL
             paint.color=when(tile.phase) {
