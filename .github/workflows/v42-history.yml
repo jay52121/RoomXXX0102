@@ -1,0 +1,30 @@
+name: Archive V4.2 episode core task
+
+on:
+  push:
+    branches:
+      - codex/portal-v42-episode-core
+
+permissions:
+  contents: write
+
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Archive dialogue and codex history
+        run: |
+          python tools/dialogue_archive.py append-turn --user-file tools/_dialogue_user_current.txt --assistant-file tools/_dialogue_assistant_current.txt --title "V4.2 Portal Episode Core 重写进出门状态机" --time "2026-09-16 23:44:00" --history-file dialogueHistory.md
+          python tools/patch_v42_history.py
+      - name: Remove temporary history machinery
+        run: python -c "from pathlib import Path; [p.unlink() for p in [Path('.github/workflows/v42-history.yml'), Path('tools/patch_v42_history.py')] if p.exists()]"
+      - name: Commit archive
+        run: |
+          git config user.name "OpenAI Codex"
+          git config user.email "codex@openai.com"
+          git add -A codexHistory.md dialogueHistory.md tools/_dialogue_user_current.txt tools/_dialogue_assistant_current.txt .github/workflows/v42-history.yml tools/patch_v42_history.py
+          git commit -m "docs: archive Portal V4.2 episode core task"
+          git push origin HEAD:codex/portal-v42-episode-core
