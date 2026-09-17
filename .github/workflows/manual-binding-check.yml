@@ -23,6 +23,9 @@ jobs:
       - name: Grant execute permission
         run: chmod +x gradlew
 
+      - name: Supply missing local consumer rules placeholder
+        run: touch kws-sdk/consumer-rules.pro
+
       - name: Unit tests and debug APK
         run: ./gradlew testDebugUnitTest assembleDebug --stacktrace
 
