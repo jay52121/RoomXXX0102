@@ -50,7 +50,8 @@ internal object MarkedPortalTruthInference {
         val portal: Double,
     )
 
-    fun regions(rooms: List<RoomConfig>): List<Region> = rooms
+    /** 保留给静态 RoomConfig/离线工具使用，名称与运行态 Snapshot 版本刻意区分以避开 JVM 泛型擦除。 */
+    fun regionsFromRoomConfigs(rooms: List<RoomConfig>): List<Region> = rooms
         .asSequence()
         .filter { !it.isSovereignTerritory && !it.isLivingBlindZone }
         .mapNotNull { room ->
@@ -61,6 +62,7 @@ internal object MarkedPortalTruthInference {
         }
         .toList()
 
+    /** 正常播放逐帧使用的 Portal 几何。 */
     fun regions(rooms: List<PresenceRoomSnapshot>): List<Region> = rooms
         .asSequence()
         .filter { !it.isLivingRoom && !it.isBlindZone }
@@ -146,9 +148,7 @@ internal object MarkedPortalTruthInference {
         timeMs: Long,
     ): InferredPortalTruth? = inferAll(poses, regions, timeMs).firstOrNull()
 
-    /**
-     * 明确两个“重叠百分比”的分母，避免再把小门被填满误读成人已进入门。
-     */
+    /** 明确两个“重叠百分比”的分母，避免再把小门被填满误读成人已进入门。 */
     internal fun coverageFromAreas(
         intersectionArea: Double,
         personArea: Double,
@@ -304,9 +304,7 @@ internal object MarkedPortalTruthInference {
     }
 }
 
-/**
- * 仅用于人工核对的第二条提示信息；与 V4/Presence 输出提示完全分离。
- */
+/** 仅用于人工核对的第二条提示信息；与 V4/Presence 输出提示完全分离。 */
 internal object MarkedPortalInferenceOverlayBus {
     private data class Snapshot(val message: String, val expiresAtMs: Long)
 
