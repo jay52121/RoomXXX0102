@@ -1,6 +1,7 @@
 package com.example.roomxxx0102.logic.validation
 
 import android.content.Context
+import com.example.roomxxx0102.data.repository.RoomRepository
 import com.example.roomxxx0102.logic.roomalgorithm.gate.GateDiagnosticBus
 import com.example.roomxxx0102.logic.roomalgorithm.gate.GateDiagnosticConfig
 import com.example.roomxxx0102.logic.roomalgorithm.gate.GateDiagnosticEvent
@@ -89,6 +90,7 @@ internal class EventDiagnosticRecorder(
         const val FP_PRE_MS = 1500L
         const val FP_POST_MS = 1500L
         const val MATCH_WINDOW_MS = 1000L
+        const val PORTAL_INFERENCE_WINDOW_MS = 350L
     }
 
     private data class Window(val anchorMs: Long, val startMs: Long, val endMs: Long, val runtimeKey: String? = null)
@@ -103,9 +105,23 @@ internal class EventDiagnosticRecorder(
     private val fpKeys = mutableSetOf<String>()
     private var firstRuntimeTag: String? = null
 
+    // 人工事件门位推断与 V4 算法完全独立：只使用静态 Portal 多边形 + 当时人体框。
+    private val inferenceRooms = RoomRepository.getAllRooms()
+    private val inferenceRegions = MarkedPortalTruthInference.regions(inferenceRooms)
+    private val livingRoomName = inferenceRooms.firstOrNull { it.isSovereignTerritory }?.name ?: "客厅"
+    private val inferenceBest = mutableMapOf<Int, InferredPortalTruth>()
+    private val inferenceFinal = mutableMapOf<Int, InferredPortalTruth>()
+    private val inferencePublished = mutableSetOf<Int>()
+
+    init {
+        MarkedPortalInferenceOverlayBus.clear()
+    }
+
     @Synchronized
     fun recordFrame(frame: GateDiagnosticFrame) {
         firstRuntimeTag = firstRuntimeTag ?: frame.runtimeTag
+        updatePortalInference(frame)
+
         rolling.addLast(frame)
         while (rolling.isNotEmpty() && frame.timeMs - rolling.first().timeMs > FP_PRE_MS) {
             rolling.removeFirst()
@@ -131,17 +147,67 @@ internal class EventDiagnosticRecorder(
         }
     }
 
+    private fun updatePortalInference(frame: GateDiagnosticFrame) {
+        marked.forEachIndexed { index, gt ->
+            if (index in inferencePublished) return@forEachIndexed
+            val start = gt.timestampMs - PORTAL_INFERENCE_WINDOW_MS
+            val end = gt.timestampMs + PORTAL_INFERENCE_WINDOW_MS
+            if (frame.timeMs in start..end) {
+                MarkedPortalTruthInference.infer(frame.people, inferenceRegions, frame.timeMs)?.let { candidate ->
+                    val previous = inferenceBest[index]
+                    if (previous == null || candidate.score > previous.score) {
+                        inferenceBest[index] = candidate
+                    }
+                }
+            }
+            if (frame.timeMs > end) {
+                finalizePortalInference(index, gt)
+            }
+        }
+    }
+
+    private fun finalizePortalInference(index: Int, gt: MarkedEvent) {
+        if (index in inferencePublished) return
+        val inferred = inferenceBest[index]
+        if (inferred != null) {
+            inferenceFinal[index] = inferred
+            val route = if (gt.type == EventType.ENTER) {
+                "$livingRoomName → ${inferred.portalName}"
+            } else {
+                "${inferred.portalName} → $livingRoomName"
+            }
+            val scoreText = String.format(Locale.US, "%.2f", inferred.score)
+            MarkedPortalInferenceOverlayBus.publish(
+                "【推断进出】#${index + 1} $route ｜ 人#${inferred.person} ｜ 几何重叠=$scoreText"
+            )
+        } else {
+            MarkedPortalInferenceOverlayBus.publish(
+                "【推断进出】#${index + 1} 未找到人体与房门的几何重叠"
+            )
+        }
+        inferencePublished += index
+    }
+
     @Synchronized
     fun finish(): File {
+        marked.forEachIndexed { index, gt ->
+            if (index !in inferencePublished) finalizePortalInference(index, gt)
+        }
+
         val result = EventDiagnosticMatcher.match(marked, runtimeEvents, MATCH_WINDOW_MS)
         val root = JSONObject()
-        root.put("schema", 1)
+        root.put("schema", 2)
         root.put("algorithm", firstRuntimeTag ?: "V4-A")
         root.put("portalTruthAvailable", false)
-        root.put("note", "人工事件当前只含ENTER/EXIT和时间；目标门不作为真值，避免用算法候选门污染GT。")
+        root.put("portalInferenceAvailable", inferenceFinal.isNotEmpty())
+        root.put(
+            "note",
+            "人工事件门位由人工时间点±${PORTAL_INFERENCE_WINDOW_MS}ms内的人体框×静态Portal几何独立推断；未使用V4候选门/锁门/FSM/输出。当前先供人工核对，尚不作为硬GT参与MATCH分类。"
+        )
         root.put("windowMs", JSONObject()
             .put("gtPre", GT_PRE_MS)
             .put("gtPost", GT_POST_MS)
+            .put("portalInference", PORTAL_INFERENCE_WINDOW_MS)
             .put("falsePositivePre", FP_PRE_MS)
             .put("falsePositivePost", FP_POST_MS)
             .put("match", MATCH_WINDOW_MS))
@@ -167,12 +233,27 @@ internal class EventDiagnosticRecorder(
             val start = gt.timestampMs - GT_PRE_MS
             val end = gt.timestampMs + GT_POST_MS
             val frames = framesIn(start, end)
+            val gtJson = JSONObject()
+                .put("type", gt.type.name)
+                .put("t", gt.timestampMs)
+                .put("frame", gt.frameIndex)
+            val inferred = inferenceFinal[match.markedIndex]
+            if (inferred != null) {
+                gtJson.put("inferredPortal", JSONObject()
+                    .put("roomId", inferred.portalRoomId)
+                    .put("name", inferred.portalName)
+                    .put("person", inferred.person)
+                    .put("track", inferred.track)
+                    .put("score", n(inferred.score))
+                    .put("personCoverage", n(inferred.personCoverage))
+                    .put("portalCoverage", n(inferred.portalCoverage))
+                    .put("dt", inferred.sampleTimeMs - gt.timestampMs))
+            } else {
+                gtJson.put("inferredPortal", JSONObject.NULL)
+            }
             val obj = JSONObject()
                 .put("id", match.markedIndex + 1)
-                .put("gt", JSONObject()
-                    .put("type", gt.type.name)
-                    .put("t", gt.timestampMs)
-                    .put("frame", gt.frameIndex))
+                .put("gt", gtJson)
                 .put("classification", match.classification)
                 .put("window", JSONArray(listOf(-GT_PRE_MS, GT_POST_MS)))
             match.runtimeIndex?.let { index -> obj.put("matchedOutput", eventJson(runtimeEvents[index], gt.timestampMs)) }
@@ -200,6 +281,8 @@ internal class EventDiagnosticRecorder(
 
         val summary = JSONObject()
             .put("groundTruth", marked.size)
+            .put("portalInferred", inferenceFinal.size)
+            .put("portalInferenceMissing", marked.size - inferenceFinal.size)
             .put("runtimeOutputs", runtimeEvents.size)
             .put("match", result.marked.count { it.classification == "MATCH" })
             .put("miss", result.marked.count { it.classification == "MISS" })
