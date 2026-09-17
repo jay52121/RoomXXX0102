@@ -1,0 +1,29 @@
+name: Verify diagnostic runtime inference
+
+on:
+  push:
+    branches:
+      - diag-runtime-inference-v3
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Unit tests and debug build
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diag-runtime-inference-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: ignore

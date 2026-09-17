@@ -46,15 +46,21 @@ class EventMarkerManager {
 
     fun bindVideo(videoKey: String?) {
         boundVideoKey = videoKey
-        if (videoKey.isNullOrBlank()) return
-        if (eventMap.containsKey(videoKey)) return
-        eventMap[videoKey] = loadEventsForVideo(videoKey).toMutableList()
+        if (videoKey.isNullOrBlank()) {
+            MarkedEventRuntimeSource.update(null, emptyList())
+            return
+        }
+        if (!eventMap.containsKey(videoKey)) {
+            eventMap[videoKey] = loadEventsForVideo(videoKey).toMutableList()
+        }
+        MarkedEventRuntimeSource.update(videoKey, eventMap[videoKey]?.toList().orEmpty())
     }
 
     fun clearBoundVideoEvents() {
         val key = boundVideoKey ?: return
         eventMap.remove(key)
         deleteEventsFile(key)
+        MarkedEventRuntimeSource.update(key, emptyList())
     }
 
     fun getEvents(): List<MarkedEvent> {
@@ -77,6 +83,7 @@ class EventMarkerManager {
         )
         list.sortBy { it.timestampMs }
         saveEventsForVideo(key, list)
+        MarkedEventRuntimeSource.update(key, list)
         return AddResult.ADDED
     }
 
@@ -93,6 +100,7 @@ class EventMarkerManager {
         if (matched.isEmpty()) return emptyList()
         list.removeAll(matched.toSet())
         saveEventsForVideo(key, list)
+        MarkedEventRuntimeSource.update(key, list)
         return matched
     }
 

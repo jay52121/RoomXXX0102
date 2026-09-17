@@ -6,6 +6,7 @@ import com.example.roomxxx0102.logic.roomalgorithm.flow.PortalV3RoomAlgorithm
 import com.example.roomxxx0102.logic.presence.PresenceAlgorithmRegistry
 import com.example.roomxxx0102.logic.presence.PresenceEstimatorParams
 import com.example.roomxxx0102.logic.roomalgorithm.portal.PortalVisualTrackerRegistry
+import com.example.roomxxx0102.logic.validation.MarkedPortalInferenceRoomAlgorithm
 
 object RoomAlgorithmRegistry {
     const val PORTAL_V3_FLOW_ID = "portal_v3_flow"
@@ -80,6 +81,6 @@ object RoomAlgorithmRegistry {
     fun create(selectedId: String?, config: CreationConfig): RoomAlgorithmEngine {
         val resolvedId = resolveAlgorithmId(selectedId)
         val registration = registrations.first { it.option.algorithmId == resolvedId }
-        return registration.factory(config)
+        return MarkedPortalInferenceRoomAlgorithm(registration.factory(config))
     }
 }
