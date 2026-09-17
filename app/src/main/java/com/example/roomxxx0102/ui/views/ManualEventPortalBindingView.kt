@@ -10,8 +10,6 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
-import android.widget.Button
-import android.widget.TextView
 import android.widget.Toast
 import com.example.roomxxx0102.R
 import com.example.roomxxx0102.data.model.RoomConfig
@@ -70,6 +68,9 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
     init {
         isClickable = true
         isFocusable = false
+        // 右侧控制条本身是 6dp。调试覆盖层略高一层，才能在“信息面板已关闭”时
+        // 抢先识别下一次“调试面板”点击并只恢复信息面板；非目标点击返回 false 继续下传。
+        elevation = 7f * density
         setLayerType(LAYER_TYPE_SOFTWARE, null)
     }
 
@@ -87,6 +88,12 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
         }
         debugWasActive = true
 
+        // 雷达/房间编辑是更高优先级界面；本调试层完全让路。
+        if (isBlockingScreenActive()) {
+            closeRect.setEmpty()
+            return
+        }
+
         if (!infoPanelClosedByUser) {
             drawPanelCloseButton(canvas)
         } else {
@@ -96,6 +103,8 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (isBlockingScreenActive()) return false
+
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 consumeGesture = false
@@ -128,9 +137,14 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
                     }
                     val room = findTappedPortalRoom(event.x, event.y)
                     if (room != null) {
+                        val before = MarkedEventPortalBinding.selectedEvent()?.portalRoomId
                         val updated = MarkedEventPortalBinding.bindSelectedPortal(room.id)
                         if (updated != null) {
-                            val action = if (updated.portalRoomId == room.id) "已绑定" else "已更新"
+                            val action = when {
+                                before == null -> "已绑定"
+                                before == room.id -> "绑定不变"
+                                else -> "已改绑"
+                            }
                             Toast.makeText(
                                 context,
                                 "$action：${updated.type.name} → ${room.name}",
@@ -165,24 +179,26 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
     }
 
     private fun canBindPortal(): Boolean {
-        if (!isDebugUiActive()) return false
+        if (!isDebugUiActive() || isBlockingScreenActive()) return false
         if (MarkedEventPortalBinding.selectedEvent() == null) return false
         // 房间事件工具栏可见 = 当前是回顾视频、调试模式、看人视图且非播放态；
         // 只在这个明确的人工标注场景允许点击房门，避免干扰正常操作。
         val eventControls = rootView.findViewById<View>(R.id.llEventMarkerControls)
         val diagnosticButton = rootView.findViewById<View>(R.id.btnDiagnosticReplay)
-        val editorControls = rootView.findViewById<View>(R.id.llEditorControls)
-        val radar = rootView.findViewById<View>(R.id.flRadarContainer)
         return eventControls?.visibility == View.VISIBLE &&
-            diagnosticButton?.visibility == View.VISIBLE &&
-            editorControls?.visibility != View.VISIBLE &&
-            radar?.visibility != View.VISIBLE
+            diagnosticButton?.visibility == View.VISIBLE
     }
 
     private fun isDebugUiActive(): Boolean {
         val eventControls = rootView.findViewById<View>(R.id.llEventMarkerControls)
         val diagnosticButton = rootView.findViewById<View>(R.id.btnDiagnosticReplay)
         return eventControls?.visibility == View.VISIBLE || diagnosticButton?.visibility == View.VISIBLE
+    }
+
+    private fun isBlockingScreenActive(): Boolean {
+        val editorControls = rootView.findViewById<View>(R.id.llEditorControls)
+        val radar = rootView.findViewById<View>(R.id.flRadarContainer)
+        return editorControls?.visibility == View.VISIBLE || radar?.visibility == View.VISIBLE
     }
 
     private fun isTouchOnControls(x: Float, y: Float): Boolean {
@@ -204,9 +220,9 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
         if (!target.getGlobalVisibleRect(targetRect)) return false
         val own = IntArray(2)
         getLocationOnScreen(own)
-        val localX = x + own[0]
-        val localY = y + own[1]
-        return targetRect.contains(localX.toInt(), localY.toInt())
+        val globalX = x + own[0]
+        val globalY = y + own[1]
+        return targetRect.contains(globalX.toInt(), globalY.toInt())
     }
 
     private fun detectionOverlay(): DetectionOverlayView? =
