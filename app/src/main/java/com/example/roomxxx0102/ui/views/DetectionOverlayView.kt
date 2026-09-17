@@ -28,6 +28,7 @@ import com.example.roomxxx0102.logic.pointing.PointingDebugSnapshot
 import com.example.roomxxx0102.logic.validation.DeviceHitMarkedEvent
 import com.example.roomxxx0102.logic.validation.EventType
 import com.example.roomxxx0102.logic.validation.MarkedEvent
+import com.example.roomxxx0102.logic.validation.MarkedPortalInferenceOverlayBus
 import com.example.roomxxx0102.ui.drawers.DebugBoxDrawer
 import com.example.roomxxx0102.ui.drawers.PoseDrawer
 
@@ -177,6 +178,18 @@ class DetectionOverlayView @JvmOverloads constructor(
         textSize = 28f
         isAntiAlias = true
         textAlign = Paint.Align.CENTER
+    }
+    private val inferredPortalBannerPaint = Paint().apply {
+        color = Color.parseColor("#D0003C4A")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val inferredPortalTextPaint = Paint().apply {
+        color = Color.parseColor("#80DEEA")
+        textSize = 28f
+        isAntiAlias = true
+        textAlign = Paint.Align.CENTER
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
     private val debugPanelBgPaint = Paint().apply {
         color = Color.parseColor("#80000000")
@@ -664,6 +677,7 @@ class DetectionOverlayView @JvmOverloads constructor(
             dstRect.set(0f, 0f, w, h)
             val markerRect = drawEventMarkerBar(canvas)
             drawUnlockBannerBelowMarker(canvas, markerRect, now)
+            drawInferredPortalBanner(canvas, markerRect, now)
             return
         }
 
@@ -821,6 +835,7 @@ class DetectionOverlayView @JvmOverloads constructor(
 
         val markerRect = drawEventMarkerBar(canvas)
         drawUnlockBannerBelowMarker(canvas, markerRect, now)
+        drawInferredPortalBanner(canvas, markerRect, now)
 
         if (showHandOnly) {
             drawHands(canvas, drawLeft, drawTop, drawWidth, drawHeight)
@@ -1182,6 +1197,29 @@ class DetectionOverlayView @JvmOverloads constructor(
         val fm = unlockTextPaint.fontMetrics
         val baseline = top + (bannerHeight - (fm.bottom - fm.top)) / 2f - fm.top
         canvas.drawText(message, centerX, baseline, unlockTextPaint)
+    }
+
+    private fun drawInferredPortalBanner(canvas: Canvas, markerRect: RectF?, nowMs: Long) {
+        val message = MarkedPortalInferenceOverlayBus.snapshot(nowMs) ?: return
+        val centerX = width / 2f
+        val baseTop = (markerRect?.bottom ?: 30f) + 10f
+        val top = if (isUnlockBannerVisible() && unlockBannerRect != null) {
+            unlockBannerRect!!.bottom + 8f
+        } else {
+            baseTop
+        }
+        val bannerHeight = 44f
+        val textPadding = 24f
+        val desiredWidth = inferredPortalTextPaint.measureText(message) + textPadding * 2f
+        val bannerWidth = desiredWidth.coerceIn(220f, width * 0.9f)
+        val left = centerX - bannerWidth / 2f
+        val right = centerX + bannerWidth / 2f
+        val bottom = top + bannerHeight
+
+        canvas.drawRoundRect(left, top, right, bottom, 10f, 10f, inferredPortalBannerPaint)
+        val fm = inferredPortalTextPaint.fontMetrics
+        val baseline = top + (bannerHeight - (fm.bottom - fm.top)) / 2f - fm.top
+        canvas.drawText(message, centerX, baseline, inferredPortalTextPaint)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
