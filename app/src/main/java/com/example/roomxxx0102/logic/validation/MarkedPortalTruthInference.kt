@@ -5,7 +5,6 @@ import com.example.roomxxx0102.data.model.RoomConfig
 import com.example.roomxxx0102.logic.roomalgorithm.flow.FlowBox
 import com.example.roomxxx0102.logic.roomalgorithm.gate.GateDiagnosticPerson
 import kotlin.math.abs
-import kotlin.math.max
 
 /**
  * 人工事件的“门位真值候选”。
@@ -37,7 +36,7 @@ internal object MarkedPortalTruthInference {
         .filter { !it.isSovereignTerritory }
         .mapNotNull { room ->
             val polygon = room.boundaryPoints
-            val area = polygonArea(polygon)
+            val area = polygonAreaF(polygon)
             if (polygon.size < 3 || area <= 1e-8) null
             else Region(room.id, room.name, polygon.map { PointF(it.x, it.y) }, area)
         }
@@ -86,7 +85,7 @@ internal object MarkedPortalTruthInference {
         clipped = clip(clipped, Axis.RIGHT, box.right)
         clipped = clip(clipped, Axis.TOP, box.top)
         clipped = clip(clipped, Axis.BOTTOM, box.bottom)
-        return polygonArea(clipped)
+        return polygonAreaD(clipped)
     }
 
     private data class DPoint(val x: Double, val y: Double)
@@ -137,7 +136,7 @@ internal object MarkedPortalTruthInference {
         }
     }
 
-    private fun polygonArea(points: List<PointF>): Double {
+    private fun polygonAreaF(points: List<PointF>): Double {
         if (points.size < 3) return 0.0
         var sum = 0.0
         for (i in points.indices) {
@@ -148,7 +147,7 @@ internal object MarkedPortalTruthInference {
         return abs(sum) * 0.5
     }
 
-    private fun polygonArea(points: List<DPoint>): Double {
+    private fun polygonAreaD(points: List<DPoint>): Double {
         if (points.size < 3) return 0.0
         var sum = 0.0
         for (i in points.indices) {
