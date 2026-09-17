@@ -429,7 +429,7 @@ class MainActivity : ComponentActivity() {
                 poseMetadata = sourceMeta
             ))
             if (isDiagnosticReplayActive) {
-                GateDiagnosticBus.frameFor(frameSeq)?.let { diagnosticRecorder?.recordFrame(it) }
+                GateDiagnosticBus.frameFor(frameSeq)?.let { diagnosticRecorder?.recordFrame(it, results) }
             }
             if (roomAlgorithm.algorithmId == RoomAlgorithmRegistry.PORTAL_V3_FLOW_ID || GateSettings.isNewMethod(roomAlgorithm.algorithmId)) {
                 allRooms.forEach { it.personCount = roomResult.observedCounts[it.id] ?: 0 }
