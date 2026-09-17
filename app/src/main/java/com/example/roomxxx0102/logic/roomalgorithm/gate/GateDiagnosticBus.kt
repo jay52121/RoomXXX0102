@@ -31,6 +31,11 @@ internal data class GatePortalDiagnostic(
     val bodyMotionRatio: Double?,
     val motion: GateMaskDigest?,
     val owned: GateMaskDigest?,
+    val bodyInsideRatio: Double? = null,
+    val poseInsideRatio: Double? = null,
+    val visiblePosePoints: Int? = null,
+    val bodyAlong: Double? = null,
+    val bodySide: Double? = null,
 )
 
 internal data class GateDiagnosticPerson(
@@ -91,6 +96,13 @@ internal data class GateDiagnosticConfig(
     val depthMinSpanMs: Long,
     val waitClearMs: Long,
     val disappearanceMs: Long,
+    val episodeIdleMs: Long = 0,
+    val episodeHardMs: Long = 0,
+    val absorptionArmRatio: Double = 0.0,
+    val absorptionCommitRatio: Double = 0.0,
+    val absorptionReleaseRatio: Double = 0.0,
+    val absorptionPassByAlong: Double = 0.0,
+    val visualWitnessMs: Long = 0,
 ) {
     companion object {
         fun from(config: GateConfig): GateDiagnosticConfig {
@@ -118,6 +130,13 @@ internal data class GateDiagnosticConfig(
                 depthMinSpanMs = policy.depthMinSpanMs,
                 waitClearMs = policy.waitClearMs,
                 disappearanceMs = policy.disappearanceMs,
+                episodeIdleMs = policy.episodeIdleMs,
+                episodeHardMs = policy.episodeTimeoutMs,
+                absorptionArmRatio = policy.absorptionArmRatio,
+                absorptionCommitRatio = policy.absorptionCommitRatio,
+                absorptionReleaseRatio = policy.absorptionReleaseRatio,
+                absorptionPassByAlong = policy.absorptionPassByAlong,
+                visualWitnessMs = policy.visualWitnessMs,
             )
         }
     }

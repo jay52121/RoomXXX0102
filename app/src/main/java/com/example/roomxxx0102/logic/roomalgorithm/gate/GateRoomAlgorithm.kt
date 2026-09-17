@@ -10,7 +10,7 @@ import com.example.roomxxx0102.logic.presence.*
 class GateRoomAlgorithm internal constructor(private val context:Context?,private val config:GateConfig):RoomAlgorithmEngine {
     override val algorithmId=config.method.id
     override val configurationKey=algorithmId+"|"+config.key
-    override val runtimeTag="GateV4.2-${config.method.name}-EPISODE_CORE"
+    override val runtimeTag="GateV4.3-${config.method.name}-CONTINUITY_ABSORPTION"
     private var core:PortalV4Core?=null
     private var vision:GateEventVision?=null
     private var lastDecision:FlowDecision?=null
@@ -66,7 +66,8 @@ class GateRoomAlgorithm internal constructor(private val context:Context?,privat
         val visual=if(bitmap!=null && successful) vision?.update(bitmap,time,detections,lastDecision?.people.orEmpty(),roi) else null
         lastResult=visual
         val anchored=if(visual?.origin!=null) detections.map { d -> if(d.id==visual.origin.first) d.copy(originGate=visual.origin.second) else d } else detections
-        val decision=engine.step(time,detections=if(successful) anchored else null,depths=visual?.depths.orEmpty(),flows=visual?.flows.orEmpty(),coverage=roi,frameHealthy=successful && visual?.healthy!=false)
+        val decision=engine.step(time,detections=if(successful) anchored else null,depths=visual?.depths.orEmpty(),flows=visual?.flows.orEmpty(),coverage=roi,
+            frameHealthy=successful && visual?.healthy!=false,bodies=visual?.bodies.orEmpty())
         lastDecision=decision;lastSequence=seq;lastTime=time
         val notes=decision.notes+visual?.notes.orEmpty()+if(vision==null) listOf("NATIVE_UNAVAILABLE_GROUND_ONLY") else emptyList()
         val debug=engine.debugSnapshot()
