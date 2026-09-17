@@ -63,18 +63,18 @@ class MarkedPortalInferenceRuntimeTest {
     fun adjacentBathroomExitAndBedroomEnterAreSplitAtMidpoint() {
         val events = listOf(
             MarkedEvent(EventType.EXIT, frameIndex = 100, timestampMs = 10_000L),
-            MarkedEvent(EventType.ENTER, frameIndex = 130, timestampMs = 11_000L),
+            MarkedEvent(EventType.ENTER, frameIndex = 118, timestampMs = 10_600L),
             MarkedEvent(EventType.EXIT, frameIndex = 220, timestampMs = 14_000L),
         )
 
         val bathroomExit = MarkedPortalInferenceRuntime.windowFor(events, 0)
         val bedroomEnter = MarkedPortalInferenceRuntime.windowFor(events, 1)
 
-        assertEquals(10_500L, bathroomExit.endMs)
-        assertEquals(10_501L, bedroomEnter.startMs)
-        assertEquals(12_400L, bedroomEnter.endMs)
+        assertEquals(10_300L, bathroomExit.endMs)
+        assertEquals(10_301L, bedroomEnter.startMs)
+        assertEquals(12_000L, bedroomEnter.endMs)
         assertTrue(bathroomExit.endMs < bedroomEnter.startMs)
-        assertEquals(1_000L, bedroomEnter.previousGapMs)
-        assertEquals(3_000L, bedroomEnter.nextGapMs)
+        assertEquals(600L, bedroomEnter.previousGapMs)
+        assertEquals(3_400L, bedroomEnter.nextGapMs)
     }
 }
