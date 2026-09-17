@@ -32,7 +32,7 @@ internal data class DiagnosticMatchResult(
     val falsePositiveRuntimeIndices: Set<Int>,
 )
 
-/** 只做客观的一对一时间/方向匹配，不尝试判断“失败属于哪一层”。 */
+/** 只做客观的一对一时间/方向/人工房门真值匹配，不尝试判断“失败属于哪一层”。 */
 internal object EventDiagnosticMatcher {
     fun match(
         marked: List<MarkedEvent>,
@@ -41,24 +41,40 @@ internal object EventDiagnosticMatcher {
     ): DiagnosticMatchResult {
         val used = mutableSetOf<Int>()
         val markedMatches = marked.mapIndexed { markedIndex, gt ->
-            val sameDirection = runtime.indices
+            val inWindow = runtime.indices
                 .filter { index -> index !in used }
-                .filter { index -> runtime[index].direction == gt.type.name }
                 .filter { index -> abs(runtime[index].timeMs - gt.timestampMs) <= windowMs }
+            val sameDirection = inWindow
+                .filter { index -> runtime[index].direction == gt.type.name }
+            val sameDirectionAndPortal = sameDirection
+                .filter { index ->
+                    val portalTruth = gt.portalRoomId
+                    portalTruth == null || runtimePortalRoomId(runtime[index]) == portalTruth
+                }
                 .minByOrNull { index -> abs(runtime[index].timeMs - gt.timestampMs) }
-            if (sameDirection != null) {
-                used += sameDirection
-                DiagnosticMarkedMatch(markedIndex, sameDirection, "MATCH")
-            } else {
-                val wrongDirection = runtime.indices
-                    .filter { index -> index !in used }
-                    .filter { index -> abs(runtime[index].timeMs - gt.timestampMs) <= windowMs }
-                    .minByOrNull { index -> abs(runtime[index].timeMs - gt.timestampMs) }
-                if (wrongDirection != null) {
-                    used += wrongDirection
-                    DiagnosticMarkedMatch(markedIndex, wrongDirection, "WRONG_DIRECTION")
-                } else {
-                    DiagnosticMarkedMatch(markedIndex, null, "MISS")
+
+            when {
+                sameDirectionAndPortal != null -> {
+                    used += sameDirectionAndPortal
+                    DiagnosticMarkedMatch(markedIndex, sameDirectionAndPortal, "MATCH")
+                }
+
+                gt.portalRoomId != null && sameDirection.isNotEmpty() -> {
+                    val wrongPortal = sameDirection
+                        .minByOrNull { index -> abs(runtime[index].timeMs - gt.timestampMs) }!!
+                    used += wrongPortal
+                    DiagnosticMarkedMatch(markedIndex, wrongPortal, "WRONG_PORTAL")
+                }
+
+                else -> {
+                    val wrongDirection = inWindow
+                        .minByOrNull { index -> abs(runtime[index].timeMs - gt.timestampMs) }
+                    if (wrongDirection != null) {
+                        used += wrongDirection
+                        DiagnosticMarkedMatch(markedIndex, wrongDirection, "WRONG_DIRECTION")
+                    } else {
+                        DiagnosticMarkedMatch(markedIndex, null, "MISS")
+                    }
                 }
             }
         }
@@ -70,6 +86,12 @@ internal object EventDiagnosticMatcher {
             if (nearAnyMarked) duplicates += index else falsePositives += index
         }
         return DiagnosticMatchResult(markedMatches, duplicates, falsePositives)
+    }
+
+    private fun runtimePortalRoomId(event: GateDiagnosticEvent): String = when (event.direction) {
+        EventType.ENTER.name -> event.to
+        EventType.EXIT.name -> event.from
+        else -> event.gateId.substringBefore('#')
     }
 }
 
@@ -106,7 +128,7 @@ internal class EventDiagnosticRecorder(
     private val fpKeys = mutableSetOf<String>()
     private var firstRuntimeTag: String? = null
 
-    // 人工事件门位推断与 V4 算法完全独立：只使用静态 Portal 多边形 + 当时人体框。
+    // 旧的几何推断只保留为对照证据；人工点击绑定的 portalRoomId 才是门级 GT。
     private val inferenceRooms = RoomRepository.getAllRooms()
     private val inferenceRegions = MarkedPortalTruthInference.regions(inferenceRooms)
     private val livingRoomName = inferenceRooms.firstOrNull { it.isSovereignTerritory }?.name ?: "客厅"
@@ -179,11 +201,11 @@ internal class EventDiagnosticRecorder(
             }
             val scoreText = String.format(Locale.US, "%.2f", inferred.score)
             MarkedPortalInferenceOverlayBus.publish(
-                "【推断进出】#${index + 1} $route ｜ Pose#${inferred.poseId} ｜ 几何重叠=$scoreText"
+                "【自动对照】#${index + 1} $route ｜ Pose#${inferred.poseId} ｜ 几何重叠=$scoreText"
             )
         } else {
             MarkedPortalInferenceOverlayBus.publish(
-                "【推断进出】#${index + 1} 未找到人体与房门的几何重叠"
+                "【自动对照】#${index + 1} 未找到人体与房门的几何重叠"
             )
         }
         inferencePublished += index
@@ -196,14 +218,16 @@ internal class EventDiagnosticRecorder(
         }
 
         val result = EventDiagnosticMatcher.match(marked, runtimeEvents, MATCH_WINDOW_MS)
+        val portalTruthBound = marked.count { !it.portalRoomId.isNullOrBlank() }
         val root = JSONObject()
-        root.put("schema", 2)
+        root.put("schema", 3)
         root.put("algorithm", firstRuntimeTag ?: "V4-A")
-        root.put("portalTruthAvailable", false)
+        root.put("portalTruthAvailable", portalTruthBound > 0)
+        root.put("portalTruthComplete", marked.isNotEmpty() && portalTruthBound == marked.size)
         root.put("portalInferenceAvailable", inferenceFinal.isNotEmpty())
         root.put(
             "note",
-            "人工事件门位由人工时间点±${PORTAL_INFERENCE_WINDOW_MS}ms内的原始Pose人体框×静态Portal几何独立推断；未使用V4候选门/锁门/FSM/Ledger/输出。当前先供人工核对，尚不作为硬GT参与MATCH分类。"
+            "门级GT只来自人工事件的房门点击绑定；未绑定事件不具有门级真值。自动Pose×Portal几何推断仅作为对照证据，不参与MATCH真值。"
         )
         root.put("windowMs", JSONObject()
             .put("gtPre", GT_PRE_MS)
@@ -238,6 +262,14 @@ internal class EventDiagnosticRecorder(
                 .put("type", gt.type.name)
                 .put("t", gt.timestampMs)
                 .put("frame", gt.frameIndex)
+            val portalRoomId = gt.portalRoomId
+            if (!portalRoomId.isNullOrBlank()) {
+                gtJson.put("portal", JSONObject()
+                    .put("roomId", portalRoomId)
+                    .put("name", roomNames[portalRoomId] ?: portalRoomId))
+            } else {
+                gtJson.put("portal", JSONObject.NULL)
+            }
             val inferred = inferenceFinal[match.markedIndex]
             if (inferred != null) {
                 gtJson.put("inferredPortal", JSONObject()
@@ -281,11 +313,14 @@ internal class EventDiagnosticRecorder(
 
         val summary = JSONObject()
             .put("groundTruth", marked.size)
+            .put("portalTruthBound", portalTruthBound)
+            .put("portalTruthMissing", marked.size - portalTruthBound)
             .put("portalInferred", inferenceFinal.size)
             .put("portalInferenceMissing", marked.size - inferenceFinal.size)
             .put("runtimeOutputs", runtimeEvents.size)
             .put("match", result.marked.count { it.classification == "MATCH" })
             .put("miss", result.marked.count { it.classification == "MISS" })
+            .put("wrongPortal", result.marked.count { it.classification == "WRONG_PORTAL" })
             .put("wrongDirection", result.marked.count { it.classification == "WRONG_DIRECTION" })
             .put("duplicate", result.duplicateRuntimeIndices.size)
             .put("falsePositive", result.falsePositiveRuntimeIndices.size)
