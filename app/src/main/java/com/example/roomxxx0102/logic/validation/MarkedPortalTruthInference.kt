@@ -1,22 +1,20 @@
 package com.example.roomxxx0102.logic.validation
 
 import android.graphics.PointF
+import com.example.roomxxx0102.data.model.PoseResult
 import com.example.roomxxx0102.data.model.RoomConfig
-import com.example.roomxxx0102.logic.roomalgorithm.flow.FlowBox
-import com.example.roomxxx0102.logic.roomalgorithm.gate.GateDiagnosticPerson
 import kotlin.math.abs
 
 /**
  * 人工事件的“门位真值候选”。
  *
- * 这里只允许使用人工事件时刻附近的人体框和静态房门(Portal)几何；
- * 严禁读取 V4 的候选门、锁门结果、FSM 或最终房间结果，避免循环验证。
+ * 这里只允许使用人工事件时刻附近的原始 Pose 人体框和静态房门(Portal)几何；
+ * 严禁读取 V4 的候选门、锁门结果、FSM、Ledger 或最终房间结果，避免循环验证。
  */
 internal data class InferredPortalTruth(
     val portalRoomId: String,
     val portalName: String,
-    val person: Int,
-    val track: Int,
+    val poseId: Int,
     val score: Double,
     val personCoverage: Double,
     val portalCoverage: Double,
@@ -43,29 +41,34 @@ internal object MarkedPortalTruthInference {
         .toList()
 
     fun infer(
-        people: List<GateDiagnosticPerson>,
+        poses: List<PoseResult>,
         regions: List<Region>,
         timeMs: Long,
     ): InferredPortalTruth? {
         var best: InferredPortalTruth? = null
-        for (person in people) {
-            val box = person.box
-            val bodyArea = (box.width * box.height).coerceAtLeast(1e-9)
-            if (!box.left.isFinite() || !box.top.isFinite() || !box.right.isFinite() || !box.bottom.isFinite()) continue
-            if (box.width <= 0.0 || box.height <= 0.0) continue
+        for (pose in poses) {
+            val box = pose.box
+            val left = box.left.toDouble()
+            val top = box.top.toDouble()
+            val right = box.right.toDouble()
+            val bottom = box.bottom.toDouble()
+            if (!left.isFinite() || !top.isFinite() || !right.isFinite() || !bottom.isFinite()) continue
+            val width = right - left
+            val height = bottom - top
+            if (width <= 0.0 || height <= 0.0) continue
+            val bodyArea = (width * height).coerceAtLeast(1e-9)
             for (region in regions) {
-                val intersection = intersectionArea(region.polygon, box)
+                val intersection = intersectionArea(region.polygon, left, top, right, bottom)
                 if (intersection <= 1e-10) continue
                 val personCoverage = (intersection / bodyArea).coerceIn(0.0, 1.0)
                 val portalCoverage = (intersection / region.area).coerceIn(0.0, 1.0)
-                // 房门通常只覆盖人体的一部分，因此“门洞被人体覆盖”略高权重；
-                // 同时保留人体进入门洞的占比，防止超大的框仅擦到门边就获胜。
+                // 门洞往往只覆盖人体的一部分，所以门洞被人体覆盖的比例略高权重；
+                // 人体进入门洞的比例同时抑制“超大框只擦到门边”的情况。
                 val score = 0.60 * portalCoverage + 0.40 * personCoverage
                 val candidate = InferredPortalTruth(
                     portalRoomId = region.roomId,
                     portalName = region.roomName,
-                    person = person.person,
-                    track = person.track,
+                    poseId = pose.id,
                     score = score,
                     personCoverage = personCoverage,
                     portalCoverage = portalCoverage,
@@ -78,13 +81,19 @@ internal object MarkedPortalTruthInference {
     }
 
     /** Sutherland-Hodgman：把任意 Portal 多边形裁剪到人体矩形，得到精确重叠面积。 */
-    private fun intersectionArea(polygon: List<PointF>, box: FlowBox): Double {
+    private fun intersectionArea(
+        polygon: List<PointF>,
+        left: Double,
+        top: Double,
+        right: Double,
+        bottom: Double,
+    ): Double {
         if (polygon.size < 3) return 0.0
         var clipped = polygon.map { DPoint(it.x.toDouble(), it.y.toDouble()) }
-        clipped = clip(clipped, Axis.LEFT, box.left)
-        clipped = clip(clipped, Axis.RIGHT, box.right)
-        clipped = clip(clipped, Axis.TOP, box.top)
-        clipped = clip(clipped, Axis.BOTTOM, box.bottom)
+        clipped = clip(clipped, Axis.LEFT, left)
+        clipped = clip(clipped, Axis.RIGHT, right)
+        clipped = clip(clipped, Axis.TOP, top)
+        clipped = clip(clipped, Axis.BOTTOM, bottom)
         return polygonAreaD(clipped)
     }
 
