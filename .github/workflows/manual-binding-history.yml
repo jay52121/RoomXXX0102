@@ -1,0 +1,68 @@
+name: Temporary Manual Binding History
+
+on:
+  push:
+    branches:
+      - "codex/manual-binding-finish"
+
+permissions:
+  contents: write
+
+jobs:
+  history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/manual-binding-finish
+      - name: Update project history only
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          history = Path('codexHistory.md')
+          text = history.read_text(encoding='utf-8')
+          title = '手工绑定人工事件房门与调试信息面板独立关闭'
+          if title not in text:
+              entry = '''## [411] 2026-09-17 - 手工绑定人工事件房门与调试信息面板独立关闭
+
+**用户指令**：
+> 看起来还是有问题，我们还是手动去做吧。1.在调试面板里面，我会点击跳转到下一个事件，然后呢我去点击对应的门。把它绑定到上面去。2.如果已经绑定了个门，他可以去点击另外一个门覆盖它的绑定。如果一个门都不用绑定，那它就不显示。那点击这个时候呢，我们每一个房间其实都是白色的字。如果绑定了那就把那个房间写上一个。右边的小锁（或者其他简易的图标）的一个样子。3.不过有个很大的问题是，点击调试面板之后，面板太大了会挡住，导致我没办法操作下面的东西。所以，我们现在对调试面板做一个改动，信息面板可以右上角有个叉，单独被关闭，但是下一次再点击调试面板的时候，用默认把它打开。
+
+**实现方案**：
+
+* **人工事件房门真值**：`MarkedEvent` 新增可选 `portalRoomId` 并持久化；“跳转到下一个事件”同时把该事件设为当前绑定目标，点击另一房门即可覆盖原绑定，未绑定事件不显示锁。
+* **绑定可视化**：新增 `ManualEventPortalBindingView`，已绑定房间的白色名称右侧绘制小锁；点击 Portal 多边形或房间名称附近均可完成绑定，绑定/改绑后立即刷新并给出短 Toast。
+* **调试面板独立关闭**：调试信息面板右上角新增 X，只隐藏右半屏信息面板而不退出调试模式；关闭后仍可操作下面的房门，再次点击“调试面板”时优先恢复信息面板。
+* **诊断真值接入**：`EventDiagnosticMatcher` 与诊断 JSON 使用人工 `portalRoomId` 作为门级 GT，可区分 MATCH / WRONG_PORTAL；未绑定事件仍不伪造门级真值。
+* **验证与收尾**：临时 CI 最终 `testDebugUnitTest + assembleDebug` 已通过；按用户要求后续不保留云端编译 workflow，由本地负责正常编译。
+
+---
+'''
+              marker = '# Codex History\n\n'
+              if marker not in text:
+                  raise SystemExit('codexHistory header missing')
+              text = text.replace(marker, marker + entry, 1)
+              history.write_text(text, encoding='utf-8')
+
+          user = '''看起来还是有问题，我们还是手动去做吧。1.在调试面板里面，我会点击跳转到下一个事件，然后呢我去点击对应的门。把它绑定到上面去。2.如果已经绑定了个门，他可以去点击另外一个门覆盖它的绑定。如果一个门都不用绑定，那它就不显示。那点击这个时候呢，我们每一个房间其实都是白色的字。如果绑定了那就把那个房间写上一个。右边的小锁（或者其他简易的图标）的一个样子。3.不过有个很大的问题是，点击调试面板之后，面板太大了会挡住，导致我没办法操作下面的东西。
+所以，我们现在对调试面板做一个改动，信息面板可以右上角有个叉，单独被关闭，但是下一次再点击调试面板的时候，用默认把它打开。'''
+          assistant = '''我直接按你这个交互做，不再自动猜门：**“下一个事件”定位人工事件 → 你点击房间名绑定；再次点别的房间覆盖；未绑定就什么都不显示；已绑定房间名右侧显示小锁。** 同时把调试信息面板加右上角关闭按钮，关闭后不影响下面房间点击；下一次重新打开“调试面板”时信息面板默认重新出现。'''
+          Path('tools/_dialogue_user_current.txt').write_text(user, encoding='utf-8')
+          Path('tools/_dialogue_assistant_current.txt').write_text(assistant, encoding='utf-8')
+          PY
+          python3 tools/dialogue_archive.py append-turn \
+            --user-file tools/_dialogue_user_current.txt \
+            --assistant-file tools/_dialogue_assistant_current.txt \
+            --title "手工绑定人工事件房门与调试面板独立关闭" \
+            --history-file dialogueHistory.md
+          git config user.name "codex-bot"
+          git config user.email "codex-bot@users.noreply.github.com"
+          git add codexHistory.md dialogueHistory.md tools/_dialogue_user_current.txt tools/_dialogue_assistant_current.txt
+          if git diff --cached --quiet; then
+            echo "No history changes"
+          else
+            git commit -m "docs: 归档手工房门绑定任务"
+            git push origin HEAD:codex/manual-binding-finish
+          fi
