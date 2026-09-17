@@ -36,6 +36,7 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
     private var debugWasActive = false
     private var consumeGesture = false
     private val closeRect = RectF()
+    private val bindingChangedListener: () -> Unit = { postInvalidateOnAnimation() }
 
     private val closeBgPaint = Paint().apply {
         color = Color.parseColor("#99000000")
@@ -72,6 +73,16 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
         // 抢先识别下一次“调试面板”点击并只恢复信息面板；非目标点击返回 false 继续下传。
         elevation = 7f * density
         setLayerType(LAYER_TYPE_SOFTWARE, null)
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        MarkedEventPortalBinding.setOnChangedListener(bindingChangedListener)
+    }
+
+    override fun onDetachedFromWindow() {
+        MarkedEventPortalBinding.setOnChangedListener(null)
+        super.onDetachedFromWindow()
     }
 
     override fun onDraw(canvas: Canvas) {
