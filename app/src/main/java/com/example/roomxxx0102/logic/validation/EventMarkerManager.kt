@@ -30,7 +30,7 @@ data class RuntimeRoomEvent(
  *
  * MainActivity 原有“跳转到下一个事件”会调用 EventMarkerManager.findNextEventAfter()，
  * 因此无需让 UI 再维护一份事件索引：findNextEventAfter() 选中的事件就是当前绑定目标。
- * DetectionOverlayView 只通过这里读取/覆盖 portalRoomId，正式房间算法不读取该状态。
+ * 调试覆盖层只通过这里读取/覆盖 portalRoomId，正式房间算法不读取该状态。
  */
 object MarkedEventPortalBinding {
     private data class EventKey(
@@ -154,10 +154,19 @@ class EventMarkerManager {
     }
 
     fun findNextEventAfter(timestampMs: Long): MarkedEvent? {
-        val key = boundVideoKey ?: return null.also { MarkedEventPortalBinding.select(null) }
-        val list = eventMap[key] ?: return null.also { MarkedEventPortalBinding.select(null) }
-        return list.firstOrNull { it.timestampMs > timestampMs }
-            .also { MarkedEventPortalBinding.select(it) }
+        val key = boundVideoKey
+        if (key == null) {
+            MarkedEventPortalBinding.select(null)
+            return null
+        }
+        val list = eventMap[key]
+        if (list == null) {
+            MarkedEventPortalBinding.select(null)
+            return null
+        }
+        val next = list.firstOrNull { it.timestampMs > timestampMs }
+        MarkedEventPortalBinding.select(next)
+        return next
     }
 
     internal fun findExactEvent(
