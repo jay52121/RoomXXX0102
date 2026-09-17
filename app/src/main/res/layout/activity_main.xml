@@ -299,7 +299,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
         android:layout_marginTop="32dp"
-        android:background="@drawable/abc_popup_background_mtrl_mult" 
+        android:background="@drawable/abc_popup_background_mtrl_mult"
         android:backgroundTint="#1A000000"
         android:padding="12dp"
         android:orientation="horizontal"
@@ -420,13 +420,13 @@
             android:layout_gravity="top|center_horizontal"
             android:layout_marginTop="32dp"
             android:src="@android:drawable/ic_menu_close_clear_cancel"
-            android:background="@drawable/abc_popup_background_mtrl_mult" 
+            android:background="@drawable/abc_popup_background_mtrl_mult"
             android:backgroundTint="#80000000"
             android:padding="8dp"
             app:tint="#FFFFFF"
             android:contentDescription="关闭雷达" />
     </FrameLayout>
-    
+
     <!-- 设备设置层 (默认隐藏) -->
     <LinearLayout
         android:id="@+id/llDeviceSettings"
@@ -437,7 +437,7 @@
         android:background="#80000000"
         android:padding="24dp"
         android:visibility="gone">
-        
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -446,13 +446,13 @@
             android:textSize="24sp"
             android:textStyle="bold"
             android:layout_marginBottom="16dp"/>
-            
+
         <Button
             android:id="@+id/btnAddDevice"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="添加设备" />
-            
+
     </LinearLayout>
 
     <TextView
@@ -470,6 +470,11 @@
         android:textSize="13sp"
         android:textStyle="bold"
         android:visibility="gone" />
+
+    <!-- 调试专用：人工事件→房门绑定、小锁、调试信息面板独立关闭。透明区域不拦截原有控件。 -->
+    <com.example.roomxxx0102.ui.views.ManualEventPortalBindingView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
 
     <FrameLayout
         android:id="@+id/mainSplashOverlay"
