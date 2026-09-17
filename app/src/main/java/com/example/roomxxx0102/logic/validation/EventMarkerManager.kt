@@ -43,21 +43,31 @@ object MarkedEventPortalBinding {
     private var activeManager: EventMarkerManager? = null
     @Volatile
     private var selectedKey: EventKey? = null
+    @Volatile
+    private var onChangedListener: (() -> Unit)? = null
 
     internal fun attach(manager: EventMarkerManager) {
         activeManager = manager
         selectedKey = null
+        notifyChanged()
     }
 
     internal fun select(event: MarkedEvent?) {
         selectedKey = event?.let { EventKey(it.type, it.frameIndex, it.timestampMs) }
+        notifyChanged()
     }
 
     internal fun onEventsChanged() {
-        val key = selectedKey ?: return
-        if (activeManager?.findExactEvent(key.type, key.frameIndex, key.timestampMs) == null) {
+        val key = selectedKey
+        if (key != null && activeManager?.findExactEvent(key.type, key.frameIndex, key.timestampMs) == null) {
             selectedKey = null
         }
+        notifyChanged()
+    }
+
+    fun setOnChangedListener(listener: (() -> Unit)?) {
+        onChangedListener = listener
+        listener?.invoke()
     }
 
     fun selectedEvent(): MarkedEvent? {
@@ -74,7 +84,12 @@ object MarkedEventPortalBinding {
             portalRoomId = portalRoomId
         )
         if (updated == null) selectedKey = null
+        notifyChanged()
         return updated
+    }
+
+    private fun notifyChanged() {
+        onChangedListener?.invoke()
     }
 }
 
@@ -133,6 +148,7 @@ class EventMarkerManager {
         )
         list.sortBy { it.timestampMs }
         saveEventsForVideo(key, list)
+        MarkedEventPortalBinding.onEventsChanged()
         return AddResult.ADDED
     }
 
