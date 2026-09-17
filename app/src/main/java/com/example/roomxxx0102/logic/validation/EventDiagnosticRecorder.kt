@@ -1,6 +1,7 @@
 package com.example.roomxxx0102.logic.validation
 
 import android.content.Context
+import com.example.roomxxx0102.data.model.PoseResult
 import com.example.roomxxx0102.data.repository.RoomRepository
 import com.example.roomxxx0102.logic.roomalgorithm.gate.GateDiagnosticBus
 import com.example.roomxxx0102.logic.roomalgorithm.gate.GateDiagnosticConfig
@@ -118,9 +119,9 @@ internal class EventDiagnosticRecorder(
     }
 
     @Synchronized
-    fun recordFrame(frame: GateDiagnosticFrame) {
+    fun recordFrame(frame: GateDiagnosticFrame, rawPoses: List<PoseResult>) {
         firstRuntimeTag = firstRuntimeTag ?: frame.runtimeTag
-        updatePortalInference(frame)
+        updatePortalInference(frame, rawPoses)
 
         rolling.addLast(frame)
         while (rolling.isNotEmpty() && frame.timeMs - rolling.first().timeMs > FP_PRE_MS) {
@@ -147,13 +148,13 @@ internal class EventDiagnosticRecorder(
         }
     }
 
-    private fun updatePortalInference(frame: GateDiagnosticFrame) {
+    private fun updatePortalInference(frame: GateDiagnosticFrame, rawPoses: List<PoseResult>) {
         marked.forEachIndexed { index, gt ->
             if (index in inferencePublished) return@forEachIndexed
             val start = gt.timestampMs - PORTAL_INFERENCE_WINDOW_MS
             val end = gt.timestampMs + PORTAL_INFERENCE_WINDOW_MS
             if (frame.timeMs in start..end) {
-                MarkedPortalTruthInference.infer(frame.people, inferenceRegions, frame.timeMs)?.let { candidate ->
+                MarkedPortalTruthInference.infer(rawPoses, inferenceRegions, frame.timeMs)?.let { candidate ->
                     val previous = inferenceBest[index]
                     if (previous == null || candidate.score > previous.score) {
                         inferenceBest[index] = candidate
@@ -178,7 +179,7 @@ internal class EventDiagnosticRecorder(
             }
             val scoreText = String.format(Locale.US, "%.2f", inferred.score)
             MarkedPortalInferenceOverlayBus.publish(
-                "【推断进出】#${index + 1} $route ｜ 人#${inferred.person} ｜ 几何重叠=$scoreText"
+                "【推断进出】#${index + 1} $route ｜ Pose#${inferred.poseId} ｜ 几何重叠=$scoreText"
             )
         } else {
             MarkedPortalInferenceOverlayBus.publish(
@@ -202,7 +203,7 @@ internal class EventDiagnosticRecorder(
         root.put("portalInferenceAvailable", inferenceFinal.isNotEmpty())
         root.put(
             "note",
-            "人工事件门位由人工时间点±${PORTAL_INFERENCE_WINDOW_MS}ms内的人体框×静态Portal几何独立推断；未使用V4候选门/锁门/FSM/输出。当前先供人工核对，尚不作为硬GT参与MATCH分类。"
+            "人工事件门位由人工时间点±${PORTAL_INFERENCE_WINDOW_MS}ms内的原始Pose人体框×静态Portal几何独立推断；未使用V4候选门/锁门/FSM/Ledger/输出。当前先供人工核对，尚不作为硬GT参与MATCH分类。"
         )
         root.put("windowMs", JSONObject()
             .put("gtPre", GT_PRE_MS)
@@ -242,8 +243,7 @@ internal class EventDiagnosticRecorder(
                 gtJson.put("inferredPortal", JSONObject()
                     .put("roomId", inferred.portalRoomId)
                     .put("name", inferred.portalName)
-                    .put("person", inferred.person)
-                    .put("track", inferred.track)
+                    .put("poseId", inferred.poseId)
                     .put("score", n(inferred.score))
                     .put("personCoverage", n(inferred.personCoverage))
                     .put("portalCoverage", n(inferred.portalCoverage))
