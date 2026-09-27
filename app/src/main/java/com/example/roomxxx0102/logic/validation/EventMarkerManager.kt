@@ -15,7 +15,8 @@ enum class EventType {
 data class MarkedEvent(
     val type: EventType,
     val frameIndex: Int,
-    val timestampMs: Long
+    val timestampMs: Long,
+    val portalRoomId: String? = null
 )
 
 data class RuntimeRoomEvent(
@@ -23,6 +24,74 @@ data class RuntimeRoomEvent(
     val frameIndex: Int,
     val timestampMs: Long
 )
+
+/**
+ * 人工进出门事件的“当前待绑定事件”桥接。
+ *
+ * MainActivity 原有“跳转到下一个事件”会调用 EventMarkerManager.findNextEventAfter()，
+ * 因此无需让 UI 再维护一份事件索引：findNextEventAfter() 选中的事件就是当前绑定目标。
+ * 调试覆盖层只通过这里读取/覆盖 portalRoomId，正式房间算法不读取该状态。
+ */
+object MarkedEventPortalBinding {
+    private data class EventKey(
+        val type: EventType,
+        val frameIndex: Int,
+        val timestampMs: Long
+    )
+
+    @Volatile
+    private var activeManager: EventMarkerManager? = null
+    @Volatile
+    private var selectedKey: EventKey? = null
+    @Volatile
+    private var onChangedListener: (() -> Unit)? = null
+
+    internal fun attach(manager: EventMarkerManager) {
+        activeManager = manager
+        selectedKey = null
+        notifyChanged()
+    }
+
+    internal fun select(event: MarkedEvent?) {
+        selectedKey = event?.let { EventKey(it.type, it.frameIndex, it.timestampMs) }
+        notifyChanged()
+    }
+
+    internal fun onEventsChanged() {
+        val key = selectedKey
+        if (key != null && activeManager?.findExactEvent(key.type, key.frameIndex, key.timestampMs) == null) {
+            selectedKey = null
+        }
+        notifyChanged()
+    }
+
+    fun setOnChangedListener(listener: (() -> Unit)?) {
+        onChangedListener = listener
+        listener?.invoke()
+    }
+
+    fun selectedEvent(): MarkedEvent? {
+        val key = selectedKey ?: return null
+        return activeManager?.findExactEvent(key.type, key.frameIndex, key.timestampMs)
+    }
+
+    fun bindSelectedPortal(portalRoomId: String): MarkedEvent? {
+        val key = selectedKey ?: return null
+        val updated = activeManager?.bindPortal(
+            type = key.type,
+            frameIndex = key.frameIndex,
+            timestampMs = key.timestampMs,
+            portalRoomId = portalRoomId
+        )
+        if (updated == null) selectedKey = null
+        notifyChanged()
+        return updated
+    }
+
+    private fun notifyChanged() {
+        onChangedListener?.invoke()
+    }
+}
 
 class EventMarkerManager {
     companion object {
@@ -46,6 +115,7 @@ class EventMarkerManager {
 
     fun bindVideo(videoKey: String?) {
         boundVideoKey = videoKey
+        MarkedEventPortalBinding.attach(this)
         if (videoKey.isNullOrBlank()) {
             MarkedEventRuntimeSource.update(null, emptyList())
             return
@@ -61,6 +131,7 @@ class EventMarkerManager {
         eventMap.remove(key)
         deleteEventsFile(key)
         MarkedEventRuntimeSource.update(key, emptyList())
+        MarkedEventPortalBinding.select(null)
     }
 
     fun getEvents(): List<MarkedEvent> {
@@ -84,6 +155,7 @@ class EventMarkerManager {
         list.sortBy { it.timestampMs }
         saveEventsForVideo(key, list)
         MarkedEventRuntimeSource.update(key, list)
+        MarkedEventPortalBinding.onEventsChanged()
         return AddResult.ADDED
     }
 
@@ -101,13 +173,55 @@ class EventMarkerManager {
         list.removeAll(matched.toSet())
         saveEventsForVideo(key, list)
         MarkedEventRuntimeSource.update(key, list)
+        MarkedEventPortalBinding.onEventsChanged()
         return matched
     }
 
     fun findNextEventAfter(timestampMs: Long): MarkedEvent? {
+        val key = boundVideoKey
+        if (key == null) {
+            MarkedEventPortalBinding.select(null)
+            return null
+        }
+        val list = eventMap[key]
+        if (list == null) {
+            MarkedEventPortalBinding.select(null)
+            return null
+        }
+        val next = list.firstOrNull { it.timestampMs > timestampMs }
+        MarkedEventPortalBinding.select(next)
+        return next
+    }
+
+    internal fun findExactEvent(
+        type: EventType,
+        frameIndex: Int,
+        timestampMs: Long
+    ): MarkedEvent? {
+        val key = boundVideoKey ?: return null
+        return eventMap[key]?.firstOrNull {
+            it.type == type && it.frameIndex == frameIndex && it.timestampMs == timestampMs
+        }
+    }
+
+    internal fun bindPortal(
+        type: EventType,
+        frameIndex: Int,
+        timestampMs: Long,
+        portalRoomId: String
+    ): MarkedEvent? {
         val key = boundVideoKey ?: return null
         val list = eventMap[key] ?: return null
-        return list.firstOrNull { it.timestampMs > timestampMs }
+        val index = list.indexOfFirst {
+            it.type == type && it.frameIndex == frameIndex && it.timestampMs == timestampMs
+        }
+        if (index < 0) return null
+        val current = list[index]
+        val updated = current.copy(portalRoomId = portalRoomId)
+        list[index] = updated
+        saveEventsForVideo(key, list)
+        MarkedEventRuntimeSource.update(key, list)
+        return updated
     }
 
     /**
@@ -144,7 +258,9 @@ class EventMarkerManager {
                     MarkedEvent(
                         type = type,
                         frameIndex = frameIndex,
-                        timestampMs = timestampMs
+                        timestampMs = timestampMs,
+                        portalRoomId = obj.optString("portalRoomId", "")
+                            .takeIf { it.isNotBlank() }
                     )
                 )
             }
@@ -166,6 +282,7 @@ class EventMarkerManager {
                 obj.put("type", event.type.name)
                 obj.put("frameIndex", event.frameIndex)
                 obj.put("timestampMs", event.timestampMs)
+                event.portalRoomId?.let { obj.put("portalRoomId", it) }
                 array.put(obj)
             }
             root.put("events", array)

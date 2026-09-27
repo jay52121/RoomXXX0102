@@ -6,13 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class EventDiagnosticMatcherTest {
-    private fun gt(type: EventType, t: Long) = MarkedEvent(type, (t / 50).toInt(), t)
-    private fun out(direction: String, t: Long) = GateDiagnosticEvent(
+    private fun gt(type: EventType, t: Long, portal: String? = null) =
+        MarkedEvent(type, (t / 50).toInt(), t, portalRoomId = portal)
+
+    private fun out(direction: String, t: Long, portal: String = "room") = GateDiagnosticEvent(
         person = 1,
         track = 7,
-        from = if (direction == "ENTER") "living" else "room",
-        to = if (direction == "ENTER") "room" else "living",
-        gateId = "room#1",
+        from = if (direction == "ENTER") "living" else portal,
+        to = if (direction == "ENTER") portal else "living",
+        gateId = "$portal#1",
         direction = direction,
         timeMs = t,
         inferred = false,
@@ -49,5 +51,38 @@ class EventDiagnosticMatcherTest {
         )
         assertEquals("MISS", result.marked.single().classification)
         assertTrue(0 in result.falsePositiveRuntimeIndices)
+    }
+
+    @Test fun manuallyBoundPortalMustMatch() {
+        val result = EventDiagnosticMatcher.match(
+            marked = listOf(gt(EventType.ENTER, 3000, portal = "kitchen")),
+            runtime = listOf(out("ENTER", 3050, portal = "bedroom")),
+            windowMs = 1000,
+        )
+        assertEquals("WRONG_PORTAL", result.marked.single().classification)
+        assertEquals(0, result.marked.single().runtimeIndex)
+    }
+
+    @Test fun correctPortalBeatsCloserWrongPortal() {
+        val result = EventDiagnosticMatcher.match(
+            marked = listOf(gt(EventType.EXIT, 4000, portal = "bathroom")),
+            runtime = listOf(
+                out("EXIT", 4010, portal = "bedroom"),
+                out("EXIT", 4200, portal = "bathroom"),
+            ),
+            windowMs = 1000,
+        )
+        assertEquals("MATCH", result.marked.single().classification)
+        assertEquals(1, result.marked.single().runtimeIndex)
+        assertTrue(0 in result.duplicateRuntimeIndices)
+    }
+
+    @Test fun unboundPortalKeepsLegacyDirectionOnlyMatching() {
+        val result = EventDiagnosticMatcher.match(
+            marked = listOf(gt(EventType.ENTER, 5000, portal = null)),
+            runtime = listOf(out("ENTER", 5050, portal = "any-room")),
+            windowMs = 1000,
+        )
+        assertEquals("MATCH", result.marked.single().classification)
     }
 }
