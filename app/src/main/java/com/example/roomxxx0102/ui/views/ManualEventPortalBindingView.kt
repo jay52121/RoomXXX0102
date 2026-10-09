@@ -34,6 +34,7 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
 
     private val density = resources.displayMetrics.density
     private var infoPanelVisible = false
+    private var debugModeActive = false
     private var bindingAllowed = false
     private val closeRect = RectF()
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
@@ -53,6 +54,12 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
     }
 
     /** 大信息面板的真实可见状态由 MainActivity 单独管理，不靠覆盖层截获右侧按钮。 */
+    fun setDebugModeActive(active: Boolean) {
+        debugModeActive = active
+        if (!active) pendingTap = null
+        postInvalidateOnAnimation()
+    }
+
     fun setInfoPanelVisible(visible: Boolean) {
         infoPanelVisible = visible
         postInvalidateOnAnimation()
@@ -220,11 +227,7 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
             diagnosticButton?.visibility == View.VISIBLE
     }
 
-    private fun isDebugUiActive(): Boolean {
-        val eventControls = rootView.findViewById<View>(R.id.llEventMarkerControls)
-        val diagnosticButton = rootView.findViewById<View>(R.id.btnDiagnosticReplay)
-        return eventControls?.visibility == View.VISIBLE || diagnosticButton?.visibility == View.VISIBLE
-    }
+    private fun isDebugUiActive(): Boolean = debugModeActive
 
     private fun isBlockingScreenActive(): Boolean {
         val editorControls = rootView.findViewById<View>(R.id.llEditorControls)
