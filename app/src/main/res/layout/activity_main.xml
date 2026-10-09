@@ -254,9 +254,9 @@
     <!-- 5.5 人工事件工具栏：选择状态常驻，编辑与标记分开；小屏横向仍保持两行。 -->
     <LinearLayout
         android:id="@+id/llEventMarkerControls"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
+        android:layout_gravity="bottom|center_horizontal"
         android:layout_marginBottom="100dp"
         android:background="#BB102033"
         android:gravity="center"
@@ -310,7 +310,7 @@
         </LinearLayout>
 
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:orientation="horizontal">
