@@ -34,6 +34,7 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
 
     private val density = resources.displayMetrics.density
     private var infoPanelVisible = false
+    private var bindingAllowed = false
     private val closeRect = RectF()
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
     private var touchStartX = 0f
@@ -54,6 +55,11 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
     /** 大信息面板的真实可见状态由 MainActivity 单独管理，不靠覆盖层截获右侧按钮。 */
     fun setInfoPanelVisible(visible: Boolean) {
         infoPanelVisible = visible
+        postInvalidateOnAnimation()
+    }
+
+    fun setBindingAllowed(allowed: Boolean) {
+        bindingAllowed = allowed
         postInvalidateOnAnimation()
     }
 
@@ -204,7 +210,7 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
     }
 
     private fun canBindPortal(): Boolean {
-        if (!isDebugUiActive() || isBlockingScreenActive()) return false
+        if (!bindingAllowed || !isDebugUiActive() || isBlockingScreenActive()) return false
         if (MarkedEventPortalBinding.selectedEvent() == null) return false
         // 房间事件工具栏可见 = 当前是回顾视频、调试模式、看人视图且非播放态；
         // 只在这个明确的人工标注场景允许点击房门，避免干扰正常操作。
