@@ -251,45 +251,141 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- 5.5 事件标注工具栏（仅静止/暂停 + 调试面板开启时显示） -->
+    <!-- 5.5 人工事件工具栏：选择状态常驻，编辑与标记分开；小屏横向仍保持两行。 -->
     <LinearLayout
         android:id="@+id/llEventMarkerControls"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
+        android:layout_gravity="bottom|center_horizontal"
         android:layout_marginBottom="100dp"
+        android:background="#BB102033"
         android:gravity="center"
-        android:orientation="horizontal"
-        android:background="#66000000"
-        android:padding="8dp"
+        android:orientation="vertical"
+        android:padding="6dp"
         android:visibility="gone">
 
-        <Button
-            android:id="@+id/btnMarkEnterEvent"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:id="@+id/llManualEventBindingStatus"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="记录进子房间事件"
-            android:layout_marginEnd="8dp" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingBottom="4dp">
 
-        <Button
-            android:id="@+id/btnMarkExitEvent"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="记录出子房间事件"
-            android:layout_marginEnd="8dp" />
+            <TextView
+                android:id="@+id/tvSelectedEventStatus"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:paddingStart="10dp"
+                android:text="未选择事件｜点击下一事件后选择房门"
+                android:textColor="#B3E5FC"
+                android:textSize="13sp"
+                android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/btnJumpNextEvent"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="跳转到下一个事件"
-            android:layout_marginEnd="8dp" />
+            <Button
+                android:id="@+id/btnClearEventPortal"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="8dp"
+                android:text="清除房门"
+                android:textAllCaps="false"
+                android:textSize="11sp" />
 
-        <Button
-            android:id="@+id/btnDeleteCurrentEvent"
+            <Button
+                android:id="@+id/btnCancelEventSelection"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="8dp"
+                android:text="取消选择"
+                android:textAllCaps="false"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="删除当前事件" />
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnMarkEnterEvent"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="6dp"
+                android:text="记录进入"
+                android:textAllCaps="false"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btnMarkExitEvent"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="6dp"
+                android:text="记录离开"
+                android:textAllCaps="false"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btnPrevMarkedEvent"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="6dp"
+                android:text="上一事件"
+                android:textAllCaps="false"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btnJumpNextEvent"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="6dp"
+                android:text="下一事件"
+                android:textAllCaps="false"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btnNextUnboundEvent"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="6dp"
+                android:text="下一未绑"
+                android:textAllCaps="false"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btnDeleteCurrentEvent"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="6dp"
+                android:text="删除本帧"
+                android:textAllCaps="false"
+                android:textSize="11sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- 6. 编辑工具栏 (顶部) -->
@@ -473,6 +569,7 @@
 
     <!-- 调试专用：人工事件→房门绑定、小锁、调试信息面板独立关闭。透明区域不拦截原有控件。 -->
     <com.example.roomxxx0102.ui.views.ManualEventPortalBindingView
+        android:id="@+id/manualEventPortalBindingView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 

@@ -94,12 +94,14 @@ import com.example.roomxxx0102.logic.validation.EventDiagnosticRecorder
 import com.example.roomxxx0102.logic.validation.GitHubDiagnosticUploader
 import com.example.roomxxx0102.logic.validation.EventType
 import com.example.roomxxx0102.logic.validation.MarkedEvent
+import com.example.roomxxx0102.logic.validation.MarkedEventPortalBinding
 import com.example.roomxxx0102.logic.validation.RuntimeRoomEvent
 import com.example.roomxxx0102.logic.video.VideoFeeder
 import com.example.roomxxx0102.ui.audio.AudioCommandLogUpdate
 import com.example.roomxxx0102.ui.audio.KwsPanelScreen
 import com.example.roomxxx0102.ui.views.DetectionOverlayView
 import com.example.roomxxx0102.ui.views.LivingRoomEditorView
+import com.example.roomxxx0102.ui.views.ManualEventPortalBindingView
 import com.example.roomxxx0102.ui.views.TacticalMapView
 import com.example.roomxxx0102.utils.AppLog
 import com.example.roomxxx0102.utils.BitmapTransfer
@@ -129,6 +131,7 @@ class MainActivity : ComponentActivity() {
     private val liveFrozenFrameView: ImageView by lazy { findViewById(R.id.liveFrozenFrameView) }
     private val composeAudioScreen: ComposeView by lazy { findViewById(R.id.composeAudioScreen) }
     private val overlayView: DetectionOverlayView by lazy { findViewById(R.id.overlayView) }
+    private val manualBindingView: ManualEventPortalBindingView by lazy { findViewById(R.id.manualEventPortalBindingView) }
     private val editorView: LivingRoomEditorView by lazy { findViewById(R.id.editorView) }
     private val llNormalControls: View by lazy { findViewById(R.id.llNormalControls) }
     private val llRightActionControls: View by lazy { findViewById(R.id.llRightActionControls) }
@@ -286,6 +289,7 @@ class MainActivity : ComponentActivity() {
     private var roomAlgorithmFrameSeq = 0L
     private val roomPresenceChangeLogger = RoomPresenceChangeLogger("ROOM_PRESENCE_CHANGE")
     private val eventMarkerManager = EventMarkerManager()
+    private var debugInfoPanelVisible = false
     private data class DiagnosticReplaySavedSettings(
         val roomAlgorithmId: String,
         val pauseOnRoomSwitch: Boolean,
@@ -1338,6 +1342,10 @@ class MainActivity : ComponentActivity() {
         val btnMarkEnterEvent = findViewById<Button>(R.id.btnMarkEnterEvent)
         val btnMarkExitEvent = findViewById<Button>(R.id.btnMarkExitEvent)
         val btnJumpNextEvent = findViewById<Button>(R.id.btnJumpNextEvent)
+        val btnPrevMarkedEvent = findViewById<Button>(R.id.btnPrevMarkedEvent)
+        val btnNextUnboundEvent = findViewById<Button>(R.id.btnNextUnboundEvent)
+        val btnClearEventPortal = findViewById<Button>(R.id.btnClearEventPortal)
+        val btnCancelEventSelection = findViewById<Button>(R.id.btnCancelEventSelection)
         val btnDeleteCurrentEvent = findViewById<Button>(R.id.btnDeleteCurrentEvent)
         btnDiagnosticReplay = findViewById(R.id.btnDiagnosticReplay)
         btnHandOverlay = findViewById(R.id.btnHandOverlay)
@@ -1352,15 +1360,29 @@ class MainActivity : ComponentActivity() {
         btnRewind.setOnTouchListener(createSeekHoldTouchListener(direction = -1))
         btnForward.setOnTouchListener(createSeekHoldTouchListener(direction = 1))
         val btnDebugPanel = findViewById<Button>(R.id.btnDebugPanel)
+        manualBindingView.setOnCloseInfoRequested {
+            setDebugInfoPanelVisible(false)
+        }
+        manualBindingView.setOnBindingChangedListener {
+            refreshEventMarkerControls()
+        }
         btnDebugPanel.setOnClickListener {
-            isDebugPanelEnabled = !isDebugPanelEnabled
-            if (!isDebugPanelEnabled) {
-                isAwaitingDeviceHitSelection = false
-                pendingDeviceHitTimestampMs = null
-                pendingDeviceHitFrameIndex = null
-                syncDeviceHitSelectionUi()
+            when {
+                !isDebugPanelEnabled -> {
+                    isDebugPanelEnabled = true
+                    setDebugInfoPanelVisible(true) // 新开调试默认展开大信息面板
+                }
+                !debugInfoPanelVisible -> setDebugInfoPanelVisible(true)
+                else -> {
+                    isDebugPanelEnabled = false
+                    setDebugInfoPanelVisible(false)
+                    MarkedEventPortalBinding.clearSelection()
+                    isAwaitingDeviceHitSelection = false
+                    pendingDeviceHitTimestampMs = null
+                    pendingDeviceHitFrameIndex = null
+                    syncDeviceHitSelectionUi()
+                }
             }
-            overlayView.setDebugPanelEnabled(isDebugPanelEnabled)
             refreshDebugPanelButton()
             refreshEventMarkerUi()
         }
@@ -1410,6 +1432,23 @@ class MainActivity : ComponentActivity() {
             } else {
                 jumpToNextMarkedEvent()
             }
+        }
+        btnPrevMarkedEvent.setOnClickListener { navigateMarkedEvent(direction = -1) }
+        btnNextUnboundEvent.setOnClickListener { navigateNextUnboundEvent() }
+        btnClearEventPortal.setOnClickListener {
+            MarkedEventPortalBinding.bindSelectedPortal(null)?.let {
+                Toast.makeText(this, "已清除该事件的房门绑定", Toast.LENGTH_SHORT).show()
+            }
+            refreshEventMarkerControls()
+        }
+        btnCancelEventSelection.setOnClickListener {
+            MarkedEventPortalBinding.clearSelection()
+            refreshEventMarkerControls()
+        }
+        findViewById<TextView>(R.id.tvSelectedEventStatus).setOnClickListener {
+            val selected = MarkedEventPortalBinding.selectedEvent() ?: return@setOnClickListener
+            videoFeeder?.seekToMs(selected.timestampMs.toInt())
+            scheduleEventMarkerUiRefresh()
         }
         btnDeleteCurrentEvent.setOnClickListener {
             if (isHandDebugMarkerMode()) {
@@ -2249,6 +2288,7 @@ class MainActivity : ComponentActivity() {
 
     private fun applyObserveMode(mode: ObserveMode) {
         if (currentObserveMode == mode) return
+        if (mode != ObserveMode.PERSON) MarkedEventPortalBinding.clearSelection()
         val leavingHandMode = currentObserveMode == ObserveMode.HAND && mode != ObserveMode.HAND
         currentObserveMode = mode
         if (leavingHandMode) {
@@ -2662,6 +2702,7 @@ class MainActivity : ComponentActivity() {
 
     private fun switchToCameraRuntimeMode() {
         if (!isVideoMode) return
+        MarkedEventPortalBinding.clearSelection()
         showRuntimeSwitchLoading("正在进入 Live…")
         isVideoMode = false
         videoFeeder?.pause()
@@ -2810,47 +2851,82 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshEventMarkerControls() {
-        val shouldShow = isVideoMode &&
-            isDebugPanelEnabled &&
-            currentPlayState != PlayState.PLAYING
+        val shouldShow = isVideoMode && isDebugPanelEnabled &&
+            currentObserveMode == ObserveMode.PERSON &&
+            currentPlayState != PlayState.PLAYING && !isDiagnosticReplayActive
         llEventMarkerControls.visibility = if (shouldShow) View.VISIBLE else View.GONE
+        val statusRow = findViewById<View>(R.id.llManualEventBindingStatus)
+        val status = findViewById<TextView>(R.id.tvSelectedEventStatus)
         val btnMarkEnter = findViewById<Button>(R.id.btnMarkEnterEvent)
         val btnMarkExit = findViewById<Button>(R.id.btnMarkExitEvent)
+        val btnPrev = findViewById<Button>(R.id.btnPrevMarkedEvent)
         val btnJumpNext = findViewById<Button>(R.id.btnJumpNextEvent)
+        val btnNextUnbound = findViewById<Button>(R.id.btnNextUnboundEvent)
+        val btnClearPortal = findViewById<Button>(R.id.btnClearEventPortal)
+        val btnCancelSelection = findViewById<Button>(R.id.btnCancelEventSelection)
         val btnDelete = findViewById<Button>(R.id.btnDeleteCurrentEvent)
+
+        statusRow.visibility = View.VISIBLE
+        btnPrev.visibility = View.VISIBLE
+        btnNextUnbound.visibility = View.VISIBLE
         btnMarkEnter.visibility = View.VISIBLE
         btnMarkExit.visibility = View.VISIBLE
         btnJumpNext.visibility = View.VISIBLE
         btnDelete.visibility = View.VISIBLE
-        btnMarkEnter.text = "记录进子房间事件"
+        btnMarkEnter.text = "记录进入"
+        btnMarkExit.text = "记录离开"
+        btnJumpNext.text = "下一事件"
         btnMarkEnter.isEnabled = true
         btnMarkEnter.alpha = 1f
-        btnMarkExit.text = "记录出子房间事件"
-        btnJumpNext.text = "跳转到下一个事件"
+
+        val events = eventMarkerManager.getEvents()
+        val selected = MarkedEventPortalBinding.selectedEvent()
+        val index = MarkedEventPortalBinding.selectedIndex()
+        val nearSelected = selected != null &&
+            kotlin.math.abs(currentVideoTimestampMs() - selected.timestampMs) <= 2000L
+        manualBindingView.setBindingAllowed(shouldShow && nearSelected)
+        status.text = if (selected == null || index == null) {
+            "未选事件 ｜ 共${events.size}个，未绑定${events.count { it.portalRoomId == null }}个"
+        } else {
+            val minute = selected.timestampMs / 60_000L
+            val second = (selected.timestampMs / 1000L) % 60L
+            val millis = selected.timestampMs % 1000L
+            val markTime = String.format(Locale.US, "%02d:%02d.%03d", minute, second, millis)
+            val typeName = if (selected.type == EventType.ENTER) "进入" else "离开"
+            val roomName = selected.portalRoomId?.let { roomId ->
+                RoomRepository.getSubRooms().firstOrNull { it.id == roomId }?.name ?: "原房间已失效"
+            }
+            val bindText = if (roomName == null) "未绑定" else "🔒$roomName"
+            val away = if (nearSelected) "" else " ｜ 已离开事件画面，点此返回"
+            "事件 ${index + 1}/${events.size} ｜ $markTime ｜ $typeName ｜ $bindText$away"
+        }
+        status.setTextColor(Color.parseColor(if (selected == null || nearSelected) "#B3E5FC" else "#FFCC80"))
+        btnClearPortal.isEnabled = shouldShow && selected?.portalRoomId != null
+        btnClearPortal.alpha = if (btnClearPortal.isEnabled) 1f else 0.45f
+        btnCancelSelection.isEnabled = shouldShow && selected != null
+        btnCancelSelection.alpha = if (btnCancelSelection.isEnabled) 1f else 0.45f
+        btnPrev.isEnabled = shouldShow && events.isNotEmpty() &&
+            (index?.let { it > 0 } ?: events.any { it.timestampMs <= currentVideoTimestampMs() })
+        btnPrev.alpha = if (btnPrev.isEnabled) 1f else 0.45f
+        btnJumpNext.isEnabled = shouldShow && events.isNotEmpty() &&
+            (index?.let { it < events.lastIndex } ?: events.any { it.timestampMs >= currentVideoTimestampMs() })
+        btnJumpNext.alpha = if (btnJumpNext.isEnabled) 1f else 0.45f
+        btnNextUnbound.isEnabled = shouldShow && events.any { it.portalRoomId == null }
+        btnNextUnbound.alpha = if (btnNextUnbound.isEnabled) 1f else 0.45f
         if (!shouldShow) return
 
         val frame = currentEstimatedFrameIndex()
         val matched = eventMarkerManager.findEventsNearFrame(frameIndex = frame, toleranceFrames = 1)
-        if (matched.isEmpty()) {
-            btnDelete.isEnabled = false
-            btnDelete.alpha = 0.5f
-            btnDelete.text = "删除当前事件"
-            return
-        }
-
-        btnDelete.isEnabled = true
-        btnDelete.alpha = 1f
-        btnDelete.text = if (matched.size == 1) {
-            when (matched.first().type) {
-                EventType.ENTER -> "删除 进子房间事件"
-                EventType.EXIT -> "删除 出子房间事件"
-            }
-        } else {
-            "删除 ${matched.size} 个事件"
-        }
+        btnDelete.isEnabled = matched.isNotEmpty()
+        btnDelete.alpha = if (btnDelete.isEnabled) 1f else 0.45f
+        btnDelete.text = if (matched.isEmpty()) "删除本帧" else "删除本帧(${matched.size})"
     }
 
     private fun refreshDeviceHitMarkerControls() {
+        manualBindingView.setBindingAllowed(false)
+        findViewById<View>(R.id.llManualEventBindingStatus).visibility = View.GONE
+        findViewById<Button>(R.id.btnPrevMarkedEvent).visibility = View.GONE
+        findViewById<Button>(R.id.btnNextUnboundEvent).visibility = View.GONE
         val shouldShow = isVideoMode &&
             isDebugPanelEnabled &&
             isHandObserveMode() &&
@@ -2898,6 +2974,8 @@ class MainActivity : ComponentActivity() {
         when (eventMarkerManager.addEvent(type, frameIndex, timestampMs)) {
             EventMarkerManager.AddResult.ADDED -> {
                 Toast.makeText(this, "已记录 ${eventTypeLabel(type)} @f=$frameIndex", Toast.LENGTH_SHORT).show()
+                eventMarkerManager.findEventsNearFrame(frameIndex, toleranceFrames = 0)
+                    .firstOrNull { it.type == type }?.let { selectMarkedEventForBinding(it, seek = false) }
             }
             EventMarkerManager.AddResult.DUPLICATE -> {
                 Toast.makeText(this, "同类型同帧事件已存在，已忽略", Toast.LENGTH_SHORT).show()
@@ -2906,15 +2984,49 @@ class MainActivity : ComponentActivity() {
         refreshEventMarkerUi()
     }
 
-    private fun jumpToNextMarkedEvent() {
-        val currentMs = currentVideoTimestampMs()
-        val next = eventMarkerManager.findNextEventAfter(currentMs)
-        if (next == null) {
-            Toast.makeText(this, "无事件", Toast.LENGTH_SHORT).show()
+    private fun selectMarkedEventForBinding(event: MarkedEvent, seek: Boolean = true) {
+        MarkedEventPortalBinding.select(event)
+        // 选好事件就收起遮住房门的大信息面板，但保留整个调试模式。
+        setDebugInfoPanelVisible(false)
+        if (seek) videoFeeder?.seekToMs(event.timestampMs.toInt())
+        refreshEventMarkerUi()
+        scheduleEventMarkerUiRefresh(180L)
+    }
+
+    private fun navigateMarkedEvent(direction: Int) {
+        val events = eventMarkerManager.getEvents()
+        val index = MarkedEventPortalBinding.selectedIndex()
+        val current = currentVideoTimestampMs()
+        val nextIndex = if (index != null) {
+            index + direction
+        } else if (direction > 0) {
+            events.indexOfFirst { it.timestampMs >= current }
+        } else {
+            events.indexOfLast { it.timestampMs <= current }
+        }
+        val target = events.getOrNull(nextIndex)
+        if (target == null) {
+            Toast.makeText(this, if (direction > 0) "已是最后一个事件" else "已是第一个事件", Toast.LENGTH_SHORT).show()
             return
         }
-        videoFeeder?.seekToMs(next.timestampMs.toInt())
-        scheduleEventMarkerUiRefresh()
+        selectMarkedEventForBinding(target)
+    }
+
+    private fun jumpToNextMarkedEvent() = navigateMarkedEvent(direction = 1)
+
+    private fun navigateNextUnboundEvent() {
+        val events = eventMarkerManager.getEvents()
+        if (events.none { it.portalRoomId == null }) {
+            Toast.makeText(this, "所有事件都已绑定房门", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val selectedIndex = MarkedEventPortalBinding.selectedIndex()
+        val from = selectedIndex?.let { it + 1 }
+            ?: events.indexOfFirst { it.timestampMs >= currentVideoTimestampMs() }
+                .takeIf { it >= 0 } ?: 0
+        val indices = (from until events.size).toList() + (0 until from)
+        val targetIndex = indices.first { events[it].portalRoomId == null }
+        selectMarkedEventForBinding(events[targetIndex])
     }
 
     private fun jumpToNextDeviceHitEvent() {
@@ -3945,9 +4057,21 @@ class MainActivity : ComponentActivity() {
         refreshEventMarkerControls()
     }
 
+    private fun setDebugInfoPanelVisible(visible: Boolean) {
+        debugInfoPanelVisible = isDebugPanelEnabled && visible
+        manualBindingView.setDebugModeActive(isDebugPanelEnabled)
+        overlayView.setDebugPanelEnabled(debugInfoPanelVisible)
+        manualBindingView.setInfoPanelVisible(debugInfoPanelVisible)
+        refreshDebugPanelButton()
+    }
+
     private fun refreshDebugPanelButton() {
         val btn = findViewById<Button>(R.id.btnDebugPanel)
-        btn.text = "调试面板"
+        btn.text = when {
+            !isDebugPanelEnabled -> "调试面板"
+            debugInfoPanelVisible -> "关闭调试"
+            else -> "显示信息"
+        }
         btn.setBackgroundResource(
             if (isDebugPanelEnabled) {
                 R.drawable.bg_side_action_button_active
@@ -4136,6 +4260,9 @@ class MainActivity : ComponentActivity() {
             PlayState.STILL -> PlayState.PLAYING
             PlayState.PAUSED -> PlayState.PLAYING
         }
+        if (currentPlayState == PlayState.PLAYING) {
+            MarkedEventPortalBinding.clearSelection()
+        }
         when (currentPlayState) {
             PlayState.PLAYING -> {
                 videoFeeder?.clearStepSeekTransientState()
@@ -4207,6 +4334,7 @@ class MainActivity : ComponentActivity() {
      * 目标是清除追踪/ROI/Presence/人数等运行期状态，避免历史状态污染。
      */
     private fun hardRestartPlayback() {
+        MarkedEventPortalBinding.clearSelection()
         kwsLogClearSignal.intValue += 1
         yoloAnalyzer?.reset()
         poseAnalyzer?.resetTrackingState()
