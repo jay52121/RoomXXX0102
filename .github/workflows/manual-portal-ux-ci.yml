@@ -1,0 +1,22 @@
+name: Temporary Portal Binding UX Test
+on:
+  push:
+    branches:
+      - codex/manual-portal-binding-ux-v2
+
+jobs:
+  test-and-compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - name: Run targeted Kotlin compilation and unit tests
+        run: |
+          chmod +x gradlew
+          touch kws-sdk/consumer-rules.pro
+          ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest --no-daemon --stacktrace
