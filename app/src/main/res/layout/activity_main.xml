@@ -569,6 +569,7 @@
 
     <!-- 调试专用：人工事件→房门绑定、小锁、调试信息面板独立关闭。透明区域不拦截原有控件。 -->
     <com.example.roomxxx0102.ui.views.ManualEventPortalBindingView
+        android:id="@+id/manualEventPortalBindingView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
