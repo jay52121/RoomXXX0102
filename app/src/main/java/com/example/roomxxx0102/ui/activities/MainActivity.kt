@@ -94,12 +94,14 @@ import com.example.roomxxx0102.logic.validation.EventDiagnosticRecorder
 import com.example.roomxxx0102.logic.validation.GitHubDiagnosticUploader
 import com.example.roomxxx0102.logic.validation.EventType
 import com.example.roomxxx0102.logic.validation.MarkedEvent
+import com.example.roomxxx0102.logic.validation.MarkedEventPortalBinding
 import com.example.roomxxx0102.logic.validation.RuntimeRoomEvent
 import com.example.roomxxx0102.logic.video.VideoFeeder
 import com.example.roomxxx0102.ui.audio.AudioCommandLogUpdate
 import com.example.roomxxx0102.ui.audio.KwsPanelScreen
 import com.example.roomxxx0102.ui.views.DetectionOverlayView
 import com.example.roomxxx0102.ui.views.LivingRoomEditorView
+import com.example.roomxxx0102.ui.views.ManualEventPortalBindingView
 import com.example.roomxxx0102.ui.views.TacticalMapView
 import com.example.roomxxx0102.utils.AppLog
 import com.example.roomxxx0102.utils.BitmapTransfer
@@ -129,6 +131,7 @@ class MainActivity : ComponentActivity() {
     private val liveFrozenFrameView: ImageView by lazy { findViewById(R.id.liveFrozenFrameView) }
     private val composeAudioScreen: ComposeView by lazy { findViewById(R.id.composeAudioScreen) }
     private val overlayView: DetectionOverlayView by lazy { findViewById(R.id.overlayView) }
+    private val manualBindingView: ManualEventPortalBindingView by lazy { findViewById(R.id.manualEventPortalBindingView) }
     private val editorView: LivingRoomEditorView by lazy { findViewById(R.id.editorView) }
     private val llNormalControls: View by lazy { findViewById(R.id.llNormalControls) }
     private val llRightActionControls: View by lazy { findViewById(R.id.llRightActionControls) }
@@ -286,6 +289,7 @@ class MainActivity : ComponentActivity() {
     private var roomAlgorithmFrameSeq = 0L
     private val roomPresenceChangeLogger = RoomPresenceChangeLogger("ROOM_PRESENCE_CHANGE")
     private val eventMarkerManager = EventMarkerManager()
+    private var debugInfoPanelVisible = false
     private data class DiagnosticReplaySavedSettings(
         val roomAlgorithmId: String,
         val pauseOnRoomSwitch: Boolean,
@@ -1338,6 +1342,10 @@ class MainActivity : ComponentActivity() {
         val btnMarkEnterEvent = findViewById<Button>(R.id.btnMarkEnterEvent)
         val btnMarkExitEvent = findViewById<Button>(R.id.btnMarkExitEvent)
         val btnJumpNextEvent = findViewById<Button>(R.id.btnJumpNextEvent)
+        val btnPrevMarkedEvent = findViewById<Button>(R.id.btnPrevMarkedEvent)
+        val btnNextUnboundEvent = findViewById<Button>(R.id.btnNextUnboundEvent)
+        val btnClearEventPortal = findViewById<Button>(R.id.btnClearEventPortal)
+        val btnCancelEventSelection = findViewById<Button>(R.id.btnCancelEventSelection)
         val btnDeleteCurrentEvent = findViewById<Button>(R.id.btnDeleteCurrentEvent)
         btnDiagnosticReplay = findViewById(R.id.btnDiagnosticReplay)
         btnHandOverlay = findViewById(R.id.btnHandOverlay)
@@ -1352,15 +1360,29 @@ class MainActivity : ComponentActivity() {
         btnRewind.setOnTouchListener(createSeekHoldTouchListener(direction = -1))
         btnForward.setOnTouchListener(createSeekHoldTouchListener(direction = 1))
         val btnDebugPanel = findViewById<Button>(R.id.btnDebugPanel)
+        manualBindingView.setOnCloseInfoRequested {
+            setDebugInfoPanelVisible(false)
+        }
+        manualBindingView.setOnBindingChangedListener {
+            refreshEventMarkerControls()
+        }
         btnDebugPanel.setOnClickListener {
-            isDebugPanelEnabled = !isDebugPanelEnabled
-            if (!isDebugPanelEnabled) {
-                isAwaitingDeviceHitSelection = false
-                pendingDeviceHitTimestampMs = null
-                pendingDeviceHitFrameIndex = null
-                syncDeviceHitSelectionUi()
+            when {
+                !isDebugPanelEnabled -> {
+                    isDebugPanelEnabled = true
+                    setDebugInfoPanelVisible(true) // 新开调试默认展开大信息面板
+                }
+                !debugInfoPanelVisible -> setDebugInfoPanelVisible(true)
+                else -> {
+                    isDebugPanelEnabled = false
+                    setDebugInfoPanelVisible(false)
+                    MarkedEventPortalBinding.clearSelection()
+                    isAwaitingDeviceHitSelection = false
+                    pendingDeviceHitTimestampMs = null
+                    pendingDeviceHitFrameIndex = null
+                    syncDeviceHitSelectionUi()
+                }
             }
-            overlayView.setDebugPanelEnabled(isDebugPanelEnabled)
             refreshDebugPanelButton()
             refreshEventMarkerUi()
         }
@@ -1410,6 +1432,23 @@ class MainActivity : ComponentActivity() {
             } else {
                 jumpToNextMarkedEvent()
             }
+        }
+        btnPrevMarkedEvent.setOnClickListener { navigateMarkedEvent(direction = -1) }
+        btnNextUnboundEvent.setOnClickListener { navigateNextUnboundEvent() }
+        btnClearEventPortal.setOnClickListener {
+            MarkedEventPortalBinding.bindSelectedPortal(null)?.let {
+                Toast.makeText(this, "已清除该事件的房门绑定", Toast.LENGTH_SHORT).show()
+            }
+            refreshEventMarkerControls()
+        }
+        btnCancelEventSelection.setOnClickListener {
+            MarkedEventPortalBinding.clearSelection()
+            refreshEventMarkerControls()
+        }
+        findViewById<TextView>(R.id.tvSelectedEventStatus).setOnClickListener {
+            val selected = MarkedEventPortalBinding.selectedEvent() ?: return@setOnClickListener
+            videoFeeder?.seekToMs(selected.timestampMs.toInt())
+            scheduleEventMarkerUiRefresh()
         }
         btnDeleteCurrentEvent.setOnClickListener {
             if (isHandDebugMarkerMode()) {
@@ -3945,9 +3984,20 @@ class MainActivity : ComponentActivity() {
         refreshEventMarkerControls()
     }
 
+    private fun setDebugInfoPanelVisible(visible: Boolean) {
+        debugInfoPanelVisible = isDebugPanelEnabled && visible
+        overlayView.setDebugPanelEnabled(debugInfoPanelVisible)
+        manualBindingView.setInfoPanelVisible(debugInfoPanelVisible)
+        refreshDebugPanelButton()
+    }
+
     private fun refreshDebugPanelButton() {
         val btn = findViewById<Button>(R.id.btnDebugPanel)
-        btn.text = "调试面板"
+        btn.text = when {
+            !isDebugPanelEnabled -> "调试面板"
+            debugInfoPanelVisible -> "关闭调试"
+            else -> "显示信息"
+        }
         btn.setBackgroundResource(
             if (isDebugPanelEnabled) {
                 R.drawable.bg_side_action_button_active
