@@ -232,7 +232,14 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
     private fun isBlockingScreenActive(): Boolean {
         val editorControls = rootView.findViewById<View>(R.id.llEditorControls)
         val radar = rootView.findViewById<View>(R.id.flRadarContainer)
-        return editorControls?.visibility == View.VISIBLE || radar?.visibility == View.VISIBLE
+        val deviceSettings = rootView.findViewById<View>(R.id.llDeviceSettings)
+        val audioScreen = rootView.findViewById<View>(R.id.composeAudioScreen)
+        val overlay = detectionOverlay()
+        return editorControls?.visibility == View.VISIBLE ||
+            radar?.visibility == View.VISIBLE ||
+            deviceSettings?.visibility == View.VISIBLE ||
+            audioScreen?.visibility == View.VISIBLE ||
+            overlay?.visibility != View.VISIBLE
     }
 
     private fun isTouchOnControls(x: Float, y: Float): Boolean {
