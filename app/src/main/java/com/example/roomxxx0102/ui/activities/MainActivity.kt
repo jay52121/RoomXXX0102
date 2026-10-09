@@ -4059,6 +4059,7 @@ class MainActivity : ComponentActivity() {
 
     private fun setDebugInfoPanelVisible(visible: Boolean) {
         debugInfoPanelVisible = isDebugPanelEnabled && visible
+        manualBindingView.setDebugModeActive(isDebugPanelEnabled)
         overlayView.setDebugPanelEnabled(debugInfoPanelVisible)
         manualBindingView.setInfoPanelVisible(debugInfoPanelVisible)
         refreshDebugPanelButton()
