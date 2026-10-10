@@ -308,6 +308,7 @@ class MainActivity : ComponentActivity() {
         data class Portal(val original: MarkedEvent) : WebUndo()
         data class Created(val event: MarkedEvent) : WebUndo()
         data class Deleted(val event: MarkedEvent) : WebUndo()
+        data class ChangedType(val before: MarkedEvent, val after: MarkedEvent) : WebUndo()
     }
     private val webDebugTick = object : Runnable {
         override fun run() {
@@ -4680,6 +4681,23 @@ class MainActivity : ComponentActivity() {
                 return webCommandResult(true, "已在 " + created.timestampMs + "ms 标记" +
                     if (type == EventType.ENTER) "进入" else "离开")
             }
+            "setEventType" -> {
+                val key = request.optString("key")
+                val target = markForWebKey(key) ?: return webCommandResult(false, "事件已不存在")
+                val newType = when (request.optString("type")) {
+                    "ENTER" -> EventType.ENTER
+                    "EXIT" -> EventType.EXIT
+                    else -> return webCommandResult(false, "方向必须为进入或离开")
+                }
+                pauseWebPlaybackForEditing()
+                if (target.type == newType) return webCommandResult(true, "进出方向未变化")
+                val updated = eventMarkerManager.changeExactEventType(target, newType)
+                    ?: return webCommandResult(false, "同帧已存在此方向的事件，无法直接修改")
+                saveWebUndo(WebUndo.ChangedType(target, updated))
+                resetEventValidationTracking(clearRuntimeEvents = false)
+                refreshEventMarkerUi()
+                return webCommandResult(true, "已修改为" + if (newType == EventType.ENTER) "进入" else "离开")
+            }
             "bindPortal" -> {
                 val key = request.optString("key")
                 val selected = MarkedEventPortalBinding.selectedEvent()
@@ -4727,6 +4745,9 @@ class MainActivity : ComponentActivity() {
                     }
                     is WebUndo.Created -> eventMarkerManager.removeExactEvent(action.event)
                     is WebUndo.Deleted -> eventMarkerManager.restoreExactEvent(action.event)
+                    is WebUndo.ChangedType -> {
+                        eventMarkerManager.changeExactEventType(action.after, action.before.type)
+                    }
                 }
                 resetEventValidationTracking(clearRuntimeEvents = false)
                 refreshEventMarkerUi()
