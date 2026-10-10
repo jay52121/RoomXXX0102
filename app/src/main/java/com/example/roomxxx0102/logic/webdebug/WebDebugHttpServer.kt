@@ -68,7 +68,7 @@ internal class WebDebugHttpServer(
     private val runtimePayloads = LinkedHashMap<String, JSONObject>()
     private var observedFromMs: Long = Long.MAX_VALUE
     private var activeVideoKey: String? = null
-    private val requests = Executors.newFixedThreadPool(3) { task ->
+    private var requests = Executors.newFixedThreadPool(3) { task ->
         Thread(task, "SISP-Web-HTTP").apply { isDaemon = true }
     }
     private val requestCounter = AtomicInteger(0)
@@ -77,6 +77,11 @@ internal class WebDebugHttpServer(
 
     fun start(): Boolean {
         if (isRunning) return true
+        if (requests.isShutdown) {
+            requests = Executors.newFixedThreadPool(3) { task ->
+                Thread(task, "SISP-Web-HTTP").apply { isDaemon = true }
+            }
+        }
         return try {
             val server = ServerSocket().apply {
                 reuseAddress = true
