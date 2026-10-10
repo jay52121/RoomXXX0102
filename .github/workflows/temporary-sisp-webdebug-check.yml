@@ -1,0 +1,32 @@
+name: Temporary Web Structured Debug Check
+on:
+  push:
+    branches:
+      - codex/web-structured-debug-console-v1
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - name: Validate browser script
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          h = Path('app/src/main/assets/web_debug/index.html').read_text(encoding='utf-8')
+          assert '<video' not in h and '<img' not in h, '图像/视频节点不应出现'
+          assert 'X-SISP-PIN' in h and 'seekRelative' in h and 'pauseToggle' in h
+          assert h.count('<script>') == 1 and h.count('</script>') == 1
+          Path('/tmp/sisp_web_debug.js').write_text(h.split('<script>',1)[1].split('</script>',1)[0],encoding='utf-8')
+          PY
+          node --check /tmp/sisp_web_debug.js
+      - name: Kotlin compilation and tests (no APK)
+        run: |
+          chmod +x gradlew
+          touch kws-sdk/consumer-rules.pro
+          ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest --no-daemon --stacktrace
