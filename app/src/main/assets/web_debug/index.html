@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>SISP · 结构化标注台</title>
+  <style>
+    :root {color-scheme:dark;--bg:#0c1320;--surface:#162236;--panel:#19283e;--border:#2a3d56;--ink:#e6effa;--muted:#90a9c4;--cyan:#56cce2;--gold:#ffca76;--red:#f58282;--green:#85d4a9;--blue:#7eabff}
+    *{box-sizing:border-box}body{margin:0;font:14px/1.5 system-ui,-apple-system,"Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink)}
+    button,input{font:inherit}button{color:var(--ink);background:#253c59;border:1px solid #426082;border-radius:7px;padding:7px 12px;cursor:pointer;white-space:nowrap}
+    button:hover{background:#345779}button:disabled{opacity:.36;cursor:not-allowed}.primary{background:#177c8d;border-color:#3ab9ca}.primary:hover{background:#2297a9}.danger{border-color:#754c58;color:#ffb0b0}
+    header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border);gap:12px;flex-wrap:wrap}header strong{font-size:18px;letter-spacing:.4px}
+    small,.muted{color:var(--muted)}.tag{font-size:11px;color:var(--cyan);border:1px solid #285366;background:#112e3e;padding:3px 7px;border-radius:6px}
+    .controls{display:flex;flex-wrap:wrap;gap:7px;align-items:center;padding:10px 14px;background:#101d30;border-bottom:1px solid var(--border)}
+    .controls .clock{font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;min-width:130px;text-align:center}
+    main{display:grid;grid-template-columns:minmax(420px,1.7fr) minmax(310px,1fr);gap:10px;padding:10px;height:calc(100vh - 263px);min-height:370px}
+    .panel{border:1px solid var(--border);border-radius:10px;background:var(--surface);min-width:0;min-height:0;overflow:hidden}
+    .panelhead{display:flex;gap:7px;justify-content:space-between;align-items:center;padding:8px 12px;background:#1a2b43;border-bottom:1px solid var(--border)}
+    .panelhead strong{font-size:13px}.canvas-wrap{height:calc(100% - 43px);position:relative;min-height:160px}
+    #map{display:block;width:100%;height:100%;cursor:crosshair}
+    .canvas-foot{position:absolute;bottom:6px;left:9px;background:#101e31cf;border-radius:5px;padding:4px 8px;font-size:11px;color:#b0c8de;pointer-events:none}
+    .right{display:grid;grid-template-rows:auto minmax(130px,1fr);gap:10px;min-height:0}.info{padding:10px 12px}
+    .line{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap}
+    .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:8px 0}
+    .metric{background:#112037;border:1px solid #25405e;border-radius:7px;padding:7px}.metric b{display:block;font-size:18px;font-variant-numeric:tabular-nums}
+    #rooms{display:flex;gap:5px;flex-wrap:wrap;margin:8px 0;max-height:100px;overflow:auto}
+    .room{border:1px solid #38536e;background:#182d47;padding:5px 8px;font-size:12px}.room.selected{border-color:var(--gold);background:#56421e}
+    .event-list{height:calc(100% - 43px);overflow:auto;padding:4px}
+    .eventitem{display:grid;grid-template-columns:40px 58px minmax(0,1fr) 72px;gap:5px;align-items:center;padding:8px;border-radius:7px;border-bottom:1px solid #233651;cursor:pointer;font-size:12px}
+    .eventitem:hover{background:#27415d}.eventitem.selected{background:#334966;border:1px solid var(--cyan)}.eventitem .roomname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .matched{color:var(--green)}.miss{color:var(--red)}.wrong{color:var(--gold)}.pending{color:var(--muted)}
+    .mutedbox{padding:7px 9px;background:#132136;border:1px solid #2b4460;border-radius:7px;font-size:12px;min-height:36px;max-height:90px;overflow:auto;word-break:break-all}
+    footer{padding:10px 14px 14px;border-top:1px solid var(--border);background:#111f31}
+    .track{position:relative}#timeline{display:block;width:100%;height:66px;cursor:pointer}#seek{width:100%;accent-color:var(--cyan);margin:0}
+    .legend{display:flex;gap:16px;font-size:11px;color:var(--muted)}.legend span:before{content:"";display:inline-block;width:9px;height:9px;margin-right:5px;background:var(--cyan);border-radius:2px}
+    .legend .human:before{background:var(--gold)}.legend .algo:before{background:var(--blue)}
+    .hint{color:var(--muted);font-size:11px}.toast{position:fixed;bottom:127px;left:50%;transform:translateX(-50%);background:#214760;color:#fff;padding:8px 18px;border-radius:8px;box-shadow:0 5px 30px #0008;max-width:85%;z-index:20}
+    .hidden{display:none!important}.overlay{position:fixed;inset:0;background:#060d17e8;display:grid;place-items:center;z-index:30;padding:15px}
+    .login{width:min(450px,95vw);background:#192b44;padding:27px;border-radius:13px;border:1px solid #365271}
+    .login input{background:#0a1626;color:#f0fcff;border:1px solid #537596;border-radius:7px;padding:10px 12px;font-size:18px;letter-spacing:4px;width:100%;margin:10px 0}
+    .section-actions{display:flex;gap:5px;flex-wrap:wrap}label.toggle{display:inline-flex;align-items:center;gap:5px;color:var(--gold);cursor:pointer}input[type=checkbox]{accent-color:#50b4bd;width:16px;height:16px}
+    @media (max-width:950px){main{grid-template-columns:1fr;height:auto}.panel:first-child{height:370px}.right{min-height:540px}footer{position:sticky;bottom:0}header{padding:7px 10px}}
+  </style>
+</head>
+<body>
+<header>
+  <div><strong>SISP · 结构化标注台</strong> <span class="tag">无图像传输</span></div>
+  <div><span id="online">● 等待配对</span>　<span id="algo" class="muted"></span>　<span id="video" class="muted"></span></div>
+</header>
+<div class="controls">
+  <button id="restart" title="从头播放">⟲ 从头</button>
+  <button id="back" title="左方向键，固定后退5秒">−5 秒</button>
+  <button id="stepback" title="逗号键，前一帧">◀ 帧</button>
+  <button id="play" class="primary" title="空格：播放/暂停">⏸ 暂停</button>
+  <button id="stepnext" title="句号键，后一帧">帧 ▶</button>
+  <button id="forward" title="右方向键，固定前进5秒">+5 秒</button>
+  <span id="clock" class="clock">00:00.000 / 00:00.000</span>
+  <button id="prev">上一事件</button>
+  <button id="next">下一事件</button>
+  <button id="next-unbound">下一未绑定</button>
+  <label class="toggle"><input type="checkbox" id="bounce"> 无匹配跳回并暂停</label>
+</div>
+<main>
+  <section class="panel">
+    <div class="panelhead"><strong>摄像头归一化坐标 · 房间 / 门 / 人体骨架</strong>
+      <div><label><input type="checkbox" id="showpoints" checked> Pose</label>　<label><input type="checkbox" id="showboxes" checked> 人框</label>　<label><input type="checkbox" id="showrooms" checked> 房门</label></div>
+    </div>
+    <div class="canvas-wrap"><canvas id="map"></canvas><div id="poseAge" class="canvas-foot">正在等待分析帧（不是视频预览）</div></div>
+  </section>
+  <div class="right">
+    <section class="panel">
+      <div class="panelhead"><strong>标注当前进出门事件</strong><span id="eventBadge" class="tag">未选择</span></div>
+      <div class="info">
+        <div class="line"><span id="selected" style="font-weight:700">请从时间线或事件列表选择人工事件</span><button id="clear-selection">取消选择</button></div>
+        <div class="section-actions">
+          <button id="add-enter" class="primary">＋ 记录进入</button>
+          <button id="add-exit" class="primary">＋ 记录离开</button>
+          <button id="clear-door">清除房门</button>
+          <button id="delete" class="danger">删除该事件</button>
+          <button id="undo">撤销上次标注</button>
+        </div>
+        <div id="rooms"></div>
+        <div class="stats">
+          <div class="metric"><small>人工事件</small><b id="count-marked">0</b></div>
+          <div class="metric"><small>正确匹配</small><b id="count-match">0</b></div>
+          <div class="metric"><small>漏判 / 错门</small><b id="count-error">0</b></div>
+        </div>
+        <div class="mutedbox" id="detail">选事件后，点左侧地图上的房间名称或房门，或点这里的房间按钮，即可绑定、改绑。匹配窗口内结果将自动刷新。</div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panelhead"><strong>人工事件列表 · 点击跳转并选择</strong><small id="framecount">0 个分析帧缓存</small></div>
+      <div class="event-list" id="events"></div>
+    </section>
+  </div>
+</main>
+<footer>
+  <div class="track"><canvas id="timeline"></canvas></div>
+  <input id="seek" type="range" min="0" max="1" value="0" step="1">
+  <div class="line"><div class="legend"><span class="human">人工 ENTER / EXIT</span><span class="algo">算法进出</span><span>竖线=当前时间</span></div><div class="hint">空格：暂停/播放　← →：±5秒　, .：逐帧　双轨点击事件可定位</div></div>
+</footer>
+
+<div class="overlay" id="pairing">
+  <div class="login">
+    <h2 style="margin-top:0">连接 SISP Android</h2>
+    <p class="muted">手机打开「网页调试」后，在此输入手机屏幕显示的六位配对码。仅通过局域网传输结构化数据，绝不上传视频。</p>
+    <input id="pin" placeholder="六位配对码" inputmode="numeric" maxlength="6" autocomplete="off">
+    <button id="connect" class="primary" style="width:100%">连接调试台</button>
+    <p id="login-error" class="muted"></p>
+  </div>
+</div>
+<div id="toast" class="toast hidden" role="status"></div>
+
+<script>
+(function(){
+  'use strict';
+  var pin = sessionStorage.getItem('sispPin') || '';
+  var packet = null, state = {}, frame = null, history = new Map();
+  var selected = '', dragging = false, busy = false, running = true, reconnectFailures = 0;
+  var canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
+  var timeline = document.getElementById('timeline'), tx = timeline.getContext('2d');
+  var ui = function(id){return document.getElementById(id);};
+  var skeleton = [[5,6],[5,7],[7,9],[6,8],[8,10],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16],[0,1],[0,2],[1,3],[2,4]];
+  var colors = ['#61d8df','#ffc679','#ad9bff','#a0e39c','#f28aba','#8cc1fd'];
+  var lastRenderedKey = '', lastVideo = null, lastSeq = '';
+  function asTime(v){var n = Math.max(0, Math.round(Number(v)||0));return String(Math.floor(n/60000)).padStart(2,'0') + ':' + String(Math.floor(n/1000)%60).padStart(2,'0') + '.' + String(n%1000).padStart(3,'0');}
+  function toast(s){var n=ui('toast');n.textContent=s;n.classList.remove('hidden');clearTimeout(n.timer);n.timer=setTimeout(function(){n.classList.add('hidden');},2500);}
+  function statusName(x){return ({MATCH:'匹配',MISS:'漏判',WRONG_PORTAL:'错门',WRONG_DIRECTION:'方向错误',PENDING:'待确认',UNOBSERVED:'尚未观测'})[x]||'待分析';}
+  function statusClass(x){return x==='MATCH'?'matched':x==='MISS'?'miss':x.indexOf('WRONG')===0?'wrong':'pending';}
+  function marks(){return state.marked||[];}
+  function matchFor(k){return (packet && packet.matches||[]).find(function(m){return m.key===k;})||{classification:'PENDING'};}
+  function currentSelected(){return marks().find(function(m){return m.key===selected;})||null;}
+  async function api(path, opts){
+    var cfg=Object.assign({headers:{'X-SISP-PIN':pin},cache:'no-store'},opts||{});
+    if(cfg.body){cfg.headers['Content-Type']='application/json';}
+    var r=await fetch(path,cfg);
+    if(r.status===403) {ui('pairing').classList.remove('hidden');sessionStorage.removeItem('sispPin');throw new Error('配对码错误或已更新');}
+    if(!r.ok) throw new Error('通信失败 '+r.status);
+    return r.json();
+  }
+  async function cmd(op,more){
+    if(!pin)return;
+    try{
+      var req=Object.assign({op:op},more||{});
+      var out=await api('/api/command',{method:'POST',body:JSON.stringify(req)});
+      if(!out.ok) toast(out.message||'操作失败');else if(out.message)toast(out.message);
+      pollOnce();
+    }catch(e){toast(e.message);}
+  }
+  async function pollOnce(){
+    if(!pin||busy)return;
+    busy=true;
+    try{
+      var result=await api('/api/state');
+      packet=result;state=result.state||{};
+      ui('online').textContent='● 已连接';ui('online').style.color='#8bd9ae';
+      ui('pairing').classList.add('hidden');
+      reconnectFailures=0;
+      if(lastVideo!==null && lastVideo!==state.videoKey){history.clear();selected='';lastRenderedKey='';}
+      lastVideo=state.videoKey||'';
+      if(result.frame && Number.isFinite(result.frame.timeMs)) {
+        frame=result.frame;
+        history.set(result.frame.timeMs,result.frame);
+        while(history.size>3500) history.delete(history.keys().next().value);
+      }
+      render();
+    }catch(e){
+      reconnectFailures++;
+      ui('online').textContent='● 连接中断';ui('online').style.color='#f49a9a';
+      if(reconnectFailures===1) toast(e.message);
+    }finally{busy=false;}
+  }
+  async function refreshLoop(){
+    while(running){if(pin)await pollOnce();await new Promise(function(r){setTimeout(r,210);});}
+  }
+  function setupPin(){
+    ui('pin').value=pin;
+    ui('connect').onclick=async function(){
+      pin=ui('pin').value.trim();
+      if(!/^[0-9]{6}$/.test(pin)){ui('login-error').textContent='请输入六位数字配对码';return;}
+      try{
+        await api('/api/state');
+        sessionStorage.setItem('sispPin',pin);
+        ui('pairing').classList.add('hidden');
+        await pollOnce();
+      }catch(e){ui('login-error').textContent=e.message;}
+    };
+    ui('pin').addEventListener('keydown',function(e){if(e.key==='Enter')ui('connect').click();});
+  }
+  function drawRoomCanvas(){
+    var bounds=canvas.getBoundingClientRect(),w=Math.max(1,Math.round(bounds.width)),h=Math.max(1,Math.round(bounds.height));
+    if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
+    ctx.clearRect(0,0,w,h);ctx.fillStyle='#0e1b2d';ctx.fillRect(0,0,w,h);
+    var size=Math.min(w/16,h/9),cw=size*16,ch=size*9,x0=(w-cw)/2,y0=(h-ch)/2;
+    var px=function(x){return x0+x*cw;},py=function(y){return y0+y*ch;};
+    window.sispCoords={x0:x0,y0:y0,cw:cw,ch:ch};
+    ctx.strokeStyle='#1b334c';ctx.lineWidth=1;
+    for(var k=0;k<=16;k++){ctx.beginPath();ctx.moveTo(px(k/16),y0);ctx.lineTo(px(k/16),y0+ch);ctx.stroke();}
+    for(var j=0;j<=9;j++){ctx.beginPath();ctx.moveTo(x0,py(j/9));ctx.lineTo(x0+cw,py(j/9));ctx.stroke();}
+    ctx.strokeStyle='#587089';ctx.strokeRect(x0,y0,cw,ch);
+    var rooms=state.rooms||[],active=currentSelected();
+    if(ui('showrooms').checked){
+      rooms.forEach(function(r,i){
+        var points=r.polygon||[];if(!points.length)return;
+        ctx.beginPath();points.forEach(function(p,k){if(k===0)ctx.moveTo(px(p[0]),py(p[1]));else ctx.lineTo(px(p[0]),py(p[1]));});ctx.closePath();
+        ctx.fillStyle=(active&&r.id===active.portalRoomId)?'#8b744344':'#243b5350';ctx.fill();
+        ctx.lineWidth=(active&&r.id===active.portalRoomId)?3:1.5;
+        ctx.strokeStyle=(active&&r.id===active.portalRoomId)?'#ffc77f':'#527c9d';ctx.stroke();
+      });
+      (state.doors||[]).forEach(function(d){
+        ctx.beginPath();ctx.moveTo(px(d.a[0]),py(d.a[1]));ctx.lineTo(px(d.b[0]),py(d.b[1]));
+        ctx.strokeStyle='#ffc779';ctx.lineWidth=4;ctx.stroke();
+      });
+      rooms.forEach(function(r){
+        var p=r.label||r.anchor;if(!p)return;
+        ctx.font='bold 13px system-ui';ctx.textAlign='center';
+        var text=r.name+((active&&active.portalRoomId===r.id)?' 🔒':'');
+        var tw=ctx.measureText(text).width;
+        ctx.fillStyle='#0a1b2ddf';ctx.fillRect(px(p[0])-tw/2-7,py(p[1])-15,tw+14,21);
+        ctx.fillStyle='#e8f2fb';ctx.fillText(text,px(p[0]),py(p[1])); 
+      });
+    }
+    var pos=Number(state.positionMs)||0;
+    var closest=null,dist=Infinity;
+    history.forEach(function(val,key){var d=Math.abs(key-pos);if(d<dist){dist=d;closest=val;}});
+    if(frame&&Math.abs(frame.timeMs-pos)<dist){closest=frame;dist=Math.abs(frame.timeMs-pos);}
+    var stale=dist>800||!closest;
+    ui('poseAge').textContent=closest&&!stale?'分析帧 '+asTime(closest.timeMs)+' · '+(closest.poses||[]).length+' 人':'当前位置无可用分析帧（正在等待或未回放）';
+    if(stale)return;
+    if(ui('showboxes').checked||ui('showpoints').checked) {
+      (closest.poses||[]).forEach(function(p,i){
+        var color=colors[(Math.abs(p.id)||i)%colors.length],b=p.box||[];
+        ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=2.2;
+        if(ui('showboxes').checked&&b.length===4){
+          ctx.strokeRect(px(b[0]),py(b[1]),(b[2]-b[0])*cw,(b[3]-b[1])*ch);
+          ctx.font='12px system-ui';ctx.textAlign='left';ctx.fillText('Pose#'+p.id+' '+Math.round(100*(p.score||0))+'%',px(b[0])+2,py(b[1])-5);
+        }
+        if(ui('showpoints').checked){
+          var pts=p.points||[];
+          skeleton.forEach(function(edge){var a=pts[edge[0]],b=pts[edge[1]];if(a&&b&&a[2]>.2&&b[2]>.2){
+            ctx.beginPath();ctx.moveTo(px(a[0]),py(a[1]));ctx.lineTo(px(b[0]),py(b[1]));ctx.stroke();
+          }});
+          pts.forEach(function(a){if(a&&a[2]>.15){ctx.beginPath();ctx.arc(px(a[0]),py(a[1]),Math.max(2,3*a[2]),0,Math.PI*2);ctx.fill();}});
+        }
+      });
+    }
+  }
+  function bindRoom(roomId){
+    var mark=currentSelected();
+    if(!mark){toast('请先选择一条人工事件');return;}
+    cmd('bindPortal',{key:mark.key,roomId:roomId});
+  }
+  function bindMapClick(e){
+    var mark=currentSelected();if(!mark){toast('请先选中一个人工事件');return;}
+    var g=window.sispCoords;if(!g)return;
+    var bb=canvas.getBoundingClientRect(),cx=e.clientX-bb.left,cy=e.clientY-bb.top;
+    var nx=(cx-g.x0)/g.cw,ny=(cy-g.y0)/g.ch;
+    if(nx<0||nx>1||ny<0||ny>1)return;
+    var rooms=state.rooms||[],selectedRoom=null;
+    // 先按标签命中，避免窄门旁的多边形误选。
+    rooms.slice().reverse().some(function(r){var p=r.label||r.anchor;if(!p)return false;
+      var tx=g.x0+p[0]*g.cw,ty=g.y0+p[1]*g.ch;
+      if(Math.abs(cx-tx)<Math.max(34,r.name.length*8+16)&&Math.abs(cy-ty)<18){selectedRoom=r;return true;}return false;
+    });
+    if(!selectedRoom)rooms.slice().reverse().some(function(r){var pts=r.polygon||[];if(pts.length<3)return false;
+      var inside=false;for(var i=0,j=pts.length-1;i<pts.length;j=i++){
+        var a=pts[i],b=pts[j];
+        if((a[1]>ny)!==(b[1]>ny)&&nx<(b[0]-a[0])*(ny-a[1])/(b[1]-a[1])+a[0])inside=!inside;
+      }if(inside){selectedRoom=r;return true;}return false;
+    });
+    if(selectedRoom)bindRoom(selectedRoom.id);else toast('请选择房门或房间名称');
+  }
+  function renderRooms(){
+    var r=ui('rooms'),sel=currentSelected(),list=state.rooms||[];
+    r.replaceChildren();
+    list.filter(function(x){return !x.living;}).forEach(function(x){
+      var b=document.createElement('button');
+      b.className='room'+(sel&&sel.portalRoomId===x.id?' selected':'');
+      b.textContent=x.name+(sel&&sel.portalRoomId===x.id?' 🔒':'')+
+        (state.counts&&state.counts[x.id]!=null?' · '+state.counts[x.id]:'');
+      b.onclick=function(){bindRoom(x.id);};b.disabled=!sel;
+      r.appendChild(b);
+    });
+  }
+  function renderEvents(){
+    var list=marks(),key=list.map(function(x){var m=matchFor(x.key);return x.key+':'+x.portalRoomId+':'+m.classification;}).join('|')+':'+selected;
+    if(key===lastRenderedKey)return;
+    lastRenderedKey=key;
+    var el=ui('events'),scroll=el.scrollTop;el.replaceChildren();
+    list.forEach(function(m,i){
+      var a=matchFor(m.key);
+      var row=document.createElement('div');row.className='eventitem'+(selected===m.key?' selected':'');
+      var cols=[String(i+1),asTime(m.timeMs), (m.type==='ENTER'?'进入':'离开')+' · '+(state.rooms||[]).find(function(x){return x.id===m.portalRoomId;})?.name || '',statusName(a.classification)];
+      // 使用独立 DOM 文本，禁止把人工房间名作为 HTML 注入。
+      cols[2]=(m.type==='ENTER'?'进入':'离开')+' · '+((state.rooms||[]).find(function(x){return x.id===m.portalRoomId;})||{}).name;
+      if(!m.portalRoomId)cols[2]=(m.type==='ENTER'?'进入':'离开')+' · 未绑定';
+      cols.forEach(function(s,j){var n=document.createElement('span');n.textContent=s;n.className=j===2?'roomname':j===3?statusClass(a.classification):'';row.appendChild(n);});
+      row.onclick=function(){selected=m.key;cmd('selectEvent',{key:m.key});render();};
+      el.appendChild(row);
+    });
+    el.scrollTop=scroll;
+  }
+  function renderTimeline(){
+    var rect=timeline.getBoundingClientRect(),w=Math.max(1,Math.floor(rect.width));
+    if(timeline.width!==w||timeline.height!==66){timeline.width=w;timeline.height=66;}
+    tx.fillStyle='#0b1728';tx.fillRect(0,0,w,66);
+    tx.fillStyle='#1b3049';tx.fillRect(0,6,w,25);tx.fillRect(0,35,w,25);
+    tx.fillStyle='#94a9bd';tx.font='10px system-ui';tx.fillText('人',5,20);tx.fillText('算',5,49);
+    var dur=Math.max(1,state.durationMs||1),x=function(t){return 25+Math.min(1,Math.max(0,t/dur))*(w-36);};
+    (packet&&packet.runtime||[]).forEach(function(r){var px=x(r.timeMs);tx.fillStyle='#7eabff';tx.fillRect(px-2,40,4,19);});
+    marks().forEach(function(m){
+      var px=x(m.timeMs),cls=matchFor(m.key).classification;
+      tx.fillStyle=cls==='MATCH'?'#85d4a9':cls==='MISS'?'#f58282':cls.indexOf('WRONG')===0?'#ffca76':'#deaf5a';
+      tx.fillRect(px-2,8,4,23);if(m.key===selected){tx.strokeStyle='#fff';tx.strokeRect(px-5,6,10,27);}
+    });
+    tx.strokeStyle='#fff';tx.lineWidth=1.5;tx.beginPath();var xx=x(state.positionMs||0);tx.moveTo(xx,0);tx.lineTo(xx,66);tx.stroke();
+  }
+  function render(){
+    if(!packet)return;
+    ui('algo').textContent=state.algorithm||'';
+    ui('video').textContent=state.videoLabel||'未选视频';
+    ui('play').textContent=state.playing?'⏸ 暂停':'▶ 播放';
+    ui('clock').textContent=asTime(state.positionMs)+' / '+asTime(state.durationMs);
+    if(!dragging){ui('seek').max=String(Math.max(1,state.durationMs||1));ui('seek').value=String(Math.min(state.positionMs||0,state.durationMs||1));}
+    ui('bounce').checked=!!state.bounceEnabled;
+    var total=marks().length,match=(packet.matches||[]).filter(function(x){return x.classification==='MATCH';}).length;
+    var fail=(packet.matches||[]).filter(function(x){return x.classification==='MISS'||x.classification.indexOf('WRONG')===0;}).length;
+    ui('count-marked').textContent=total;ui('count-match').textContent=match;ui('count-error').textContent=fail;
+    ui('framecount').textContent=(packet.historyFrameCount||0)+' 个分析帧缓存';
+    var sel=currentSelected();
+    ui('eventBadge').textContent=sel?'#'+(marks().indexOf(sel)+1)+' / '+total:'未选择';
+    ui('selected').textContent=sel?asTime(sel.timeMs)+' · '+(sel.type==='ENTER'?'进入':'离开')+' · '+(sel.portalRoomId?((state.rooms||[]).find(function(r){return r.id===sel.portalRoomId;})||{}).name||'房间已变更':'未绑定房门'):'请从时间线或事件列表选择人工事件';
+    ['clear-door','delete','clear-selection'].forEach(function(id){ui(id).disabled=!sel;});
+    var info=sel?matchFor(sel.key):null;
+    var runtime=info?(packet.runtime||[]).find(function(x){return x.key===info.runtimeKey;}):null;
+    ui('detail').textContent=sel?'匹配：'+statusName(info.classification)+(info.deltaMs!=null?'｜偏差 '+(info.deltaMs>=0?'+':'')+info.deltaMs+' ms':'')+
+      (runtime?'｜算法 '+runtime.fromName+' → '+runtime.toName+'，原因 '+runtime.reason:'')+
+      (state.debugReason?'｜当前拒绝原因：'+state.debugReason:''):
+      '选择人工事件后，可从地图或右侧房门列表绑定、改绑、清除房门；点击“记录进入/离开”可在当前播放时间添加人工事件。';
+    renderRooms();renderEvents();drawRoomCanvas();renderTimeline();
+  }
+  function wire(){
+    ui('play').onclick=function(){cmd('pauseToggle');};
+    ui('back').onclick=function(){cmd('seekRelative',{deltaMs:-5000});};
+    ui('forward').onclick=function(){cmd('seekRelative',{deltaMs:5000});};
+    ui('stepback').onclick=function(){cmd('step',{delta:-1});};
+    ui('stepnext').onclick=function(){cmd('step',{delta:1});};
+    ui('restart').onclick=function(){cmd('restart');};
+    ui('prev').onclick=function(){cmd('prevEvent');};
+    ui('next').onclick=function(){cmd('nextEvent');};
+    ui('next-unbound').onclick=function(){cmd('nextUnbound');};
+    ui('add-enter').onclick=function(){cmd('addEvent',{type:'ENTER'});};
+    ui('add-exit').onclick=function(){cmd('addEvent',{type:'EXIT'});};
+    ui('clear-door').onclick=function(){if(currentSelected())cmd('bindPortal',{key:currentSelected().key,roomId:null});};
+    ui('clear-selection').onclick=function(){selected='';cmd('clearSelection');};
+    ui('delete').onclick=function(){var s=currentSelected();if(s&&confirm('删除第 '+(marks().indexOf(s)+1)+' 个人工事件？')){cmd('deleteEvent',{key:s.key});selected='';}};
+    ui('undo').onclick=function(){cmd('undo');};
+    ui('bounce').onchange=function(){cmd('setBounce',{enabled:this.checked});};
+    ui('seek').addEventListener('input',function(){dragging=true;ui('clock').textContent=asTime(Number(this.value))+' / '+asTime(state.durationMs);});
+    ui('seek').addEventListener('change',function(){dragging=false;cmd('seekAbsolute',{timeMs:Number(this.value)});});
+    timeline.addEventListener('click',function(e){
+      if(!state.durationMs)return;
+      var bb=this.getBoundingClientRect(),x=e.clientX-bb.left;
+      var t=Math.max(0,Math.min(state.durationMs,((x-25)/(bb.width-36))*state.durationMs));
+      var nearest=marks().map(function(m){return {m:m,delta:Math.abs((25+(m.timeMs/state.durationMs)*(bb.width-36))-x)};})
+         .sort(function(a,b){return a.delta-b.delta;})[0];
+      if(e.offsetY<35&&nearest&&nearest.delta<8){selected=nearest.m.key;cmd('selectEvent',{key:nearest.m.key});}
+      else cmd('seekAbsolute',{timeMs:Math.round(t)});
+    });
+    canvas.onclick=bindMapClick;
+    ['showpoints','showboxes','showrooms'].forEach(function(id){ui(id).onchange=drawRoomCanvas;});
+    document.addEventListener('keydown',function(e){
+      var tag=(e.target&&e.target.tagName||'').toLowerCase();if(['input','textarea','select'].includes(tag))return;
+      var op=null,params={};
+      if(e.code==='Space')op='pauseToggle';
+      else if(e.key==='ArrowLeft'){op='seekRelative';params.deltaMs=-5000;}
+      else if(e.key==='ArrowRight'){op='seekRelative';params.deltaMs=5000;}
+      else if(e.key===',') {op='step';params.delta=-1;}
+      else if(e.key==='.') {op='step';params.delta=1;}
+      if(op){e.preventDefault();cmd(op,params);}
+    });
+  }
+  setupPin();wire();refreshLoop();
+})();
+</script>
+</body>
+</html>
