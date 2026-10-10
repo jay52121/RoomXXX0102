@@ -6,6 +6,7 @@ import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 
 enum class EventType {
     ENTER,
@@ -75,7 +76,18 @@ object MarkedEventPortalBinding {
         return activeManager?.findExactEvent(key.type, key.frameIndex, key.timestampMs)
     }
 
-    fun bindSelectedPortal(portalRoomId: String): MarkedEvent? {
+    /** 返回从 0 开始的显式选择索引，不随视频时钟偷偷改变。 */
+    fun selectedIndex(): Int? {
+        val selected = selectedEvent() ?: return null
+        return activeManager?.getEvents()?.indexOfFirst {
+            it.type == selected.type && it.frameIndex == selected.frameIndex &&
+                it.timestampMs == selected.timestampMs
+        }?.takeIf { it >= 0 }
+    }
+
+    fun clearSelection() = select(null)
+
+    fun bindSelectedPortal(portalRoomId: String?): MarkedEvent? {
         val key = selectedKey ?: return null
         val updated = activeManager?.bindPortal(
             type = key.type,
@@ -131,7 +143,8 @@ class EventMarkerManager {
         eventMap.remove(key)
         deleteEventsFile(key)
         MarkedEventRuntimeSource.update(key, emptyList())
-        MarkedEventPortalBinding.select(null)
+        deleteMatchingLegacyEventsFile(key)
+        MarkedEventPortalBinding.clearSelection()
     }
 
     fun getEvents(): List<MarkedEvent> {
@@ -208,7 +221,7 @@ class EventMarkerManager {
         type: EventType,
         frameIndex: Int,
         timestampMs: Long,
-        portalRoomId: String
+        portalRoomId: String?
     ): MarkedEvent? {
         val key = boundVideoKey ?: return null
         val list = eventMap[key] ?: return null
@@ -240,11 +253,18 @@ class EventMarkerManager {
     }
 
     private fun loadEventsForVideo(videoKey: String): List<MarkedEvent> {
-        val file = resolveEventsFile(videoKey) ?: return emptyList()
-        if (!file.exists()) return emptyList()
+        val current = resolveEventsFile(videoKey) ?: return emptyList()
+        // 旧版使用纯文件名，可能使不同目录的同名视频串标注。只迁移 videoKey 完全相同的旧记录。
+        val legacy = resolveLegacyEventsFile(videoKey)
+        val file = when {
+            current.exists() -> current
+            legacy != null && legacy.exists() && hasMatchingVideoKey(legacy, videoKey) -> legacy
+            else -> return emptyList()
+        }
         return try {
             val jsonString = file.readText(Charsets.UTF_8)
             val root = JSONObject(jsonString)
+            if (root.optString("videoKey") != videoKey) return emptyList()
             val array = root.optJSONArray("events") ?: JSONArray()
             val list = mutableListOf<MarkedEvent>()
             for (i in 0 until array.length()) {
@@ -264,7 +284,9 @@ class EventMarkerManager {
                     )
                 )
             }
-            list.sortedBy { it.timestampMs }
+            val events = list.sortedBy { it.timestampMs }
+            if (file != current) saveEventsForVideo(videoKey, events)
+            events
         } catch (e: Exception) {
             Log.w("EventMarkerManager", "loadEventsForVideo failed key=$videoKey", e)
             emptyList()
@@ -299,10 +321,34 @@ class EventMarkerManager {
             .onFailure { e -> Log.w("EventMarkerManager", "deleteEventsFile failed key=$videoKey", e) }
     }
 
+    private fun deleteMatchingLegacyEventsFile(videoKey: String) {
+        val file = resolveLegacyEventsFile(videoKey) ?: return
+        if (file.exists() && hasMatchingVideoKey(file, videoKey)) {
+            runCatching { file.delete() }
+                .onFailure { e -> Log.w("EventMarkerManager", "delete legacy markers failed", e) }
+        }
+    }
+
+    private fun hasMatchingVideoKey(file: File, videoKey: String): Boolean =
+        runCatching { JSONObject(file.readText(Charsets.UTF_8)).optString("videoKey") == videoKey }
+            .getOrDefault(false)
+
+    private fun resolveLegacyEventsFile(videoKey: String): File? {
+        val dir = storageDir ?: return null
+        return File(dir, "${resolveVideoBaseName(videoKey)}.events.json")
+    }
+
     private fun resolveEventsFile(videoKey: String): File? {
         val dir = storageDir ?: return null
-        val baseName = resolveVideoBaseName(videoKey)
-        return File(dir, "$baseName.events.json")
+        return File(dir, eventStorageName(videoKey))
+    }
+
+    internal fun eventStorageName(videoKey: String): String {
+        val hash = MessageDigest.getInstance("SHA-256")
+            .digest(videoKey.toByteArray(Charsets.UTF_8))
+            .take(8)
+            .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+        return "${resolveVideoBaseName(videoKey)}.$hash.events.json"
     }
 
     private fun resolveVideoBaseName(videoKey: String): String {

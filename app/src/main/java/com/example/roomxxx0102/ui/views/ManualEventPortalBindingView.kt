@@ -10,6 +10,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.widget.Toast
 import com.example.roomxxx0102.R
 import com.example.roomxxx0102.data.model.RoomConfig
@@ -32,11 +33,50 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
 
     private val density = resources.displayMetrics.density
-    private var infoPanelClosedByUser = false
-    private var debugWasActive = false
-    private var consumeGesture = false
+    private var infoPanelVisible = false
+    private var debugModeActive = false
+    private var bindingAllowed = false
     private val closeRect = RectF()
-    private val bindingChangedListener: () -> Unit = { postInvalidateOnAnimation() }
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+    private var touchStartX = 0f
+    private var touchStartY = 0f
+    private var pendingTap: PendingTap? = null
+    private var onCloseInfoRequested: (() -> Unit)? = null
+    private var onBindingChanged: (() -> Unit)? = null
+    private val bindingChangedListener: () -> Unit = {
+        postInvalidateOnAnimation()
+        onBindingChanged?.invoke()
+    }
+
+    private sealed class PendingTap {
+        object CloseInfo : PendingTap()
+        data class BindRoom(val roomId: String) : PendingTap()
+    }
+
+    /** 大信息面板的真实可见状态由 MainActivity 单独管理，不靠覆盖层截获右侧按钮。 */
+    fun setDebugModeActive(active: Boolean) {
+        debugModeActive = active
+        if (!active) pendingTap = null
+        postInvalidateOnAnimation()
+    }
+
+    fun setInfoPanelVisible(visible: Boolean) {
+        infoPanelVisible = visible
+        postInvalidateOnAnimation()
+    }
+
+    fun setBindingAllowed(allowed: Boolean) {
+        bindingAllowed = allowed
+        postInvalidateOnAnimation()
+    }
+
+    fun setOnCloseInfoRequested(listener: (() -> Unit)?) {
+        onCloseInfoRequested = listener
+    }
+
+    fun setOnBindingChangedListener(listener: (() -> Unit)?) {
+        onBindingChanged = listener
+    }
 
     private val closeBgPaint = Paint().apply {
         color = Color.parseColor("#99000000")
@@ -69,8 +109,7 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
     init {
         isClickable = true
         isFocusable = false
-        // 右侧控制条本身是 6dp。调试覆盖层略高一层，才能在“信息面板已关闭”时
-        // 抢先识别下一次“调试面板”点击并只恢复信息面板；非目标点击返回 false 继续下传。
+        // 透明区域只在真实命中房门/X 时消费触摸，工具栏的按钮保持正常点击。
         elevation = 7f * density
         setLayerType(LAYER_TYPE_SOFTWARE, null)
     }
@@ -87,98 +126,86 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val debugActive = isDebugUiActive()
-        if (!debugActive) {
-            if (debugWasActive) {
-                // 真正退出调试模式后，下次重新打开时恢复“大信息面板默认打开”。
-                infoPanelClosedByUser = false
-            }
-            debugWasActive = false
+        if (!isDebugUiActive() || isBlockingScreenActive()) {
             closeRect.setEmpty()
             return
         }
-        debugWasActive = true
-
-        // 雷达/房间编辑是更高优先级界面；本调试层完全让路。
-        if (isBlockingScreenActive()) {
-            closeRect.setEmpty()
-            return
-        }
-
-        if (!infoPanelClosedByUser) {
-            drawPanelCloseButton(canvas)
-        } else {
-            closeRect.setEmpty()
-        }
+        if (infoPanelVisible) drawPanelCloseButton(canvas) else closeRect.setEmpty()
         drawSelectedPortalLock(canvas)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (isBlockingScreenActive()) return false
-
+        if (isBlockingScreenActive()) {
+            pendingTap = null
+            return false
+        }
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                consumeGesture = false
-
-                // 信息面板被单独关闭后，再点一次“调试面板”只负责把信息面板重新打开，
-                // 不让 MainActivity 把整个调试模式关闭。
-                if (infoPanelClosedByUser && isInsideView(event.x, event.y, R.id.btnDebugPanel)) {
-                    detectionOverlay()?.setDebugPanelEnabled(true)
-                    infoPanelClosedByUser = false
-                    consumeGesture = true
-                    invalidate()
-                    performClick()
+                pendingTap = null
+                touchStartX = event.x
+                touchStartY = event.y
+                if (isDebugUiActive() && infoPanelVisible && closeRect.contains(event.x, event.y)) {
+                    pendingTap = PendingTap.CloseInfo
                     return true
                 }
-
-                if (isDebugUiActive() && !infoPanelClosedByUser && closeRect.contains(event.x, event.y)) {
-                    detectionOverlay()?.setDebugPanelEnabled(false)
-                    infoPanelClosedByUser = true
-                    closeRect.setEmpty()
-                    consumeGesture = true
-                    invalidate()
-                    performClick()
-                    return true
-                }
-
-                if (canBindPortal() && !isTouchOnControls(event.x, event.y)) {
-                    // 大信息面板仍显示时，右半屏是被遮住的；不允许“穿透”去绑其下的门。
-                    if (!infoPanelClosedByUser && event.x >= width * 0.5f) {
-                        return false
-                    }
-                    val room = findTappedPortalRoom(event.x, event.y)
-                    if (room != null) {
-                        val before = MarkedEventPortalBinding.selectedEvent()?.portalRoomId
-                        val updated = MarkedEventPortalBinding.bindSelectedPortal(room.id)
-                        if (updated != null) {
-                            val action = when {
-                                before == null -> "已绑定"
-                                before == room.id -> "绑定不变"
-                                else -> "已改绑"
-                            }
-                            Toast.makeText(
-                                context,
-                                "$action：${updated.type.name} → ${room.name}",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            consumeGesture = true
-                            invalidate()
-                            performClick()
-                            return true
-                        }
-                    }
-                }
-                return false
+                if (!canBindPortal() || isTouchOnControls(event.x, event.y)) return false
+                if (infoPanelVisible && event.x >= width * 0.5f) return false
+                val room = findTappedPortalRoom(event.x, event.y) ?: return false
+                pendingTap = PendingTap.BindRoom(room.id)
+                return true
             }
 
-            MotionEvent.ACTION_MOVE,
-            MotionEvent.ACTION_UP,
-            MotionEvent.ACTION_CANCEL -> {
-                val consumed = consumeGesture
-                if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                    consumeGesture = false
+            MotionEvent.ACTION_MOVE -> {
+                if (pendingTap == null) return false
+                val moved = kotlin.math.abs(event.x - touchStartX) > touchSlop ||
+                    kotlin.math.abs(event.y - touchStartY) > touchSlop
+                if (moved) pendingTap = null
+                return true
+            }
+
+            MotionEvent.ACTION_UP -> {
+                val tap = pendingTap
+                pendingTap = null
+                if (tap == null) return false
+                val moved = kotlin.math.abs(event.x - touchStartX) > touchSlop ||
+                    kotlin.math.abs(event.y - touchStartY) > touchSlop
+                if (!moved) {
+                    when (tap) {
+                        PendingTap.CloseInfo -> {
+                            if (closeRect.contains(event.x, event.y) && infoPanelVisible) {
+                                onCloseInfoRequested?.invoke()
+                            }
+                        }
+
+                        is PendingTap.BindRoom -> {
+                            val room = findTappedPortalRoom(event.x, event.y)
+                            if (canBindPortal() && room?.id == tap.roomId) {
+                                val before = MarkedEventPortalBinding.selectedEvent()?.portalRoomId
+                                val updated = MarkedEventPortalBinding.bindSelectedPortal(room.id)
+                                if (updated != null) {
+                                    val action = when {
+                                        before == null -> "已绑定"
+                                        before == room.id -> "绑定不变"
+                                        else -> "已改绑"
+                                    }
+                                    Toast.makeText(
+                                        context,
+                                        "$action：${room.name}",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
+                        }
+                    }
+                    performClick()
                 }
-                return consumed
+                invalidate()
+                return true
+            }
+
+            MotionEvent.ACTION_CANCEL -> {
+                pendingTap = null
+                return true
             }
         }
         return false
@@ -190,7 +217,7 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
     }
 
     private fun canBindPortal(): Boolean {
-        if (!isDebugUiActive() || isBlockingScreenActive()) return false
+        if (!bindingAllowed || !isDebugUiActive() || isBlockingScreenActive()) return false
         if (MarkedEventPortalBinding.selectedEvent() == null) return false
         // 房间事件工具栏可见 = 当前是回顾视频、调试模式、看人视图且非播放态；
         // 只在这个明确的人工标注场景允许点击房门，避免干扰正常操作。
@@ -200,16 +227,19 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
             diagnosticButton?.visibility == View.VISIBLE
     }
 
-    private fun isDebugUiActive(): Boolean {
-        val eventControls = rootView.findViewById<View>(R.id.llEventMarkerControls)
-        val diagnosticButton = rootView.findViewById<View>(R.id.btnDiagnosticReplay)
-        return eventControls?.visibility == View.VISIBLE || diagnosticButton?.visibility == View.VISIBLE
-    }
+    private fun isDebugUiActive(): Boolean = debugModeActive
 
     private fun isBlockingScreenActive(): Boolean {
         val editorControls = rootView.findViewById<View>(R.id.llEditorControls)
         val radar = rootView.findViewById<View>(R.id.flRadarContainer)
-        return editorControls?.visibility == View.VISIBLE || radar?.visibility == View.VISIBLE
+        val deviceSettings = rootView.findViewById<View>(R.id.llDeviceSettings)
+        val audioScreen = rootView.findViewById<View>(R.id.composeAudioScreen)
+        val overlay = detectionOverlay()
+        return editorControls?.visibility == View.VISIBLE ||
+            radar?.visibility == View.VISIBLE ||
+            deviceSettings?.visibility == View.VISIBLE ||
+            audioScreen?.visibility == View.VISIBLE ||
+            overlay?.visibility != View.VISIBLE
     }
 
     private fun isTouchOnControls(x: Float, y: Float): Boolean {
@@ -270,7 +300,7 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
         val selected = MarkedEventPortalBinding.selectedEvent() ?: return
         val boundRoomId = selected.portalRoomId ?: return
         val room = RoomRepository.getSubRooms().firstOrNull {
-            it.id == boundRoomId && !it.isLivingBlindZone
+            it.id == boundRoomId
         } ?: return
         val anchor = room.labelPoint ?: room.anchorPoint ?: return
         val videoRect = videoRect() ?: return
@@ -311,25 +341,11 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
     private fun findTappedPortalRoom(x: Float, y: Float): RoomConfig? {
         val videoRect = videoRect() ?: return null
         if (!videoRect.contains(x, y)) return null
-        val nx = ((x - videoRect.left) / videoRect.width()).coerceIn(0f, 1f)
-        val ny = ((y - videoRect.top) / videoRect.height()).coerceIn(0f, 1f)
-        val normalized = PointF(nx, ny)
-        val rooms = RoomRepository.getSubRooms().filter {
-            !it.isLivingBlindZone && it.occupiedWallIds.isNotEmpty()
-        }
+        val rooms = RoomRepository.getSubRooms()
 
-        // 先命中门的四边形/多边形；倒序与现有覆盖层绘制顺序一致，重叠时优先最后一个。
-        for (index in rooms.indices.reversed()) {
-            val room = rooms[index]
-            val polygon = room.boundaryVertices.map { it.point }
-            if (polygon.size >= 3 && GeometryUtils.isPointInPolygon(normalized, polygon)) {
-                return room
-            }
-        }
-
-        // 再给白色房间名一个宽松点击框，门很窄时也能轻松绑定。
-        for (index in rooms.indices.reversed()) {
-            val room = rooms[index]
+        // 先认用户真正点中的白色房间名，再考虑较大的底层多边形。
+        // 盲区可以通过名称绑定；不要求它有可见门多边形。
+        for (room in rooms.asReversed()) {
             val anchor = room.labelPoint ?: room.anchorPoint ?: continue
             val labelX = videoRect.left + anchor.x * videoRect.width()
             val labelBaseline = videoRect.top + anchor.y * videoRect.height() - 12f * 2.5f
@@ -343,6 +359,16 @@ class ManualEventPortalBindingView @JvmOverloads constructor(
                 labelBaseline + 14f * density
             )
             if (hit.contains(x, y)) return room
+        }
+
+        val nx = ((x - videoRect.left) / videoRect.width()).coerceIn(0f, 1f)
+        val ny = ((y - videoRect.top) / videoRect.height()).coerceIn(0f, 1f)
+        val normalized = PointF(nx, ny)
+        for (room in rooms.asReversed()) {
+            val polygon = room.boundaryVertices.map { it.point }
+            if (polygon.size >= 3 && GeometryUtils.isPointInPolygon(normalized, polygon)) {
+                return room
+            }
         }
         return null
     }
