@@ -123,7 +123,7 @@
   var ui = function(id){return document.getElementById(id);};
   var skeleton = [[5,6],[5,7],[7,9],[6,8],[8,10],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16],[0,1],[0,2],[1,3],[2,4]];
   var colors = ['#61d8df','#ffc679','#ad9bff','#a0e39c','#f28aba','#8cc1fd'];
-  var lastRenderedKey = '', lastVideo = null, lastRun = null, lastSeq = '';
+  var lastRenderedKey = '', lastRoomKey = '', lastVideo = null, lastRun = null, lastSeq = '';
   function asTime(v){var n = Math.max(0, Math.round(Number(v)||0));return String(Math.floor(n/60000)).padStart(2,'0') + ':' + String(Math.floor(n/1000)%60).padStart(2,'0') + '.' + String(n%1000).padStart(3,'0');}
   function toast(s){var n=ui('toast');n.textContent=s;n.classList.remove('hidden');clearTimeout(n.timer);n.timer=setTimeout(function(){n.classList.add('hidden');},2500);}
   function statusName(x){return ({MATCH:'匹配',MISS:'漏判',WRONG_PORTAL:'错门',WRONG_DIRECTION:'方向错误',PENDING:'待确认',UNOBSERVED:'尚未观测'})[x]||'待分析';}
@@ -160,7 +160,7 @@
       reconnectFailures=0;
       if((lastVideo!==null && lastVideo!==state.videoKey) ||
          (lastRun!==null && lastRun!==result.runGeneration)){
-        history.clear();lastRenderedKey='';frame=null;
+        history.clear();lastRenderedKey='';lastRoomKey='';frame=null;
       }
       lastVideo=state.videoKey||'';
       lastRun=result.runGeneration;
@@ -279,6 +279,11 @@
   }
   function renderRooms(){
     var r=ui('rooms'),sel=currentSelected(),list=state.rooms||[];
+    var nextKey=(sel?sel.key+':'+sel.portalRoomId:'no')+'|'+list.map(function(x){
+      return x.id+':'+x.name+':'+(state.counts&&state.counts[x.id]);
+    }).join('|');
+    if(nextKey===lastRoomKey)return;
+    lastRoomKey=nextKey;
     r.replaceChildren();
     list.filter(function(x){return !x.living;}).forEach(function(x){
       var b=document.createElement('button');
