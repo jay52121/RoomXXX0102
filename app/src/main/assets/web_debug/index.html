@@ -76,6 +76,8 @@
         <div class="section-actions">
           <button id="add-enter" class="primary">＋ 记录进入</button>
           <button id="add-exit" class="primary">＋ 记录离开</button>
+          <button id="set-enter">改为进入</button>
+          <button id="set-exit">改为离开</button>
           <button id="clear-door">清除房门</button>
           <button id="delete" class="danger">删除该事件</button>
           <button id="undo">撤销上次标注</button>
@@ -342,7 +344,7 @@
     var sel=currentSelected();
     ui('eventBadge').textContent=sel?'#'+(marks().indexOf(sel)+1)+' / '+total:'未选择';
     ui('selected').textContent=sel?asTime(sel.timeMs)+' · '+(sel.type==='ENTER'?'进入':'离开')+' · '+(sel.portalRoomId?((state.rooms||[]).find(function(r){return r.id===sel.portalRoomId;})||{}).name||'房间已变更':'未绑定房门'):'请从时间线或事件列表选择人工事件';
-    ['clear-door','delete','clear-selection'].forEach(function(id){ui(id).disabled=!sel;});
+    ['clear-door','delete','clear-selection','set-enter','set-exit'].forEach(function(id){ui(id).disabled=!sel;});
     var info=sel?matchFor(sel.key):null;
     var runtime=info?(packet.runtime||[]).find(function(x){return x.key===info.runtimeKey;}):null;
     ui('detail').textContent=sel?'匹配：'+statusName(info.classification)+(info.deltaMs!=null?'｜偏差 '+(info.deltaMs>=0?'+':'')+info.deltaMs+' ms':'')+
@@ -363,6 +365,8 @@
     ui('next-unbound').onclick=function(){cmd('nextUnbound');};
     ui('add-enter').onclick=function(){cmd('addEvent',{type:'ENTER'});};
     ui('add-exit').onclick=function(){cmd('addEvent',{type:'EXIT'});};
+    ui('set-enter').onclick=function(){var s=currentSelected();if(s)cmd('setEventType',{key:s.key,type:'ENTER'});};
+    ui('set-exit').onclick=function(){var s=currentSelected();if(s)cmd('setEventType',{key:s.key,type:'EXIT'});};
     ui('clear-door').onclick=function(){if(currentSelected())cmd('bindPortal',{key:currentSelected().key,roomId:null});};
     ui('clear-selection').onclick=function(){selected='';cmd('clearSelection');};
     ui('delete').onclick=function(){var s=currentSelected();if(s&&confirm('删除第 '+(marks().indexOf(s)+1)+' 个人工事件？')){cmd('deleteEvent',{key:s.key});selected='';}};
