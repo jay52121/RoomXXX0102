@@ -174,6 +174,11 @@ internal class WebDebugHttpServer(
         }
     }
 
+    /** 未收到事件附近的任何分析帧时，不应误把“尚未分析”当作漏判。 */
+    fun hasAnalyzedNear(timeMs: Long, windowMs: Long): Boolean = synchronized(lock) {
+        history.keys.any { kotlin.math.abs(it - timeMs) <= windowMs + 250L }
+    }
+
     /** 供主线程「无匹配跳回」判断；与网页显示共用完全相同的判定。 */
     fun isEventMatched(
         key: String,
