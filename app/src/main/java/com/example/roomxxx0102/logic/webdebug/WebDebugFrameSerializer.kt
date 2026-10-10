@@ -13,6 +13,8 @@ internal object WebDebugFrameSerializer {
     fun build(
         timeMs: Long,
         frameSeq: Long,
+        imageWidth: Int,
+        imageHeight: Int,
         poses: List<PoseResult>,
         result: RoomAlgorithmFrameResult,
         livingRoomId: String?,
@@ -79,6 +81,8 @@ internal object WebDebugFrameSerializer {
         return JSONObject()
             .put("timeMs", timeMs)
             .put("seq", frameSeq)
+            .put("sourceWidth", imageWidth)
+            .put("sourceHeight", imageHeight)
             .put("algorithm", algorithmTag)
             .put("coordinateSystem", "normalized")
             .put("poses", people)
