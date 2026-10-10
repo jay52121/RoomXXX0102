@@ -69,6 +69,24 @@ class WebDebugMatchingTest {
         assertEquals("MATCH", m.single().classification)
     }
 
+    @Test fun skippedUnanalyzedSegmentIsNotMiss() {
+        val m = WebDebugMatching.classify(
+            listOf(mark(3000, key = "skip")),
+            emptyList(), 9000, 0,
+            analyzedEventKeys = emptySet()
+        )
+        assertEquals("UNOBSERVED", m.single().classification)
+    }
+
+    @Test fun analyzedSegmentWithNoMatchingOutputIsMiss() {
+        val m = WebDebugMatching.classify(
+            listOf(mark(3000, key = "known")),
+            emptyList(), 9000, 0,
+            analyzedEventKeys = setOf("known")
+        )
+        assertEquals("MISS", m.single().classification)
+    }
+
     @Test fun postWindowEventMustNotMatch() {
         val m = WebDebugMatching.classify(
             listOf(mark(1000)),
