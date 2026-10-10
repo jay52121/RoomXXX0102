@@ -206,6 +206,35 @@ class EventMarkerManager {
         return next
     }
 
+    /** 网页调试使用精确事件删除，避免同帧两种方向的标注被一并删除。 */
+    fun removeExactEvent(event: MarkedEvent): MarkedEvent? {
+        val video = boundVideoKey ?: return null
+        val list = eventMap[video] ?: return null
+        val index = list.indexOfFirst {
+            it.type == event.type && it.frameIndex == event.frameIndex &&
+                it.timestampMs == event.timestampMs
+        }
+        if (index < 0) return null
+        val removed = list.removeAt(index)
+        saveEventsForVideo(video, list)
+        MarkedEventRuntimeSource.update(video, list)
+        MarkedEventPortalBinding.onEventsChanged()
+        return removed
+    }
+
+    /** 撤销删除时恢复原始人工事件的完整时间、方向和房门绑定。 */
+    fun restoreExactEvent(event: MarkedEvent): Boolean {
+        val video = boundVideoKey ?: return false
+        val list = eventMap.getOrPut(video) { mutableListOf() }
+        if (list.any { it.type == event.type && it.frameIndex == event.frameIndex }) return false
+        list.add(event)
+        list.sortBy { it.timestampMs }
+        saveEventsForVideo(video, list)
+        MarkedEventRuntimeSource.update(video, list)
+        MarkedEventPortalBinding.onEventsChanged()
+        return true
+    }
+
     internal fun findExactEvent(
         type: EventType,
         frameIndex: Int,
