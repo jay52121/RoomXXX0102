@@ -63,6 +63,30 @@ class EventMarkerManagerTest {
         assertTrue(a.endsWith(".events.json"))
     }
 
+    @Test fun webCanChangeDirectionAndUndoViaExactEventMethods() {
+        val manager = EventMarkerManager()
+        manager.bindVideo("file:/tests/web/video.mp4")
+        manager.addEvent(EventType.ENTER, 15, 500)
+        val original = manager.getEvents().single()
+        val outbound = manager.changeExactEventType(original, EventType.EXIT)
+        assertEquals(EventType.EXIT, outbound?.type)
+        assertEquals(EventType.EXIT, MarkedEventPortalBinding.selectedEvent()?.type)
+        assertEquals(EventType.ENTER, manager.changeExactEventType(outbound!!, EventType.ENTER)?.type)
+    }
+
+    @Test fun webDeletesOnlyOneEventAndCanRestoreIt() {
+        val manager = EventMarkerManager()
+        manager.bindVideo("file:/tests/web2/video.mp4")
+        manager.addEvent(EventType.ENTER, 25, 1000)
+        manager.addEvent(EventType.EXIT, 25, 1000)
+        val before = manager.getEvents()
+        val target = before.first { it.type == EventType.ENTER }
+        assertEquals(target, manager.removeExactEvent(target))
+        assertEquals(listOf(EventType.EXIT), manager.getEvents().map { it.type })
+        assertTrue(manager.restoreExactEvent(target))
+        assertEquals(2, manager.getEvents().size)
+    }
+
     @Test fun switchingVideoClearsActiveSelection() {
         val manager = EventMarkerManager()
         manager.bindVideo("file:/tests/first/video.mp4")
