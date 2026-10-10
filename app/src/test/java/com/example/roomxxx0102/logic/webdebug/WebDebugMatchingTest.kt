@@ -52,6 +52,15 @@ class WebDebugMatchingTest {
         assertEquals("MISS", m[1].classification)
     }
 
+    @Test fun correctLaterMarkProtectedAgainstEarlierWrongPortalCandidate() {
+        val m = WebDebugMatching.classify(
+            listOf(mark(1000, "bathroom", "m1"), mark(1200, "bedroom", "m2")),
+            listOf(out(1100, "bedroom", "r1")), 2600, 0
+        )
+        assertEquals("MISS", m[0].classification)
+        assertEquals("MATCH", m[1].classification)
+    }
+
     @Test fun unboundMarkDoesNotInventPortalTruth() {
         val m = WebDebugMatching.classify(
             listOf(mark(1000, roomId = null)),
