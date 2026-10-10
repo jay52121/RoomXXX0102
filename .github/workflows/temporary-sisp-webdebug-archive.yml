@@ -1,0 +1,25 @@
+name: Temporary Web Debug History
+on:
+  push:
+    branches:
+      - codex/web-structured-debug-console-v1
+permissions:
+  contents: write
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/web-structured-debug-console-v1
+      - name: Append codex and dialogue history
+        run: python3 tools/_sisp_web_debug_history_patch.py
+      - name: Commit archives
+        run: |
+          git config user.name codex-bot
+          git config user.email codex-bot@users.noreply.github.com
+          git add codexHistory.md dialogueHistory.md tools/_dialogue_user_current.txt tools/_dialogue_assistant_current.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "docs: 归档网页调试标注台"
+            git push origin HEAD:codex/web-structured-debug-console-v1
+          fi
