@@ -72,6 +72,7 @@ internal class WebDebugHttpServer(
         Thread(task, "SISP-Web-HTTP").apply { isDaemon = true }
     }
     private val requestCounter = AtomicInteger(0)
+    private val runGeneration = AtomicInteger(0)
     private var socket: ServerSocket? = null
     private var acceptThread: Thread? = null
 
@@ -126,6 +127,7 @@ internal class WebDebugHttpServer(
 
     /** 每个视频切换/回放重启都需要单独的时间轴，不混合不同算法会话。 */
     fun resetVideo(videoKey: String?) {
+        runGeneration.incrementAndGet()
         synchronized(lock) {
             activeVideoKey = videoKey
             history.clear()
@@ -233,6 +235,7 @@ internal class WebDebugHttpServer(
             }))
             .put("observedFromMs", starts)
             .put("historyFrameCount", count)
+            .put("runGeneration", runGeneration.get())
             .put("sequence", requestCounter.incrementAndGet())
             .toString()
     }
