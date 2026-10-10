@@ -303,6 +303,7 @@ class MainActivity : ComponentActivity() {
     private var previousWebPlaybackMs: Long? = null
     private val webDebugUiHandler = Handler(Looper.getMainLooper())
     private val webUndoStack = ArrayDeque<WebUndo>()
+    @Volatile private var webLatestDebugReason = ""
     private sealed class WebUndo {
         data class Portal(val original: MarkedEvent) : WebUndo()
         data class Created(val event: MarkedEvent) : WebUndo()
@@ -481,6 +482,7 @@ class MainActivity : ComponentActivity() {
             }
             val roomNameById = allRooms.associate { it.id to it.name }
             webDebugServer?.takeIf { it.isRunning }?.let { server ->
+                webLatestDebugReason = roomResult.rejectedReasons.firstOrNull()?.take(200) ?: ""
                 server.recordFrame(WebDebugFrameSerializer.build(
                     timeMs = frameTimestampMs,
                     frameSeq = frameSeq,
@@ -4432,6 +4434,155 @@ class MainActivity : ComponentActivity() {
             startVideoMode()
             Toast.makeText(this, "已重置并从头播放", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /** 显式启动/关闭。服务默认关闭，手机显示 LAN 地址与一次性配对码。 */
+    private fun openWebDebugControl() {
+        val existing = webDebugServer
+        if (existing?.isRunning == true) {
+            showWebDebugConnectionDialog()
+            return
+        }
+        val server = WebDebugHttpServer(applicationContext) { command ->
+            dispatchWebDebugCommand(command)
+        }
+        if (!server.start()) {
+            Toast.makeText(this, "网页调试启动失败：端口 ${WebDebugHttpServer.PORT} 被占用", Toast.LENGTH_LONG).show()
+            return
+        }
+        webDebugServer = server
+        server.resetVideo(boundEventVideoKey)
+        webBounceEnabled = false
+        webBounceHandled.clear()
+        previousWebPlaybackMs = null
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        webDebugUiHandler.removeCallbacks(webDebugTick)
+        server.updateUiState(buildWebDebugState())
+        webDebugUiHandler.post(webDebugTick)
+        findViewById<Button>(R.id.btnWebDebug).text = "网页调试 ●"
+        showWebDebugConnectionDialog()
+    }
+
+    private fun showWebDebugConnectionDialog() {
+        val server = webDebugServer?.takeIf { it.isRunning } ?: return
+        val address = WebDebugHttpServer.localAddress()
+        val message = if (address == null) {
+            "服务已启动，但当前没有找到手机的局域网 IPv4 地址。请先连接同一 Wi-Fi。"
+        } else {
+            "电脑浏览器打开：\n${server.localUrl}\n\n六位配对码：${server.pairingPin}\n\n仅传 Pose/房间/事件等结构化数据；请保持手机前台运行。"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("SISP 网页结构化调试")
+            .setMessage(message)
+            .setPositiveButton("复制地址") { _, _ ->
+                copyTextToClipboard("sisp_web_debug_url", server.localUrl)
+            }
+            .setNeutralButton("继续使用", null)
+            .setNegativeButton("停止服务") { _, _ -> stopWebDebug() }
+            .show()
+    }
+
+    private fun stopWebDebug() {
+        webDebugUiHandler.removeCallbacks(webDebugTick)
+        webDebugServer?.stop()
+        webDebugServer = null
+        webBounceEnabled = false
+        webBounceHandled.clear()
+        previousWebPlaybackMs = null
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        findViewById<Button>(R.id.btnWebDebug).text = "网页调试"
+    }
+
+    /** 调试网页只取一份归一化配置；坐标与 Pose 原数据保持同一坐标系。 */
+    private fun buildWebDebugState(): JSONObject {
+        val rooms = RoomRepository.getAllRooms()
+        val roomJson = JSONArray()
+        rooms.forEach { room ->
+            val points = JSONArray()
+            room.boundaryVertices.forEach { vertex ->
+                points.put(JSONArray().put(vertex.point.x.toDouble()).put(vertex.point.y.toDouble()))
+            }
+            fun point(x: PointF?): Any = x?.let {
+                JSONArray().put(it.x.toDouble()).put(it.y.toDouble())
+            } ?: JSONObject.NULL
+            roomJson.put(JSONObject()
+                .put("id", room.id)
+                .put("name", room.name)
+                .put("living", room.isSovereignTerritory)
+                .put("blind", room.isLivingBlindZone)
+                .put("entrance", room.isEntranceDoor)
+                .put("polygon", points)
+                .put("anchor", point(room.anchorPoint))
+                .put("label", point(room.labelPoint)))
+        }
+        val doorJson = JSONArray()
+        buildPresenceDoorSnapshots(rooms).forEach { door ->
+            doorJson.put(JSONObject()
+                .put("id", door.doorId)
+                .put("a", JSONArray().put(door.a.x).put(door.a.y))
+                .put("b", JSONArray().put(door.b.x).put(door.b.y))
+                .put("roomA", door.roomAId)
+                .put("roomB", door.roomBId))
+        }
+        val gt = JSONArray()
+        eventMarkerManager.getEvents().forEach { event ->
+            gt.put(JSONObject()
+                .put("key", markedEventKey(event))
+                .put("timeMs", event.timestampMs)
+                .put("frameIndex", event.frameIndex)
+                .put("type", event.type.name)
+                .put("portalRoomId", event.portalRoomId ?: JSONObject.NULL))
+        }
+        val roomCounts = JSONObject()
+        rooms.forEach { room -> roomCounts.put(room.id, room.persistentPersonCount) }
+        return JSONObject()
+            .put("mode", if (isVideoMode) "REVIEW" else "LIVE")
+            .put("videoKey", boundEventVideoKey ?: "")
+            .put("videoLabel", lastVideoSourceKey?.substringAfterLast('/')?.take(64) ?: "未选择回顾视频")
+            .put("positionMs", if (isVideoMode) currentVideoTimestampMs() else 0L)
+            .put("durationMs", if (isVideoMode) (videoFeeder?.getDurationMs() ?: 0).toLong() else 0L)
+            .put("frameStepMs", (videoFeeder?.getFrameStepMs() ?: 33))
+            .put("playing", isVideoMode && currentPlayState == PlayState.PLAYING)
+            .put("algorithm", if (::roomAlgorithm.isInitialized) roomAlgorithm.runtimeTag else "-")
+            .put("marked", gt)
+            .put("rooms", roomJson)
+            .put("doors", doorJson)
+            .put("counts", roomCounts)
+            .put("selectedKey", MarkedEventPortalBinding.selectedEvent()?.let(::markedEventKey) ?: "")
+            .put("bounceEnabled", webBounceEnabled)
+            .put("matchWindowMs", AppSettings.eventMissPauseWindowMs.toLong())
+            .put("debugReason", webLatestDebugReason)
+    }
+
+    /** 网络线程不得直接操作 Android View、VideoFeeder 或事件标注器。 */
+    private fun dispatchWebDebugCommand(command: JSONObject): JSONObject {
+        if (isFinishing || isDestroyed) return webCommandResult(false, "手机窗口已关闭")
+        val latch = CountDownLatch(1)
+        val response = AtomicReference<JSONObject>(webCommandResult(false, "执行超时"))
+        runOnUiThread {
+            try {
+                response.set(executeWebDebugCommand(command))
+                webDebugServer?.updateUiState(buildWebDebugState())
+            } catch (e: Exception) {
+                Log.e("SispWebDebug", "command failed", e)
+                response.set(webCommandResult(false, "指令失败：${e.message}"))
+            } finally {
+                latch.countDown()
+            }
+        }
+        return if (latch.await(3500L, TimeUnit.MILLISECONDS)) response.get()
+            else webCommandResult(false, "手机主线程忙，指令可能仍在执行，请检查状态后再操作")
+    }
+
+    private fun webCommandResult(ok: Boolean, message: String = ""): JSONObject =
+        JSONObject().put("ok", ok).put("message", message)
+
+    private fun markForWebKey(key: String): MarkedEvent? =
+        eventMarkerManager.getEvents().firstOrNull { markedEventKey(it) == key }
+
+    private fun saveWebUndo(undo: WebUndo) {
+        webUndoStack.addLast(undo)
+        while (webUndoStack.size > 40) webUndoStack.removeFirst()
     }
 
     private fun hideSystemUI() {
