@@ -68,6 +68,7 @@ internal class WebDebugHttpServer(
     private val runtimePayloads = LinkedHashMap<String, JSONObject>()
     private var observedFromMs: Long = Long.MAX_VALUE
     private var activeVideoKey: String? = null
+    private var activeAlgorithmTag = ""
     private var requests = Executors.newFixedThreadPool(3) { task ->
         Thread(task, "SISP-Web-HTTP").apply { isDaemon = true }
     }
@@ -130,6 +131,7 @@ internal class WebDebugHttpServer(
         runGeneration.incrementAndGet()
         synchronized(lock) {
             activeVideoKey = videoKey
+            activeAlgorithmTag = ""
             history.clear()
             runtimeEvents.clear()
             runtimePayloads.clear()
@@ -149,6 +151,15 @@ internal class WebDebugHttpServer(
         if (timeMs < 0) return
         val events = frame.optJSONArray("events") ?: JSONArray()
         synchronized(lock) {
+            val algorithmTag = frame.optString("algorithm")
+            if (activeAlgorithmTag.isNotEmpty() && algorithmTag != activeAlgorithmTag) {
+                history.clear()
+                runtimeEvents.clear()
+                runtimePayloads.clear()
+                observedFromMs = Long.MAX_VALUE
+                runGeneration.incrementAndGet()
+            }
+            activeAlgorithmTag = algorithmTag
             val serialized = frame.toString()
             latestFrame = serialized
             history[timeMs] = serialized
