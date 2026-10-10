@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - codex/web-structured-debug-console-v1
+concurrency:
+  group: sisp-webdebug-v1-build
+  cancel-in-progress: true
 jobs:
   check:
     runs-on: ubuntu-latest
