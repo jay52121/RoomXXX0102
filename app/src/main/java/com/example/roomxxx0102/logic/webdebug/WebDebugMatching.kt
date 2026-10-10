@@ -32,7 +32,8 @@ internal object WebDebugMatching {
         runtime: List<WebRuntimeEvent>,
         playbackMs: Long,
         observedFromMs: Long,
-        windowMs: Long = WINDOW_MS
+        windowMs: Long = WINDOW_MS,
+        analyzedEventKeys: Set<String>? = null
     ): List<WebEventMatch> {
         val ordered = marked.sortedWith(compareBy<WebMarkedEvent> { it.timeMs }.thenBy { it.key })
         val used = hashSetOf<String>()
@@ -69,6 +70,7 @@ internal object WebDebugMatching {
             val classification = assignment?.second ?: when {
                 gt.timeMs + windowMs > playbackMs -> "PENDING"
                 gt.timeMs + windowMs < observedFromMs -> "UNOBSERVED"
+                analyzedEventKeys != null && gt.key !in analyzedEventKeys -> "UNOBSERVED"
                 else -> "MISS"
             }
             WebEventMatch(
