@@ -386,7 +386,8 @@
     canvas.onclick=bindMapClick;
     ['showpoints','showboxes','showrooms'].forEach(function(id){ui(id).onchange=drawRoomCanvas;});
     document.addEventListener('keydown',function(e){
-      var tag=(e.target&&e.target.tagName||'').toLowerCase();if(['input','textarea','select'].includes(tag))return;
+      var tag=(e.target&&e.target.tagName||'').toLowerCase();
+      if(tag==='textarea'||tag==='select'||(tag==='input'&&e.target.id==='pin'))return;
       var op=null,params={};
       if(e.code==='Space')op='pauseToggle';
       else if(e.key==='ArrowLeft'){op='seekRelative';params.deltaMs=-5000;}
