@@ -4679,7 +4679,7 @@ class MainActivity : ComponentActivity() {
                     ?: return webCommandResult(false, "当前帧已存在相同方向的人工事件")
                 saveWebUndo(WebUndo.Created(created))
                 return webCommandResult(true, "已在 " + created.timestampMs + "ms 标记" +
-                    if (type == EventType.ENTER) "进入" else "离开")
+                    (if (type == EventType.ENTER) "进入" else "离开"))
             }
             "setEventType" -> {
                 val key = request.optString("key")
@@ -4696,7 +4696,7 @@ class MainActivity : ComponentActivity() {
                 saveWebUndo(WebUndo.ChangedType(target, updated))
                 resetEventValidationTracking(clearRuntimeEvents = false)
                 refreshEventMarkerUi()
-                return webCommandResult(true, "已修改为" + if (newType == EventType.ENTER) "进入" else "离开")
+                return webCommandResult(true, "已修改为" + (if (newType == EventType.ENTER) "进入" else "离开"))
             }
             "bindPortal" -> {
                 val key = request.optString("key")
