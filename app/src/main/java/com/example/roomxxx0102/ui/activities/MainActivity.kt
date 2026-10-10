@@ -299,7 +299,9 @@ class MainActivity : ComponentActivity() {
     private val runtimeValidationEvents: ArrayDeque<RuntimeRoomEvent> = ArrayDeque()
     private val matchedMarkedEventKeys: MutableSet<String> = mutableSetOf()
     private val alertedMarkedEventKeys: MutableSet<String> = mutableSetOf()
+    private val announcedMarkedEventKeys: MutableSet<String> = mutableSetOf()
     private val matchedRuntimeByMarkedKey: MutableMap<String, ValidationRuntimeEvent> = mutableMapOf()
+    private var lastValidationTimestampMs: Long? = null
     private var boundEventVideoKey: String? = null
     private var boundDeviceHitVideoKey: String? = null
     private var isAwaitingDeviceHitSelection = false
@@ -3193,7 +3195,9 @@ class MainActivity : ComponentActivity() {
         }
         matchedMarkedEventKeys.clear()
         alertedMarkedEventKeys.clear()
+        announcedMarkedEventKeys.clear()
         matchedRuntimeByMarkedKey.clear()
+        lastValidationTimestampMs = null
     }
 
     private data class ValidationRuntimeEvent(
@@ -3339,11 +3343,39 @@ class MainActivity : ComponentActivity() {
         if (!isVideoMode) return
         val pauseEnabled = AppSettings.isSmartMatchPauseEnabled
         val markedEvents = eventMarkerManager.getEvents()
-        if (markedEvents.isEmpty()) return
+        val previousTimestampMs = lastValidationTimestampMs
+        lastValidationTimestampMs = if (currentPlayState == PlayState.PLAYING) nowMs else null
+        if (markedEvents.isEmpty()) {
+            runtimeEvents.forEach { event ->
+                showCenterBanner(
+                    "事件类型:${eventTypeLabel(event.runtime.type)} ${event.fromName}->${event.toName} (未录入人工事件)",
+                    CenterBannerDomain.ROOM
+                )
+            }
+            return
+        }
         val windowMs = AppSettings.eventMissPauseWindowMs.toLong()
         var didReturnByRuntimeBranch = false
         var didScanOverdueBranch = false
         var overdueTriggered = false
+        if (previousTimestampMs != null &&
+            nowMs > previousTimestampMs &&
+            nowMs - previousTimestampMs <= 2_000L
+        ) {
+            markedEvents.forEachIndexed { index, marked ->
+                val key = markedEventKey(marked)
+                if (marked.timestampMs > previousTimestampMs &&
+                    marked.timestampMs <= nowMs &&
+                    key !in matchedMarkedEventKeys &&
+                    announcedMarkedEventKeys.add(key)
+                ) {
+                    showCenterBanner(
+                        "人工#${index + 1} ${eventTypeLabel(marked.type)}：等待算法事件",
+                        CenterBannerDomain.ROOM
+                    )
+                }
+            }
+        }
         for (runtimeEvent in runtimeEvents) {
             if (handleRuntimeEventMatching(runtimeEvent, markedEvents, windowMs, pauseEnabled)) {
                 didReturnByRuntimeBranch = true
@@ -3360,61 +3392,33 @@ class MainActivity : ComponentActivity() {
                 return
             }
         }
-        if (!pauseEnabled) {
-            logValidationTick(
-                nowMs = nowMs,
-                windowMs = windowMs,
-                runtimeEventsCount = runtimeEvents.size,
-                markedEventsCount = markedEvents.size,
-                didReturnByRuntimeBranch = didReturnByRuntimeBranch,
-                didScanOverdueBranch = didScanOverdueBranch,
-                overdueTriggered = overdueTriggered
-            )
-            refreshEventMarkerUi()
-            return
-        }
-        if (currentPlayState != PlayState.PLAYING) {
-            logValidationTick(
-                nowMs = nowMs,
-                windowMs = windowMs,
-                runtimeEventsCount = runtimeEvents.size,
-                markedEventsCount = markedEvents.size,
-                didReturnByRuntimeBranch = didReturnByRuntimeBranch,
-                didScanOverdueBranch = didScanOverdueBranch,
-                overdueTriggered = overdueTriggered
-            )
-            refreshEventMarkerUi()
-            return
-        }
-        didScanOverdueBranch = true
-        for (marked in markedEvents) {
-            val key = markedEventKey(marked)
-            if (key in matchedMarkedEventKeys || key in alertedMarkedEventKeys) {
-                continue
+        if (currentPlayState == PlayState.PLAYING) {
+            didScanOverdueBranch = true
+            for ((index, marked) in markedEvents.withIndex()) {
+                val key = markedEventKey(marked)
+                if (key !in announcedMarkedEventKeys ||
+                    key in matchedMarkedEventKeys || key in alertedMarkedEventKeys ||
+                    nowMs < marked.timestampMs + windowMs) {
+                    continue
+                }
+                alertedMarkedEventKeys.add(key)
+                val message = "人工#${index + 1} ${eventTypeLabel(marked.type)}：未匹配算法事件（${windowMs}ms）"
+                if (pauseEnabled) {
+                    copySmartMatchDiagnostic(
+                        reason = "无匹配事件(标注超窗)",
+                        runtimeEvent = null,
+                        markedEvents = markedEvents,
+                        windowMs = windowMs,
+                        nearestOffset = buildNearestOffsetForMarked(marked, nowMs)
+                    )
+                    pauseForSmartMatchAnomaly(message)
+                } else {
+                    showCenterBanner(message, CenterBannerDomain.ROOM)
+                }
+                Log.w("EventValidation", "overdue_unmatched $message windowMs=$windowMs nowMs=$nowMs")
+                overdueTriggered = true
+                break
             }
-            if (nowMs < marked.timestampMs + windowMs) {
-                continue
-            }
-            alertedMarkedEventKeys.add(key)
-            val waitedMs = (nowMs - marked.timestampMs).coerceAtLeast(0L)
-            val nearestOffset = buildNearestOffsetForMarked(marked, nowMs)
-            val missOffset = "实际等待=${formatSignedOffsetMs(waitedMs)}"
-            val message = buildMissMatchMessage(
-                type = marked.type,
-                route = null,
-                offsetText = missOffset
-            )
-            copySmartMatchDiagnostic(
-                reason = "无匹配事件(标注超窗)",
-                runtimeEvent = null,
-                markedEvents = markedEvents,
-                windowMs = windowMs,
-                nearestOffset = nearestOffset
-            )
-            pauseForSmartMatchAnomaly(message)
-            Log.w("EventValidation", "overdue_unmatched $message windowMs=$windowMs nowMs=$nowMs")
-            overdueTriggered = true
-            break
         }
         logValidationTick(
             nowMs = nowMs,
@@ -3459,7 +3463,6 @@ class MainActivity : ComponentActivity() {
                 kotlin.math.abs(marked.timestampMs - runtime.timestampMs) <= windowMs
         }
         if (candidates.isEmpty()) {
-            if (!pauseEnabled) return false
             val route = "${runtimeEvent.fromName}->${runtimeEvent.toName}"
             val nearestDelta = nearestRuntimeDeltaMs(runtime, markedEvents)
             val offsetText = nearestDelta?.let { formatSignedOffsetMs(it) } ?: "无可比事件"
@@ -3469,6 +3472,11 @@ class MainActivity : ComponentActivity() {
                 route = route,
                 nearestOffsetText = offsetText
             )
+            if (!pauseEnabled) {
+                showCenterBanner(message, CenterBannerDomain.ROOM)
+                Log.i("EventValidation", "runtime_no_match $message")
+                return false
+            }
             copySmartMatchDiagnostic(
                 reason = "无匹配事件(运行时事件)",
                 runtimeEvent = runtimeEvent,
@@ -3509,6 +3517,7 @@ class MainActivity : ComponentActivity() {
         val duplicatedRef = markedEventRef(duplicated, markedEvents)
         val message = "事件类型:${eventTypeLabel(runtime.type)} ${runtimeEvent.fromName}->${runtimeEvent.toName} (异常重复匹配 $duplicatedRef, $nearestOffset)"
         if (!pauseEnabled) {
+            showCenterBanner(message, CenterBannerDomain.ROOM)
             Log.w("EventValidation", "runtime_duplicate_match_ignored $message")
             return false
         }
