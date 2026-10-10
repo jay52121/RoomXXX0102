@@ -254,7 +254,7 @@ class EventMarkerManager {
 
     private fun loadEventsForVideo(videoKey: String): List<MarkedEvent> {
         val current = resolveEventsFile(videoKey) ?: return emptyList()
-        // 旧版使用纯文件名，可能使不同目录的同名视频串标注。只迁移 videoKey 完全相同的旧记录。
+        // 同一外部媒体视频可由文档 URI 或 MediaStore URI 引用，迁移时兼容这两种标准形式。
         val legacy = resolveLegacyEventsFile(videoKey)
         val file = when {
             current.exists() -> current
@@ -264,7 +264,7 @@ class EventMarkerManager {
         return try {
             val jsonString = file.readText(Charsets.UTF_8)
             val root = JSONObject(jsonString)
-            if (root.optString("videoKey") != videoKey) return emptyList()
+            if (!isSameVideoKey(root.optString("videoKey"), videoKey)) return emptyList()
             val array = root.optJSONArray("events") ?: JSONArray()
             val list = mutableListOf<MarkedEvent>()
             for (i in 0 until array.length()) {
@@ -330,8 +330,23 @@ class EventMarkerManager {
     }
 
     private fun hasMatchingVideoKey(file: File, videoKey: String): Boolean =
-        runCatching { JSONObject(file.readText(Charsets.UTF_8)).optString("videoKey") == videoKey }
+        runCatching { isSameVideoKey(JSONObject(file.readText(Charsets.UTF_8)).optString("videoKey"), videoKey) }
             .getOrDefault(false)
+
+    internal fun isSameVideoKey(first: String, second: String): Boolean {
+        if (first == second) return true
+        val firstId = externalMediaVideoId(first) ?: return false
+        return firstId == externalMediaVideoId(second)
+    }
+
+    private fun externalMediaVideoId(key: String): String? {
+        val mediaStore = Regex("^uri:content://media/(?:external|external_primary)/video/media/([0-9]+)$")
+        val document = Regex(
+            "^uri:content://com\\.android\\.providers\\.media\\.documents/document/video(?:%3[Aa]|:)([0-9]+)$"
+        )
+        return mediaStore.matchEntire(key)?.groupValues?.get(1)
+            ?: document.matchEntire(key)?.groupValues?.get(1)
+    }
 
     private fun resolveLegacyEventsFile(videoKey: String): File? {
         val dir = storageDir ?: return null

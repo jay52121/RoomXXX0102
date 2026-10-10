@@ -1,6 +1,7 @@
 package com.example.roomxxx0102.logic.validation
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -11,6 +12,16 @@ import org.junit.Test
  * Manager 不调用 init()，因此不会读写磁盘，也不会调用 Android 框架方法。
  */
 class EventMarkerManagerTest {
+    @Test fun sameExternalVideoAcceptsDocumentAndMediaStoreUris() {
+        val manager = EventMarkerManager()
+        val document = "uri:content://com.android.providers.media.documents/document/video%3A1000012482"
+        assertTrue(manager.isSameVideoKey(document, "uri:content://media/external/video/media/1000012482"))
+        assertTrue(manager.isSameVideoKey(document, "uri:content://media/external_primary/video/media/1000012482"))
+        assertFalse(manager.isSameVideoKey(document, "uri:content://media/external/video/media/1000012483"))
+        assertFalse(manager.isSameVideoKey(document, "uri:content://media/internal/video/media/1000012482"))
+        assertFalse(manager.isSameVideoKey("file:/one/video.mp4", "file:/two/video.mp4"))
+    }
+
     @Test fun selectionKeepsEventIdentityAndSupportsReplaceAndClear() {
         val manager = EventMarkerManager()
         manager.bindVideo("file:/tests/a/video.mp4")
