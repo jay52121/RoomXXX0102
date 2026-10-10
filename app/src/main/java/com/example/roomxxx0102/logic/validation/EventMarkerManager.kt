@@ -206,6 +206,27 @@ class EventMarkerManager {
         return next
     }
 
+    /** 网页编辑进/出方向：保留时间和已绑定房门，不改变其它事件。 */
+    fun changeExactEventType(event: MarkedEvent, newType: EventType): MarkedEvent? {
+        val video = boundVideoKey ?: return null
+        val list = eventMap[video] ?: return null
+        val index = list.indexOfFirst {
+            it.type == event.type && it.frameIndex == event.frameIndex &&
+                it.timestampMs == event.timestampMs
+        }
+        if (index < 0) return null
+        if (newType != event.type && list.any {
+                it.type == newType && it.frameIndex == event.frameIndex
+            }) return null
+        val updated = list[index].copy(type = newType)
+        list[index] = updated
+        list.sortBy { it.timestampMs }
+        saveEventsForVideo(video, list)
+        MarkedEventRuntimeSource.update(video, list)
+        MarkedEventPortalBinding.select(updated)
+        return updated
+    }
+
     /** 网页调试使用精确事件删除，避免同帧两种方向的标注被一并删除。 */
     fun removeExactEvent(event: MarkedEvent): MarkedEvent? {
         val video = boundVideoKey ?: return null
