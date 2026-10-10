@@ -96,6 +96,9 @@ import com.example.roomxxx0102.logic.validation.EventType
 import com.example.roomxxx0102.logic.validation.MarkedEvent
 import com.example.roomxxx0102.logic.validation.MarkedEventPortalBinding
 import com.example.roomxxx0102.logic.validation.RuntimeRoomEvent
+import com.example.roomxxx0102.logic.webdebug.WebDebugHttpServer
+import com.example.roomxxx0102.logic.webdebug.WebDebugFrameSerializer
+import com.example.roomxxx0102.logic.webdebug.WebMarkedEvent
 import com.example.roomxxx0102.logic.video.VideoFeeder
 import com.example.roomxxx0102.ui.audio.AudioCommandLogUpdate
 import com.example.roomxxx0102.ui.audio.KwsPanelScreen
@@ -112,6 +115,11 @@ import com.example.roomxxx_vocie.audio.AudioInputMode
 import com.example.roomxxx_vocie.audio.AudioRecordSource
 import com.example.roomxxx_vocie.audio.SwitchableAudioSource
 import java.io.File
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import java.text.SimpleDateFormat
 import java.util.ArrayDeque
 import java.util.Date
@@ -289,6 +297,26 @@ class MainActivity : ComponentActivity() {
     private var roomAlgorithmFrameSeq = 0L
     private val roomPresenceChangeLogger = RoomPresenceChangeLogger("ROOM_PRESENCE_CHANGE")
     private val eventMarkerManager = EventMarkerManager()
+    @Volatile private var webDebugServer: WebDebugHttpServer? = null
+    private var webBounceEnabled = false
+    private val webBounceHandled = mutableSetOf<String>()
+    private var previousWebPlaybackMs: Long? = null
+    private val webDebugUiHandler = Handler(Looper.getMainLooper())
+    private val webUndoStack = ArrayDeque<WebUndo>()
+    private sealed class WebUndo {
+        data class Portal(val original: MarkedEvent) : WebUndo()
+        data class Created(val event: MarkedEvent) : WebUndo()
+        data class Deleted(val event: MarkedEvent) : WebUndo()
+    }
+    private val webDebugTick = object : Runnable {
+        override fun run() {
+            val server = webDebugServer ?: return
+            if (!server.isRunning || isFinishing || isDestroyed) return
+            maybeBounceToUnmatchedEvent()
+            server.updateUiState(buildWebDebugState())
+            webDebugUiHandler.postDelayed(this, 200L)
+        }
+    }
     private var debugInfoPanelVisible = false
     private data class DiagnosticReplaySavedSettings(
         val roomAlgorithmId: String,
@@ -452,6 +480,17 @@ class MainActivity : ComponentActivity() {
                 results.any { it.id == trackId && it.isConfirmed }
             }
             val roomNameById = allRooms.associate { it.id to it.name }
+            webDebugServer?.takeIf { it.isRunning }?.let { server ->
+                server.recordFrame(WebDebugFrameSerializer.build(
+                    timeMs = frameTimestampMs,
+                    frameSeq = frameSeq,
+                    poses = results,
+                    result = roomResult,
+                    livingRoomId = livingRoom?.id,
+                    roomNames = roomNameById,
+                    algorithmTag = roomAlgorithm.runtimeTag
+                ))
+            }
             RoiLogAggregator.updatePresenceDebug(
                 algoVersion = roomAlgorithm.runtimeTag,
                 eventText = buildPresenceEventText(roomResult.events, roomNameById),
@@ -1396,6 +1435,7 @@ class MainActivity : ComponentActivity() {
             }
             true
         }
+        findViewById<Button>(R.id.btnWebDebug).setOnClickListener { openWebDebugControl() }
         btnDiagnosticReplay?.setOnClickListener { startDiagnosticReplay() }
         btnDiagnosticReplay?.setOnLongClickListener {
             showDiagnosticGitHubTokenDialog(startAfterSave = false)
@@ -3102,6 +3142,10 @@ class MainActivity : ComponentActivity() {
     private fun bindEventMarkersToVideo(videoKey: String?) {
         if (boundEventVideoKey == videoKey && boundDeviceHitVideoKey == videoKey) return
         boundEventVideoKey = videoKey
+        webDebugServer?.resetVideo(videoKey)
+        webUndoStack.clear()
+        webBounceHandled.clear()
+        previousWebPlaybackMs = null
         eventMarkerManager.bindVideo(videoKey)
         bindDeviceHitMarkersToVideo(videoKey)
         resetEventValidationTracking(clearRuntimeEvents = true)
@@ -3453,7 +3497,8 @@ class MainActivity : ComponentActivity() {
         nowMs: Long
     ) {
         if (!isVideoMode) return
-        val pauseEnabled = AppSettings.isSmartMatchPauseEnabled
+        // 网页“无匹配跳回”接管异常暂停，避免两个独立暂停机制互相抢控制权。
+        val pauseEnabled = AppSettings.isSmartMatchPauseEnabled && !webBounceEnabled
         val markedEvents = eventMarkerManager.getEvents()
         val previousTimestampMs = lastValidationTimestampMs
         lastValidationTimestampMs = if (currentPlayState == PlayState.PLAYING) nowMs else null
@@ -4343,6 +4388,9 @@ class MainActivity : ComponentActivity() {
      * 目标是清除追踪/ROI/Presence/人数等运行期状态，避免历史状态污染。
      */
     private fun hardRestartPlayback() {
+        webDebugServer?.resetVideo(boundEventVideoKey)
+        webBounceHandled.clear()
+        previousWebPlaybackMs = null
         MarkedEventPortalBinding.clearSelection()
         kwsLogClearSignal.intValue += 1
         yoloAnalyzer?.reset()
@@ -4395,6 +4443,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        webDebugUiHandler.removeCallbacks(webDebugTick)
+        webDebugServer?.stop()
+        webDebugServer = null
         if (isDiagnosticReplayActive) {
             isDiagnosticReplayActive = false
             diagnosticRecorder = null
