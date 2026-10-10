@@ -64,6 +64,8 @@ internal class WebDebugHttpServer(
     @Volatile private var latestFrame = "null"
     private val lock = Any()
     private val history = LinkedHashMap<Long, String>()
+    // 只记录所有已分析帧的毫秒时间，不保留旧 Bitmap/大快照，支持可靠区分「未观测」和「漏判」。
+    private val analyzedTimes = java.util.TreeSet<Long>()
     private val runtimeEvents = LinkedHashMap<String, WebRuntimeEvent>()
     private val runtimePayloads = LinkedHashMap<String, JSONObject>()
     private var observedFromMs: Long = Long.MAX_VALUE
@@ -119,6 +121,7 @@ internal class WebDebugHttpServer(
         requests.shutdownNow()
         synchronized(lock) {
             history.clear()
+            analyzedTimes.clear()
             runtimeEvents.clear()
             runtimePayloads.clear()
             observedFromMs = Long.MAX_VALUE
@@ -133,6 +136,7 @@ internal class WebDebugHttpServer(
             activeVideoKey = videoKey
             activeAlgorithmTag = ""
             history.clear()
+            analyzedTimes.clear()
             runtimeEvents.clear()
             runtimePayloads.clear()
             latestFrame = "null"
@@ -154,6 +158,7 @@ internal class WebDebugHttpServer(
             val algorithmTag = frame.optString("algorithm")
             if (activeAlgorithmTag.isNotEmpty() && algorithmTag != activeAlgorithmTag) {
                 history.clear()
+                analyzedTimes.clear()
                 runtimeEvents.clear()
                 runtimePayloads.clear()
                 observedFromMs = Long.MAX_VALUE
@@ -163,6 +168,7 @@ internal class WebDebugHttpServer(
             val serialized = frame.toString()
             latestFrame = serialized
             history[timeMs] = serialized
+            analyzedTimes.add(timeMs)
             while (history.size > MAX_HISTORY_FRAMES) {
                 val first = history.keys.firstOrNull() ?: break
                 history.remove(first)
@@ -189,7 +195,7 @@ internal class WebDebugHttpServer(
 
     /** 未收到事件附近的任何分析帧时，不应误把“尚未分析”当作漏判。 */
     fun hasAnalyzedNear(timeMs: Long, windowMs: Long): Boolean = synchronized(lock) {
-        history.keys.any { it >= timeMs && it <= timeMs + windowMs + 250L }
+        analyzedTimes.ceiling(timeMs)?.let { it <= timeMs + windowMs + 250L } ?: false
     }
 
     /** 供主线程「无匹配跳回」判断；与网页显示共用完全相同的判定。 */
@@ -225,13 +231,19 @@ internal class WebDebugHttpServer(
             Quadruple(latestFrame, runtimePayloads.values.map { it.toString() },
                 observedFromMs.takeIf { it != Long.MAX_VALUE } ?: nowMs, history.size)
         }
+        val analyzedMarkedKeys = synchronized(lock) {
+            marked.filter { mark ->
+                analyzedTimes.ceiling(mark.timeMs)
+                    ?.let { it <= mark.timeMs + windowMs + 250L } ?: false
+            }.map { it.key }.toSet()
+        }
         val matches = WebDebugMatching.classify(
             marked,
             runtime.mapNotNull { str ->
                 runCatching { JSONObject(str) }.getOrNull()?.let {
                     WebRuntimeEvent(it.optString("key"), it.optLong("timeMs"), it.optString("type"), it.optString("roomId"))
                 }
-            }, nowMs, starts, windowMs
+            }, nowMs, starts, windowMs, analyzedMarkedKeys
         )
         return JSONObject()
             .put("state", state)
