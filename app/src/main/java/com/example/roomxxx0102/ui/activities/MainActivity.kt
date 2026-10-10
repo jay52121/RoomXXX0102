@@ -4585,6 +4585,197 @@ class MainActivity : ComponentActivity() {
         while (webUndoStack.size > 40) webUndoStack.removeFirst()
     }
 
+    private fun pauseWebPlaybackForEditing() {
+        if (currentPlayState == PlayState.PLAYING) {
+            togglePause(findViewById(R.id.btnPause))
+        }
+    }
+
+    private fun webSeekTo(positionMs: Long) {
+        val duration = (videoFeeder?.getDurationMs() ?: 0).toLong().coerceAtLeast(0L)
+        val target = positionMs.coerceIn(0L, duration.coerceAtLeast(0L))
+        previousWebPlaybackMs = null
+        videoFeeder?.seekToMs(target.toInt())
+        refreshEventMarkerUi()
+        scheduleEventMarkerUiRefresh(160L)
+    }
+
+    private fun executeWebDebugCommand(request: JSONObject): JSONObject {
+        val op = request.optString("op")
+        if (op == "setBounce") {
+            webBounceEnabled = request.optBoolean("enabled", false)
+            webBounceHandled.clear()
+            previousWebPlaybackMs = null
+            return webCommandResult(true, if (webBounceEnabled) "无匹配跳回：已开启" else "无匹配跳回：已关闭")
+        }
+        if (!isVideoMode) return webCommandResult(false, "网页标注 V1 仅支持回顾视频模式")
+        if (isDiagnosticReplayActive) return webCommandResult(false, "诊断录制正在运行，暂不接受远程播放/标注指令")
+
+        when (op) {
+            "pauseToggle" -> {
+                togglePause(findViewById(R.id.btnPause))
+                previousWebPlaybackMs = null
+                return webCommandResult(true)
+            }
+            "seekRelative" -> {
+                val delta = request.optLong("deltaMs").coerceIn(-60_000L, 60_000L)
+                webSeekTo(currentVideoTimestampMs() + delta)
+                return webCommandResult(true)
+            }
+            "seekAbsolute" -> {
+                webSeekTo(request.optLong("timeMs"))
+                return webCommandResult(true)
+            }
+            "step" -> {
+                pauseWebPlaybackForEditing()
+                previousWebPlaybackMs = null
+                if (request.optInt("delta") < 0) {
+                    onSeekBackwardRequested()
+                } else {
+                    onSeekForwardRequested()
+                }
+                return webCommandResult(true)
+            }
+            "restart" -> {
+                hardRestartPlayback()
+                return webCommandResult(true, "从头回放，算法状态已重置")
+            }
+            "prevEvent", "nextEvent", "nextUnbound" -> {
+                pauseWebPlaybackForEditing()
+                when (op) {
+                    "prevEvent" -> navigateMarkedEvent(direction = -1)
+                    "nextEvent" -> navigateMarkedEvent(direction = 1)
+                    else -> navigateNextUnboundEvent()
+                }
+                previousWebPlaybackMs = null
+                return webCommandResult(true)
+            }
+            "selectEvent" -> {
+                val event = markForWebKey(request.optString("key"))
+                    ?: return webCommandResult(false, "找不到要选择的人工事件")
+                pauseWebPlaybackForEditing()
+                selectMarkedEventForBinding(event)
+                previousWebPlaybackMs = null
+                return webCommandResult(true)
+            }
+            "clearSelection" -> {
+                MarkedEventPortalBinding.clearSelection()
+                refreshEventMarkerUi()
+                return webCommandResult(true)
+            }
+            "addEvent" -> {
+                val type = when (request.optString("type")) {
+                    "ENTER" -> EventType.ENTER
+                    "EXIT" -> EventType.EXIT
+                    else -> return webCommandResult(false, "进出事件类型必须是 ENTER 或 EXIT")
+                }
+                pauseWebPlaybackForEditing()
+                val before = eventMarkerManager.getEvents().map(::markedEventKey).toSet()
+                addMarkedEvent(type)
+                val created = eventMarkerManager.getEvents().firstOrNull { markedEventKey(it) !in before }
+                    ?: return webCommandResult(false, "当前帧已存在相同方向的人工事件")
+                saveWebUndo(WebUndo.Created(created))
+                return webCommandResult(true, "已在 " + created.timestampMs + "ms 标记" +
+                    if (type == EventType.ENTER) "进入" else "离开")
+            }
+            "bindPortal" -> {
+                val key = request.optString("key")
+                val selected = MarkedEventPortalBinding.selectedEvent()
+                    ?: return webCommandResult(false, "请先选择人工事件")
+                if (markedEventKey(selected) != key) return webCommandResult(false, "事件已改变，请重新选中后绑定")
+                if (currentPlayState != PlayState.STILL) return webCommandResult(false, "请暂停后绑定房门")
+                if (kotlin.math.abs(currentVideoTimestampMs() - selected.timestampMs) > 2000L) {
+                    return webCommandResult(false, "当前画面已远离人工事件，点击事件列表跳回后再绑定")
+                }
+                val roomId = if (request.isNull("roomId")) null else request.optString("roomId")
+                if (roomId != null && RoomRepository.getSubRooms().none { it.id == roomId }) {
+                    return webCommandResult(false, "房间不存在或配置已改变")
+                }
+                if (selected.portalRoomId == roomId) return webCommandResult(true, "房门绑定未变化")
+                val updated = MarkedEventPortalBinding.bindSelectedPortal(roomId)
+                    ?: return webCommandResult(false, "写入人工标记失败")
+                saveWebUndo(WebUndo.Portal(selected))
+                resetEventValidationTracking(clearRuntimeEvents = false)
+                refreshEventMarkerUi()
+                return webCommandResult(true, "人工房门已保存：" +
+                    (RoomRepository.getSubRooms().firstOrNull { it.id == updated.portalRoomId }?.name ?: "未绑定"))
+            }
+            "deleteEvent" -> {
+                val target = markForWebKey(request.optString("key"))
+                    ?: return webCommandResult(false, "事件已经不存在")
+                pauseWebPlaybackForEditing()
+                val removed = eventMarkerManager.removeExactEvent(target)
+                    ?: return webCommandResult(false, "删除失败")
+                saveWebUndo(WebUndo.Deleted(removed))
+                MarkedEventPortalBinding.clearSelection()
+                resetEventValidationTracking(clearRuntimeEvents = false)
+                refreshEventMarkerUi()
+                return webCommandResult(true, "已删除人工事件（可以撤销）")
+            }
+            "undo" -> {
+                if (webUndoStack.isEmpty()) return webCommandResult(false, "没有可撤销的网页标注操作")
+                pauseWebPlaybackForEditing()
+                val action = webUndoStack.removeLast()
+                when (action) {
+                    is WebUndo.Portal -> {
+                        val current = markForWebKey(markedEventKey(action.original))
+                            ?: return webCommandResult(false, "原事件已不存在")
+                        MarkedEventPortalBinding.select(current)
+                        MarkedEventPortalBinding.bindSelectedPortal(action.original.portalRoomId)
+                    }
+                    is WebUndo.Created -> eventMarkerManager.removeExactEvent(action.event)
+                    is WebUndo.Deleted -> eventMarkerManager.restoreExactEvent(action.event)
+                }
+                resetEventValidationTracking(clearRuntimeEvents = false)
+                refreshEventMarkerUi()
+                return webCommandResult(true, "已撤销上一笔网页标注")
+            }
+            else -> return webCommandResult(false, "不支持的操作：" + op)
+        }
+    }
+
+    /**
+     * 有效匹配=时间窗内方向、人工绑定的门都正确。
+     * 只有播放跨过匹配窗口且确实有分析帧时才触发，一次事件一次跳回，避免死循环。
+     */
+    private fun maybeBounceToUnmatchedEvent() {
+        val server = webDebugServer ?: return
+        if (!server.isRunning || !webBounceEnabled || !isVideoMode ||
+            currentPlayState != PlayState.PLAYING || isDiagnosticReplayActive) {
+            previousWebPlaybackMs = null
+            return
+        }
+        val now = currentVideoTimestampMs()
+        val prev = previousWebPlaybackMs
+        previousWebPlaybackMs = now
+        if (prev == null || now <= prev || now - prev > 3000L) return
+        val marked = eventMarkerManager.getEvents()
+        if (marked.isEmpty()) return
+        val allMarks = marked.map {
+            WebMarkedEvent(markedEventKey(it), it.timestampMs, it.type.name, it.portalRoomId)
+        }
+        val windowMs = AppSettings.eventMissPauseWindowMs.toLong().coerceIn(200L, 5000L)
+        for ((index, event) in marked.withIndex()) {
+            val key = markedEventKey(event)
+            val dueMs = event.timestampMs + windowMs
+            if (key in webBounceHandled || dueMs <= prev || dueMs > now) continue
+            if (!server.hasAnalyzedNear(event.timestampMs, windowMs)) continue
+            val matched = server.isEventMatched(key, allMarks, now, windowMs)
+            webBounceHandled.add(key)
+            if (matched) continue
+            pauseWebPlaybackForEditing()
+            webSeekTo(event.timestampMs)
+            MarkedEventPortalBinding.select(event)
+            if (isDebugPanelEnabled) setDebugInfoPanelVisible(false)
+            refreshEventMarkerUi()
+            val message = "人工#" + (index + 1) + " 在匹配窗内无有效匹配，已跳回并暂停"
+            showCenterBanner(message, CenterBannerDomain.ROOM, 8000L)
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            Log.i("SispWebDebug", "auto_bounce key=$key dueMs=$dueMs now=$now")
+            break
+        }
+    }
+
     private fun hideSystemUI() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).let { controller ->
