@@ -486,6 +486,8 @@ class MainActivity : ComponentActivity() {
                 server.recordFrame(WebDebugFrameSerializer.build(
                     timeMs = frameTimestampMs,
                     frameSeq = frameSeq,
+                    imageWidth = frameWidth,
+                    imageHeight = frameHeight,
                     poses = results,
                     result = roomResult,
                     livingRoomId = livingRoom?.id,
@@ -624,7 +626,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     val shouldAutoPause = AppSettings.isPauseOnRoomSwitchEnabled &&
-                        playStateBefore != PlayState.PAUSED
+                        !webBounceEnabled && playStateBefore != PlayState.PAUSED
                     var didAutoPause = false
                     if (shouldAutoPause) {
                         val pauseButton = findViewById<Button>(R.id.btnPause)
@@ -658,7 +660,7 @@ class MainActivity : ComponentActivity() {
                     if (negativeDelta.isNotEmpty()) {
                         val playStateBefore = currentPlayState
                         val shouldAutoPause = AppSettings.isPauseOnRoomSwitchEnabled &&
-                            playStateBefore != PlayState.PAUSED
+                            !webBounceEnabled && playStateBefore != PlayState.PAUSED
                         val likelyCause = resolveCountDeltaLikelyCause(roomResult.rejectedReasons)
                         val deltaText = formatNegativeCountDelta(
                             delta = negativeDelta,
@@ -4550,7 +4552,7 @@ class MainActivity : ComponentActivity() {
             .put("counts", roomCounts)
             .put("selectedKey", MarkedEventPortalBinding.selectedEvent()?.let(::markedEventKey) ?: "")
             .put("bounceEnabled", webBounceEnabled)
-            .put("matchWindowMs", AppSettings.eventMissPauseWindowMs.toLong())
+            .put("matchWindowMs", AppSettings.eventMissPauseWindowMs.toLong().coerceIn(200L, 5000L))
             .put("debugReason", webLatestDebugReason)
     }
 
