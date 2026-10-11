@@ -418,6 +418,52 @@ internal class PortalV4Core(
 
     private fun updateWaitClear(p: Person, t: Long, depths: List<PortalDepthEvidence>) {
         val w = p.waitClear ?: return
+        // WAIT_CLEAR prevents counting the same crossing twice, but cannot suppress a new
+        // finite reverse crossing backed by fresh, stable ground observations.
+        // commit() clears groundHistory, so every observation here is post-commit.
+        if (t - w.committedAt >= policy.waitClearMs && p.track in observedTracks &&
+            p.lastStrong == t) {
+            val ground = p.ground
+            val from = p.room
+            if (ground?.strong == true && from != null) {
+                val source = sourcePointFor(p, w.gate, from)
+                if (source != null) {
+                    val margin = max(0.004, ground.uncertainty * 1.35)
+                    val sign = if (from == livingId) 1.0 else -1.0
+                    val freshSourceSamples = p.groundHistory.asReversed().asSequence()
+                        .filter { it.t > w.committedAt && it.t < t }
+                        .takeWhile {
+                            sign * w.gate.side(it.ground.point) >=
+                                -max(0.004, it.ground.uncertainty * 1.35)
+                        }
+                        .filter {
+                            sign * w.gate.side(it.ground.point) >
+                                max(0.004, it.ground.uncertainty * 1.35)
+                        }
+                        .toList()
+                    val stableSourceSide = freshSourceSamples.size >= 3 &&
+                        freshSourceSamples.first().t - freshSourceSamples.last().t >= 250 &&
+                        t - freshSourceSamples.first().t <= 800
+                    val sourceSide = w.gate.side(source)
+                    val currentSide = w.gate.side(ground.point)
+                    val crossed = if (from == livingId) {
+                        sourceSide > margin && currentSide < -margin
+                    } else {
+                        sourceSide < -margin && currentSide > margin
+                    }
+                    if (stableSourceSide && crossed &&
+                        w.gate.intersects(source, ground.point) &&
+                        w.gate.distance(ground.point) <= contactBand(p) * 2.5
+                    ) {
+                        val to = if (from == livingId) w.gate.room else livingId
+                        p.waitClear = null
+                        commit(p, Episode(w.gate, from, to, t, source), t,
+                            inferred = false, evidence = "GROUND_REVERSE_CROSSING")
+                        return
+                    }
+                }
+            }
+        }
         val depthNear = depths.any { it.gateId == w.gate.id && it.ownedPixels >= policy.depthMinPixels }
         val groundNear = p.ground?.let { g ->
             w.gate.along(g.point) in -0.20..1.20 && w.gate.distance(g.point) <= clearBand(p)

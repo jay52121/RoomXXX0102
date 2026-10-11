@@ -105,6 +105,42 @@ class PortalV4CoreTest {
         assertEquals(1,r.counts["L"])
     }
 
+    @Test fun stableReverseCrossingWorksEvenWhilePortalDepthKeepsWaitClearLocked() {
+        val c = core()
+        admitLiving(c)
+        c.step(300, listOf(person(.53)))
+        val enter = c.step(400, listOf(person(.47)))
+        assertEquals("A", enter.events.single().to)
+        // Persistent positive depth evidence previously kept WAIT_CLEAR active for several
+        // seconds, even after a reliable complete crossing back to the living room.
+        listOf(500L to .43, 650L to .42, 800L to .44, 900L to .44, 1000L to .46)
+            .forEach { (t, y) ->
+                val r = c.step(t, listOf(person(y)), depths = mapOf(1 to listOf(depth(t, .50))))
+                assertTrue("no duplicate crossing before the reverse trip", r.events.isEmpty())
+                assertEquals(1, r.counts["A"])
+            }
+        val exit = c.step(1100, listOf(person(.56)), depths = mapOf(1 to listOf(depth(1100, .50))))
+        assertEquals(1, exit.events.size)
+        assertEquals("A", exit.events.single().from)
+        assertEquals("L", exit.events.single().to)
+        assertEquals(1, exit.counts["L"])
+        assertEquals(0, exit.counts["A"])
+        assertTrue(exit.notes.any { it.endsWith(":GROUND_REVERSE_CROSSING") })
+    }
+
+    @Test fun singleLateReverseJitterCannotUnlockTheSamePortal() {
+        val c = core()
+        admitLiving(c)
+        c.step(300, listOf(person(.53)))
+        c.step(400, listOf(person(.47)))
+        val r0 = c.step(500, listOf(person(.49)), depths = mapOf(1 to listOf(depth(500, .50))))
+        assertTrue(r0.events.isEmpty())
+        val r1 = c.step(750, listOf(person(.53)), depths = mapOf(1 to listOf(depth(750, .50))))
+        assertTrue(r1.events.isEmpty())
+        assertEquals(1, r1.counts["A"])
+        assertEquals(0, r1.counts["L"])
+    }
+
     @Test fun originRoomSlotIsReusedAndDepthCanExit() {
         val c=core(initial=mapOf("A" to 1))
         c.step(0,listOf(person(.40,origin="A")),depths=mapOf(1 to listOf(depth(0,.72))))
