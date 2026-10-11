@@ -307,6 +307,7 @@ class MainActivity : ComponentActivity() {
     private var webLastBounceIndex: Int? = null
     private var webLatestAnalysisMs = -1L
     private var webCoverageFromMs = 0L
+    private val webObservedSpans: MutableList<LongRange> = mutableListOf()
     @Volatile private var webLastPoseFrame: JSONObject? = null
     private val webStateTicker = object : Runnable {
         override fun run() {
@@ -4335,6 +4336,7 @@ class MainActivity : ComponentActivity() {
         webLastBounceIndex = null
         webLatestAnalysisMs = -1L
         webCoverageFromMs = 0L
+        webObservedSpans.clear()
         webLastPoseFrame = null
         if (webAutoBounce) webBounceArmedAtMs = currentVideoTimestampMs()
     }
@@ -4349,12 +4351,20 @@ class MainActivity : ComponentActivity() {
         livingRoomId: String?,
         analysisTimeMs: Long
     ) {
-        if (webLatestAnalysisMs < 0L || analysisTimeMs < webLatestAnalysisMs - 700L ||
+        val backwards = webLatestAnalysisMs >= 0L &&
+            analysisTimeMs < webLatestAnalysisMs - 700L
+        val gap = webLatestAnalysisMs >= 0L &&
             analysisTimeMs - webLatestAnalysisMs > 2_500L
-        ) {
+        if (backwards) webObservedSpans.clear()
+        if (webObservedSpans.isEmpty() || gap) {
             webCoverageFromMs = analysisTimeMs
+            webObservedSpans.add(analysisTimeMs..analysisTimeMs)
+        } else {
+            val tail = webObservedSpans.last()
+            webObservedSpans[webObservedSpans.lastIndex] =
+                tail.first..maxOf(tail.last, analysisTimeMs)
         }
-        if (webLatestAnalysisMs >= 0L && analysisTimeMs < webLatestAnalysisMs - 700L) {
+        if (backwards) {
             webRuntimeEvents.removeAll { it.timeMs > analysisTimeMs }
             webRuntimeEventKeys.clear()
             webRuntimeEvents.forEach { webRuntimeEventKeys.add(webEventIdentity(it)) }
@@ -4390,7 +4400,9 @@ class MainActivity : ComponentActivity() {
         ) return
         val marked = eventMarkerManager.getEvents()
         val rows = SispWebEventMatcher.match(
-            marked, webRuntimeEvents, analysisTimeMs, observedFromMs = webCoverageFromMs
+            marked, webRuntimeEvents, analysisTimeMs,
+            observedFromMs = webCoverageFromMs,
+            observedSpans = webObservedSpans
         )
         for (row in rows) {
             val event = marked[row.markedIndex]
@@ -4465,7 +4477,9 @@ class MainActivity : ComponentActivity() {
         val rooms = RoomRepository.getAllRooms()
         val marked = eventMarkerManager.getEvents()
         val matches = SispWebEventMatcher.match(
-            marked, webRuntimeEvents, webLatestAnalysisMs, observedFromMs = webCoverageFromMs
+            marked, webRuntimeEvents, webLatestAnalysisMs,
+            observedFromMs = webCoverageFromMs,
+            observedSpans = webObservedSpans
         )
         val roomData = JSONArray()
         val countData = JSONObject()
