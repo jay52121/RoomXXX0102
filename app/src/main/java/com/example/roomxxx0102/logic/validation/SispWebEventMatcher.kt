@@ -34,10 +34,16 @@ internal object SispWebEventMatcher {
         marked: List<MarkedEvent>,
         runtime: List<WebRuntimeEvent>,
         observedUntilMs: Long,
-        windowMs: Long = WINDOW_MS
+        windowMs: Long = WINDOW_MS,
+        observedFromMs: Long = 0L
     ): List<WebEventMatch> {
         val occupied = mutableSetOf<Int>()
         return marked.mapIndexed { index, event ->
+            // 无法观察事件前后完整窗口时不能把没有证据误报为 MISS。
+            val windowStartMs = (event.timestampMs - windowMs).coerceAtLeast(0L)
+            if (windowStartMs < observedFromMs) {
+                return@mapIndexed WebEventMatch(index, null, "UNOBSERVED", null)
+            }
             val ready = observedUntilMs >= event.timestampMs + windowMs
             if (!ready) return@mapIndexed WebEventMatch(index, null, "PENDING", null)
 
