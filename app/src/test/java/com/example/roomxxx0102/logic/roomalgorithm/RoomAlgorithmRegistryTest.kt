@@ -21,6 +21,17 @@ class RoomAlgorithmRegistryTest {
         assertEquals(3,keys.toSet().size)
     }
 
+    @Test fun v5DifferenceIsSelectableWithItsOwnRuntimeAndSettings() {
+        val config = RoomAlgorithmRegistry.CreationConfig(null)
+        val id = "portal_v5_diff"
+        assertTrue(RoomAlgorithmRegistry.options().any { it.algorithmId == id })
+        val engine = RoomAlgorithmRegistry.create(id, config)
+        assertEquals(id, engine.algorithmId)
+        assertTrue(engine.runtimeTag.startsWith("GateV5"))
+        assertEquals(RoomAlgorithmRegistry.configurationKey(id,config),engine.configurationKey)
+        assertTrue(engine.configurationKey != RoomAlgorithmRegistry.configurationKey("portal_v4_diff",config))
+    }
+
     @Test
     fun portalV3IsSelectableWithoutChangingLegacyDefaults() {
         val config=RoomAlgorithmRegistry.CreationConfig(null)
