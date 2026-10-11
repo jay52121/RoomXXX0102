@@ -41,6 +41,8 @@ internal object SispWebEventMatcher {
         val occupied = mutableSetOf<Int>()
         return marked.mapIndexed { index, event ->
             // 无法观察事件前后完整窗口时不能把没有证据误报为 MISS。
+            val ready = observedUntilMs >= event.timestampMs + windowMs
+            if (!ready) return@mapIndexed WebEventMatch(index, null, "PENDING", null)
             val windowStartMs = (event.timestampMs - windowMs).coerceAtLeast(0L)
             val hasWholeWindow = observedSpans?.any { span ->
                 span.first <= windowStartMs && span.last >= event.timestampMs + windowMs
@@ -48,8 +50,6 @@ internal object SispWebEventMatcher {
             if (!hasWholeWindow) {
                 return@mapIndexed WebEventMatch(index, null, "UNOBSERVED", null)
             }
-            val ready = observedUntilMs >= event.timestampMs + windowMs
-            if (!ready) return@mapIndexed WebEventMatch(index, null, "PENDING", null)
 
             val possible = runtime.indices.filter { id ->
                 id !in occupied && abs(runtime[id].timeMs - event.timestampMs) <= windowMs
