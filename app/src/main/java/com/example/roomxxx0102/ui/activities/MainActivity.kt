@@ -3491,7 +3491,8 @@ class MainActivity : ComponentActivity() {
         nowMs: Long
     ) {
         if (!isVideoMode) return
-        val pauseEnabled = AppSettings.isSmartMatchPauseEnabled
+        // 网页自动回跳优先负责暂停；旧智能匹配仍记录提示，但不能抢先暂停。
+        val pauseEnabled = AppSettings.isSmartMatchPauseEnabled && !webAutoBounce
         val markedEvents = eventMarkerManager.getEvents()
         val previousTimestampMs = lastValidationTimestampMs
         lastValidationTimestampMs = if (currentPlayState == PlayState.PLAYING) nowMs else null
