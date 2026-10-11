@@ -949,12 +949,12 @@ class SettingsHomeFragment : Fragment() {
         val algorithmParent = algorithmRow?.parent as? LinearLayout
         if (algorithmRow != null && algorithmParent != null) {
             val baselineButton = android.widget.Button(requireContext()).apply {
-                text = "V3/V4 起始人数（可选）"
+                text = "V3/V4/V5 起始人数（可选）"
                 setOnClickListener { PortalV3Settings.showBaselineEditor(requireContext()) }
             }
             algorithmParent.addView(baselineButton, algorithmParent.indexOfChild(algorithmRow) + 1)
             val parametersButton = android.widget.Button(requireContext()).apply {
-                text = "V4 A/B/C \u53c2\u6570\u8c03\u6574"
+                text = "V4/V5 参数调整"
                 setOnClickListener { GateSettings.showEditor(requireContext(), AppSettings.roomAlgorithmId) }
             }
             algorithmParent.addView(parametersButton, algorithmParent.indexOfChild(algorithmRow) + 2)
