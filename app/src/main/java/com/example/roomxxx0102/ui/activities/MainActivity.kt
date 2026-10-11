@@ -4456,6 +4456,15 @@ class MainActivity : ComponentActivity() {
         result.debugInfo.details.entries.take(36).forEach { (name, value) ->
             details.put(name, value.take(240))
         }
+        val trackSwitches = JSONArray()
+        result.trackSwitchScores.forEach { (trackId, hint) ->
+            trackSwitches.put(JSONObject()
+                .put("trackId", trackId)
+                .put("score", hint.score)
+                .put("type", hint.type.name)
+                .put("fromRoomId", hint.fromRoomId ?: JSONObject.NULL)
+                .put("toRoomId", hint.toRoomId ?: JSONObject.NULL))
+        }
         return JSONObject()
             .put("type", "frame")
             .put("timeMs", timeMs)
@@ -4466,6 +4475,7 @@ class MainActivity : ComponentActivity() {
             .put("debug", JSONObject()
                 .put("summary", result.debugInfo.summary)
                 .put("pending", pending)
+                .put("trackSwitches", trackSwitches)
                 .put("details", details)
                 .put("rejected", JSONArray(result.rejectedReasons.take(8))))
     }
