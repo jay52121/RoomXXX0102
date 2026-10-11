@@ -70,11 +70,13 @@ object GateSettings {
     fun activate(c:Context?,id:String?) { GateRuntime.configure(GateMethod.from(id)?.let { load(c,it) }) }
     fun showEditor(context:Context,id:String?) {
         val method=GateMethod.from(id)
-        if(method==null) { Toast.makeText(context,"请先选择 V4-A/B/C",Toast.LENGTH_SHORT).show();return }
+        if(method==null) { Toast.makeText(context,"请先选择 V4-A/B/C 或 V5",Toast.LENGTH_SHORT).show();return }
         val config=load(context,method);val json=encode(config)
         val fields=common+when(method) { GateMethod.OPTICAL_FLOW->optical;GateMethod.MOG2->mog;else->emptyList() }
         val layout=LinearLayout(context).apply { orientation=LinearLayout.VERTICAL;setPadding(24,16,24,16) }
-        layout.addView(TextView(context).apply { text="V4.1 不再把整幅视频缩成 480/640 后做视觉。当前约 2232 宽视频默认保留原始截图尺寸；所有门平时只以约 10fps 保存 1 秒局部历史，只有候选人体真正接触后的 1～2 扇门才运行差分/MOG2/LK。参数按方案独立保存。" })
+        layout.addView(TextView(context).apply { text=if(method==GateMethod.V5_DIFFERENCE)
+            "V5 差分判定实验：采集层暂复用 V4 Event ROI，判定与人数账本完全独立；在门口活动结束后延迟确认，不使用脚点跨门结论。建议与 V4 同视频对照；这不是新录像泛化保证。"
+        else "V4.1 不再把整幅视频缩成 480/640 后做视觉。当前约 2232 宽视频默认保留原始截图尺寸；所有门平时只以约 10fps 保存 1 秒局部历史，只有候选人体真正接触后的 1～2 扇门才运行差分/MOG2/LK。参数按方案独立保存。" })
         val edits=fields.associate { f ->
             layout.addView(TextView(context).apply { text="${f.title} [${f.min}..${f.max}]" })
             f.key to EditText(context).apply { inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL;setText(json.get(f.key).toString());layout.addView(this) }
