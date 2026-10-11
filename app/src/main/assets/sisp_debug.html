@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>SISP · 结构化调试台</title>
+<style>
+:root{color-scheme:dark;--bg:#101826;--panel:#182437;--edge:#33485d;--light:#e9f0ff;--muted:#94a6bb;--accent:#56d3ca;--yellow:#fbd38d;--bad:#ff8787;--ok:#83e3b5}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--light);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+button,select{font:inherit}button{cursor:pointer;background:#26394f;border:1px solid #41566d;border-radius:7px;color:var(--light);padding:7px 11px;white-space:nowrap}
+button:hover{background:#38536d}button:disabled{opacity:.35;cursor:not-allowed}
+button.primary{background:#17756e;border-color:#29a69a}button.warn{color:#ffe8bb}button.danger{color:#ffc4c4}
+input[type=checkbox]{accent-color:var(--accent);vertical-align:middle}input[type=range]{accent-color:var(--accent);width:100%}
+header{display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--edge);background:#152237}
+header h1{margin:0;font-size:18px}header span{color:var(--muted)}#connection{margin-left:auto;font-weight:700}
+main{display:grid;grid-template-columns:minmax(380px,64fr) minmax(335px,36fr);gap:12px;height:calc(100vh - 195px);min-height:400px;padding:12px}
+section{background:var(--panel);border:1px solid var(--edge);border-radius:10px;overflow:hidden}
+#vizSection{display:flex;flex-direction:column;min-width:0}#vizTop{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid var(--edge)}
+#vizTop b{font-size:15px}#vizTop label{margin-right:10px;color:var(--muted);white-space:nowrap}
+#mapWrap{flex:1;min-height:150px;position:relative;background:#0a1524}canvas{width:100%;height:100%;display:block;cursor:crosshair}
+#mapHint{position:absolute;top:12px;left:13px;font-size:12px;color:#a8bdd1;pointer-events:none;background:#111e30bf;padding:4px 8px;border-radius:4px}
+#frameMeta{padding:8px 12px;min-height:36px;border-top:1px solid var(--edge);color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+aside{display:flex;flex-direction:column;gap:12px;min-height:0}
+#roomsSection{padding:10px 12px;flex:0 0 auto;max-height:31%;overflow:auto}
+h2{font-size:14px;margin:0 0 8px;color:#cde3f6}
+#roomList{display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));gap:6px}
+.room{border:1px solid #3e536c;border-radius:6px;padding:5px 8px;cursor:pointer;background:#152337}
+.room strong{font-size:12px}.room small{display:block;font-size:11px;color:var(--muted)}
+.room.selected{border-color:var(--accent);background:#153d43}
+#eventsSection{flex:1;min-height:0;display:flex;flex-direction:column}
+.sectionHeading{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-bottom:1px solid var(--edge)}
+#eventList{overflow:auto;flex:1}
+table{width:100%;border-collapse:collapse;white-space:nowrap;font-size:12px}
+td,th{padding:7px 8px;border-bottom:1px solid #2a3b50;text-align:left}
+th{position:sticky;top:0;background:#22334a;color:#b4c9dc}
+tbody tr{cursor:pointer}tbody tr:hover{background:#263c54}tbody tr.selected{background:#244e53}
+#detailSection{flex:0 0 24%;min-height:116px;display:flex;flex-direction:column}
+#detailText{white-space:pre-wrap;overflow:auto;font:12px/1.55 ui-monospace,monospace;color:#c8d9ea;padding:9px 12px}
+footer{padding:8px 14px 12px;background:#152237;border-top:1px solid var(--edge)}
+#eventTimeline{height:44px;position:relative;border-radius:7px;background:#0c1a2b;margin-bottom:7px;cursor:pointer;overflow:hidden}
+.timelineTrack{position:absolute;left:0;right:0;height:50%;border-bottom:1px solid #2b435a}
+.timelineTrack:nth-child(2){top:50%;border-bottom:0}
+.timelineDot{position:absolute;top:3px;width:5px;height:13px;border-radius:3px;transform:translateX(-50%);background:#8abaf8;cursor:pointer}
+.timelineDot.algo{background:#ffd28e}
+.timelineCursor{position:absolute;top:0;bottom:0;width:2px;background:#e8fcff;pointer-events:none}
+#seekRow{display:flex;align-items:center;gap:9px}#seekBar{flex:1}#timeText{font-variant-numeric:tabular-nums;min-width:140px;text-align:right;color:var(--muted);font-size:12px}
+#controlRow{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:8px}
+#controlRow label{color:var(--muted);margin-left:auto}
+#currentEvent{color:var(--yellow);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.status{font-weight:700}.MATCH{color:var(--ok)}.MISS,.WRONG_PORTAL,.WRONG_DIRECTION{color:var(--bad)}.PENDING{color:#adbed0}
+kbd{border:1px solid #687989;border-radius:3px;padding:1px 4px;font-size:11px}
+@media(max-width:850px){main{display:flex;flex-direction:column;height:auto}#mapWrap{height:45vh}aside{min-height:480px}#roomsSection{max-height:none}#eventsSection{min-height:300px}}
+</style>
+</head>
+<body>
+<header><h1>SISP · 结构化调试台</h1><span>仅数据映射 · 不含视频/图片</span><span id="algorithm"></span><span id="connection">连接中…</span></header>
+<main>
+  <section id="vizSection">
+    <div id="vizTop"><b>摄像头归一化坐标 / 门区 / Pose</b>
+      <div>
+        <label><input id="showRooms" type="checkbox" checked>房门/房间</label>
+        <label><input id="showBox" type="checkbox" checked>人体框</label>
+        <label><input id="showPose" type="checkbox" checked>17点骨架</label>
+        <label><input id="showLabels" type="checkbox" checked>身份/置信度</label>
+      </div>
+    </div>
+    <div id="mapWrap"><canvas id="map"></canvas><div id="mapHint">点击房门或房间名称，给当前人工事件绑定房门</div></div>
+    <div id="frameMeta">等待结构化分析帧…</div>
+  </section>
+  <aside>
+    <section id="roomsSection"><h2>房间地图与人数（点击绑定）</h2><div id="roomList"></div></section>
+    <section id="eventsSection"><div class="sectionHeading"><h2 style="margin:0">人工事件 ↔ 算法匹配</h2><span id="eventStats" style="color:var(--muted)"></span></div>
+      <div id="eventList"><table><thead><tr><th>#</th><th>时间</th><th>方向</th><th>房门</th><th>匹配</th></tr></thead><tbody id="eventRows"></tbody></table></div>
+    </section>
+    <section id="detailSection"><div class="sectionHeading"><h2 style="margin:0">当前帧证据 / 判定理由</h2><button id="exportBtn">导出结构化 JSON</button></div><div id="detailText">等待数据…</div></section>
+  </aside>
+</main>
+<footer>
+  <div id="eventTimeline"><div class="timelineTrack"></div><div class="timelineTrack"></div><div id="timelineDots"></div><div class="timelineCursor" id="timelineCursor"></div></div>
+  <div id="seekRow"><button id="play" class="primary">▶ 播放 / 暂停</button><input id="seekBar" type="range" min="0" max="1000" value="0"><span id="timeText">00:00.000 / 00:00.000</span></div>
+  <div id="controlRow">
+    <button id="back5" title="左方向键">◀ -5 秒</button>
+    <button id="prevFrame" title="逗号键">-1 帧</button>
+    <button id="nextFrame" title="句号键">+1 帧</button>
+    <button id="forward5" title="右方向键">+5 秒 ▶</button>
+    <button id="markIn" class="primary" title="I">记录进入</button>
+    <button id="markOut" class="primary" title="O">记录离开</button>
+    <button id="prevEvent">上一事件</button><button id="nextEvent">下一事件</button><button id="nextUnbound">下一未绑</button>
+    <button id="flipEvent">切换进/出</button><button id="clearBind">解绑</button><button id="deleteEvent" class="danger">删除事件</button>
+    <label><input type="checkbox" id="autoBounce">无正确匹配 → 返回人工事件并暂停</label>
+  </div>
+  <div style="display:flex;gap:14px;margin-top:6px;align-items:center"><span id="currentEvent">未选择事件</span>
+  <small style="color:var(--muted)">键盘：<kbd>空格</kbd>播放/暂停　<kbd>←</kbd><kbd>→</kbd> ±5秒　<kbd>,</kbd><kbd>.</kbd>逐帧　<kbd>I</kbd>/<kbd>O</kbd>标注</small></div>
+</footer>
+<script>
+'use strict';
+const el = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let ws=null, state={}, frame=null, frameCache=new Map(), dragging=false, lastSentAt=0;
+let recentWarn='', selectedRoom=null, lastStateSig='', lastFrameAt=0;
+const pairs=[[5,6],[5,7],[7,9],[6,8],[8,10],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16],[0,1],[0,2],[1,3],[2,4]];
+const cp=(room)=>room?.label ?? room?.anchor ?? (room?.vertices||[])[0] ?? [0.5,0.5];
+function clock(ms){ms=Math.max(0,Number(ms)||0);return String(Math.floor(ms/60000)).padStart(2,'0')+':'+String(Math.floor(ms/1000)%60).padStart(2,'0')+'.'+String(Math.floor(ms%1000)).padStart(3,'0')}
+function command(cmd,extra={}){if(!ws||ws.readyState!==1){el('connection').textContent='未连接';return;}ws.send(JSON.stringify({cmd,...extra}));}
+function connection(){
+  const code=new URLSearchParams(location.search).get('code') || '';
+  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?code='+encodeURIComponent(code));
+  ws.onopen=()=>{el('connection').textContent='● 已连接';el('connection').style.color='#83e3b5';command('sync')};
+  ws.onclose=()=>{el('connection').textContent='● 已断开，重连中';el('connection').style.color='#ff8787';setTimeout(connection,1800)};
+  ws.onerror=()=>{recentWarn='连接失败，请检查手机局域网/配对码'};
+  ws.onmessage=e=>{
+    try{
+      const m=JSON.parse(e.data);
+      if(m.type==='frame'){
+        frame=m;lastFrameAt=Date.now();
+        const key=m.timeMs;
+        frameCache.set(key,m);
+        if(frameCache.size>14000)frameCache.delete(frameCache.keys().next().value);
+        renderCanvas();renderDetail();
+      }else if(m.type==='state'){
+        const prevVideo=state.videoKey;
+        state=m;
+        if(prevVideo&&m.videoKey!==prevVideo){frame=null;frameCache.clear()}
+        renderAll();
+      }else if(m.type==='response'&&!m.ok){recentWarn=m.message||'操作失败';renderDetail()}
+    }catch(err){recentWarn='收到的数据格式错误：'+String(err)}
+  };
+}
+function normLayout(){
+  const canvas=el('map'),rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+  const w=Math.max(1,rect.width),h=Math.max(1,rect.height);
+  if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}
+  const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+  const fw=frame?.width||state.imageWidth||1920,fh=frame?.height||state.imageHeight||1080;
+  const ratio=fw/fh;
+  const vw=Math.min(w-20,(h-20)*ratio),vh=vw/ratio;
+  const ox=(w-vw)/2,oy=(h-vh)/2;
+  const at=p=>[ox+p[0]*vw,oy+p[1]*vh];
+  return {ctx,w,h,vw,vh,ox,oy,at};
+}
+function polygon(ctx,vertices,at){if(!vertices||vertices.length<2)return;ctx.beginPath();vertices.forEach((p,i)=>{const [x,y]=at(p);if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)});ctx.closePath()}
+function renderCanvas(){
+  const g=normLayout(),{ctx,at,ox,oy,vw,vh}=g;
+  ctx.fillStyle='#0c1c2c';ctx.fillRect(ox,oy,vw,vh);
+  ctx.strokeStyle='#2a4965';ctx.lineWidth=1;ctx.strokeRect(ox,oy,vw,vh);
+  if(el('showRooms').checked){
+    for(const [i,r] of (state.rooms||[]).entries()){
+      const selected=state.marked?.[state.selectedIndex]?.portalRoomId===r.id || selectedRoom===r.id;
+      const vertices=r.vertices||[];
+      ctx.strokeStyle=selected?'#42f0c8':r.living?'#4b8294':'#6ca6b9';
+      ctx.lineWidth=selected?3:1.5;ctx.fillStyle=selected?'#1a96713b':r.living?'#26485b0e':'#254b672f';
+      if(vertices.length>=3){polygon(ctx,vertices,at);ctx.fill();ctx.stroke()}
+      const [cx,cy]=at(cp(r));
+      ctx.fillStyle=selected?'#bafce3':'#eff7ff';ctx.font='bold 13px sans-serif';ctx.textAlign='center';
+      ctx.fillText(r.name,cx,cy-12);
+      if(selected){ctx.font='12px sans-serif';ctx.fillText('🔒',cx+(r.name.length*7)+10,cy-12)}
+      for(const entrance of r.entrances||[]){
+        if(entrance.length<2)continue;const a=at(entrance[0]),b=at(entrance[1]);
+        ctx.strokeStyle='#f6cb7d';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.stroke();
+      }
+    }
+  }
+  const stale=frame && state.timeMs!=null && Math.abs(Number(state.timeMs)-Number(frame.timeMs))>1700;
+  if(stale){
+    ctx.fillStyle='#ffc37d';ctx.font='13px sans-serif';ctx.textAlign='center';
+    ctx.fillText('画面已跳转，等待对应时间的 Pose 分析帧',g.w/2,g.h-22);
+  }else if(frame){
+    for(const person of frame.persons||[]){
+      const b=person.box||[0,0,0,0],a=at([b[0],b[1]]),z=at([b[2],b[3]]);
+      const color=person.confirmed?'#5debd0':'#f2cb81';
+      if(el('showBox').checked){ctx.lineWidth=2;ctx.strokeStyle=color;ctx.strokeRect(a[0],a[1],z[0]-a[0],z[1]-a[1])}
+      if(el('showPose').checked){
+        ctx.strokeStyle=color;ctx.lineWidth=2;
+        for(const [x,y] of pairs){const k=person.pts||[];if(!k[x]||!k[y]||k[x][2]<.22||k[y][2]<.22)continue;
+          const p=at(k[x]),q=at(k[y]);ctx.beginPath();ctx.moveTo(...p);ctx.lineTo(...q);ctx.stroke()}
+        for(const k of (person.pts||[])){if(k[2]<.22)continue;
+          const [px,py]=at(k);ctx.fillStyle=k[2]>=.7?'#60e6bd':'#f5bf76';ctx.beginPath();ctx.arc(px,py,3,0,2*Math.PI);ctx.fill()}
+      }
+      if(el('showLabels').checked){
+        ctx.fillStyle=color;ctx.font='bold 12px sans-serif';ctx.textAlign='left';
+        ctx.fillText('#'+person.id+'  '+Number(person.score||0).toFixed(2)+(person.source?' '+person.source:''),a[0]+3,a[1]-5)
+      }
+    }
+  }
+}
+function pointIn(poly,p){if(!poly||poly.length<3)return false;let inside=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+  const a=poly[i],b=poly[j];if(((a[1]>p[1])!==(b[1]>p[1]))&&(p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0]))inside=!inside;}return inside}
+el('map').addEventListener('click',ev=>{
+  const g=normLayout(),b=el('map').getBoundingClientRect(),p=[(ev.clientX-b.left-g.ox)/g.vw,(ev.clientY-b.top-g.oy)/g.vh];
+  if(p.some(x=>x<0||x>1))return;
+  const rs=state.rooms||[];
+  let r=[...rs].reverse().find(room=>{const a=cp(room);return Math.hypot((p[0]-a[0])*g.vw,(p[1]-a[1])*g.vh)<Math.max(35,room.name.length*8)});
+  if(!r)r=[...rs].reverse().find(room=>pointIn(room.vertices||[],p));
+  if(r)bindRoom(r.id);
+});
+function bindRoom(id){selectedRoom=id;if(state.selectedIndex==null){recentWarn='请先在右侧选择一条人工事件';renderDetail();return;}
+  command('bind',{index:state.selectedIndex,roomId:id})}
+function renderRoomList(){
+  const root=el('roomList');root.innerHTML='';
+  for(const r of state.rooms||[]){
+    const d=document.createElement('div');d.className='room'+(state.marked?.[state.selectedIndex]?.portalRoomId===r.id?' selected':'');
+    const count=state.counts?.[r.id]??0;
+    d.innerHTML='<strong>'+esc(r.name)+'</strong><small>'+esc(r.living?'客厅/公共区域':r.blind?'盲区':r.entrance?'入户':'子房间')+' · '+Number(count)+' 人</small>';
+    d.title='点击绑定当前人工事件';d.onclick=()=>bindRoom(r.id);root.appendChild(d);
+  }
+}
+function renderEvents(){
+  const root=el('eventRows');root.innerHTML='';
+  const names=new Map((state.rooms||[]).map(r=>[r.id,r.name]));
+  (state.marked||[]).forEach((e,i)=>{
+    const m=(state.matches||[])[i]||{status:'PENDING'};
+    const tr=document.createElement('tr');if(state.selectedIndex===i)tr.className='selected';
+    const delta=m.deltaMs==null?'':' '+(m.deltaMs>0?'+':'')+m.deltaMs+'ms';
+    const statusNames={MATCH:'匹配',MISS:'漏判',WRONG_PORTAL:'错门',WRONG_DIRECTION:'错方向',PENDING:'待确认'};
+    tr.innerHTML='<td>'+(i+1)+'</td><td>'+clock(e.timeMs)+'</td><td>'+(e.type==='ENTER'?'进入':'离开')+'</td><td>'+esc(names.get(e.portalRoomId)||'未绑定')+'</td>'+
+      '<td class="status '+esc(m.status)+'">'+esc(statusNames[m.status]||m.status)+esc(delta)+'</td>';
+    tr.onclick=()=>command('select',{index:i});root.appendChild(tr);
+  });
+  const total=(state.marked||[]).length, matched=(state.matches||[]).filter(m=>m.status==='MATCH').length,
+    unbound=(state.marked||[]).filter(e=>!e.portalRoomId).length;
+  el('eventStats').textContent=matched+'/'+total+' 匹配 · '+unbound+' 未绑定';
+  let selected=state.marked?.[state.selectedIndex];
+  el('currentEvent').textContent=selected
+    ?'事件 '+(state.selectedIndex+1)+'/'+total+' · '+clock(selected.timeMs)+' · '+(selected.type==='ENTER'?'进入':'离开')+' · '+(names.get(selected.portalRoomId)||'未绑定')
+    :'未选择事件 ｜ 点事件列表、时间轴或“下一事件”开始';
+  el('clearBind').disabled=!selected?.portalRoomId;
+  el('flipEvent').disabled=!selected;
+  el('deleteEvent').disabled=!selected;
+}
+function renderTimeline(){
+  const timeline=el('eventTimeline'),dots=el('timelineDots');dots.innerHTML='';
+  const duration=Number(state.durationMs)||1;
+  const renderTrack=(list,cls,y)=>{
+    list.forEach((e,i)=>{
+      const d=document.createElement('div');d.className='timelineDot '+cls;
+      d.style.left=(100*e.timeMs/duration)+'%';d.style.top=y+'px';
+      d.title=(cls==='algo'?'算法':'人工')+' '+(i+1)+' '+clock(e.timeMs)+' '+e.type;
+      d.onclick=ev=>{ev.stopPropagation();if(cls==='algo')command('seek',{timeMs:e.timeMs});else command('select',{index:i})};
+      dots.appendChild(d);
+    });
+  };
+  renderTrack(state.marked||[],'manual',3);
+  renderTrack(state.runtime||[],'algo',26);
+  el('timelineCursor').style.left=(100*Math.min(1,(state.timeMs||0)/duration))+'%';
+}
+function renderDetail(){
+  const f=frame,d=f?.debug||{},sel=state.marked?.[state.selectedIndex],
+        match=state.matches?.[state.selectedIndex],run=match?.runtimeIndex==null?null:state.runtime?.[match.runtimeIndex];
+  const lines=[];
+  if(recentWarn)lines.push('提示：'+recentWarn);
+  if(state.lastBounceIndex!=null)lines.push('自动返回：事件 #'+(state.lastBounceIndex+1));
+  if(sel){lines.push('人工 '+(sel.type==='ENTER'?'进入':'离开')+' '+clock(sel.timeMs)+' / '+(sel.portalRoomId||'未绑房门'));
+    lines.push('匹配：'+(match?.status||'PENDING')+' Δ='+(match?.deltaMs??'-')+'ms');
+    if(run)lines.push('算法：'+run.fromRoomId+' → '+run.toRoomId+' / '+run.doorId+' / '+(run.reason||'-'));
+  }
+  if(f) {
+    lines.push('分析帧：'+f.frameSeq+' · '+clock(f.timeMs)+' · '+(f.persons||[]).length+' 人');
+    lines.push('判定：'+(d.summary||'-'));
+    if(d.rejected?.length)lines.push('拒绝：'+d.rejected.slice(0,5).join(' | '));
+    if(d.pending&&Object.keys(d.pending).length)lines.push('待判门：'+JSON.stringify(d.pending));
+    if(d.details&&Object.keys(d.details).length)lines.push('参数/证据：'+JSON.stringify(d.details).slice(0,2500));
+  }
+  el('detailText').textContent=lines.join('\n')||'暂无证据';
+}
+function renderAll(){
+  el('algorithm').textContent=state.algorithm||'';
+  if(!dragging){el('seekBar').max=Math.max(1,state.durationMs||1);el('seekBar').value=state.timeMs||0}
+  el('timeText').textContent=clock(state.timeMs)+' / '+clock(state.durationMs);
+  el('play').textContent=state.playing?'⏸ 暂停':'▶ 播放';
+  el('autoBounce').checked=!!state.autoBounce;
+  const p=frame&&Math.abs((state.timeMs||0)-frame.timeMs)<1700;
+  el('frameMeta').textContent=p
+    ?'最新分析帧 #'+frame.frameSeq+' · '+clock(frame.timeMs)+' · '+(frame.persons||[]).length+' 人 · '+frame.width+'×'+frame.height
+    :'当前 '+clock(state.timeMs)+' · 等待对应时间的结构化分析帧（视频像素永不发送）';
+  renderRoomList();renderEvents();renderTimeline();renderCanvas();renderDetail();
+}
+function on(id,cmd,extra=()=>({})){el(id).addEventListener('click',()=>command(cmd,extra()))}
+on('play','play_pause');on('back5','seek_delta',()=>({deltaMs:-5000}));on('forward5','seek_delta',()=>({deltaMs:5000}));
+on('prevFrame','step',()=>({direction:-1}));on('nextFrame','step',()=>({direction:1}));
+on('markIn','mark',()=>({direction:'ENTER'}));on('markOut','mark',()=>({direction:'EXIT'}));
+on('prevEvent','navigate',()=>({direction:-1}));on('nextEvent','navigate',()=>({direction:1}));
+on('nextUnbound','next_unbound');on('clearBind','unbind');on('deleteEvent','delete_selected');on('flipEvent','flip_type');
+el('autoBounce').addEventListener('change',e=>command('auto_bounce',{enabled:e.target.checked}));
+el('seekBar').addEventListener('input',e=>{dragging=true;el('timeText').textContent=clock(+e.target.value)+' / '+clock(state.durationMs)});
+el('seekBar').addEventListener('change',e=>{dragging=false;command('seek',{timeMs:Number(e.target.value)})});
+el('eventTimeline').addEventListener('click',e=>{
+  const r=e.currentTarget.getBoundingClientRect();const ratio=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));command('seek',{timeMs:Math.round((state.durationMs||0)*ratio)});
+});
+document.addEventListener('keydown',e=>{
+  if(e.target.closest('input,textarea,select,[contenteditable=true]'))return;
+  const code=e.code;
+  const map={Space:['play_pause',{}],ArrowLeft:['seek_delta',{deltaMs:-5000}],ArrowRight:['seek_delta',{deltaMs:5000}],
+    Comma:['step',{direction:-1}],Period:['step',{direction:1}],KeyI:['mark',{direction:'ENTER'}],KeyO:['mark',{direction:'EXIT'}]};
+  const action=map[code];if(action&&!e.repeat){e.preventDefault();command(action[0],action[1])}
+});
+for(const id of ['showRooms','showBox','showPose','showLabels'])el(id).addEventListener('change',renderCanvas);
+window.addEventListener('resize',renderCanvas);
+el('exportBtn').addEventListener('click',()=>{
+  const obj={version:1,exportedAt:new Date().toISOString(),state,frames:[...frameCache.values()]};
+  const blob=new Blob([JSON.stringify(obj)],{type:'application/json'}),url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download='sisp-structured-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);
+});
+connection();
+</script>
+</body>
+</html>
