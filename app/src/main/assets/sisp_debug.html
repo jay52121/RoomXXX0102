@@ -199,7 +199,7 @@ function pointIn(poly,p){if(!poly||poly.length<3)return false;let inside=false;f
 el('map').addEventListener('click',ev=>{
   const g=normLayout(),b=el('map').getBoundingClientRect(),p=[(ev.clientX-b.left-g.ox)/g.vw,(ev.clientY-b.top-g.oy)/g.vh];
   if(p.some(x=>x<0||x>1))return;
-  const rs=state.rooms||[];
+  const rs=(state.rooms||[]).filter(room=>!room.living);
   let r=[...rs].reverse().find(room=>{const a=cp(room);return Math.hypot((p[0]-a[0])*g.vw,(p[1]-a[1])*g.vh)<Math.max(35,room.name.length*8)});
   if(!r)r=[...rs].reverse().find(room=>pointIn(room.vertices||[],p));
   if(r)bindRoom(r.id);
