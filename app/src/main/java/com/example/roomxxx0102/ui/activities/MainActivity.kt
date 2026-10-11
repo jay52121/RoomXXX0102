@@ -306,6 +306,7 @@ class MainActivity : ComponentActivity() {
     private var webBounceArmedAtMs = Long.MAX_VALUE
     private var webLastBounceIndex: Int? = null
     private var webLatestAnalysisMs = -1L
+    private var webCoverageFromMs = 0L
     @Volatile private var webLastPoseFrame: JSONObject? = null
     private val webStateTicker = object : Runnable {
         override fun run() {
@@ -584,9 +585,6 @@ class MainActivity : ComponentActivity() {
                     timestampMs = nowMs,
                     frameIndex = frameIndex
                 )
-                if (webDebugServer?.isRunning == true) {
-                    recordWebDebugRuntimeEvents(roomResult.events, livingRoom?.id, frameTimestampMs)
-                }
                 if (roomResult.events.isNotEmpty()) {
                     val lastEvent = roomResult.events.last()
                     val fromName = roomNameById[lastEvent.fromRoomId] ?: lastEvent.fromRoomId
@@ -618,7 +616,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     val shouldAutoPause = AppSettings.isPauseOnRoomSwitchEnabled &&
-                        playStateBefore != PlayState.PAUSED
+                        !webAutoBounce && playStateBefore != PlayState.PAUSED
                     var didAutoPause = false
                     if (shouldAutoPause) {
                         val pauseButton = findViewById<Button>(R.id.btnPause)
@@ -652,7 +650,7 @@ class MainActivity : ComponentActivity() {
                     if (negativeDelta.isNotEmpty()) {
                         val playStateBefore = currentPlayState
                         val shouldAutoPause = AppSettings.isPauseOnRoomSwitchEnabled &&
-                            playStateBefore != PlayState.PAUSED
+                            !webAutoBounce && playStateBefore != PlayState.PAUSED
                         val likelyCause = resolveCountDeltaLikelyCause(roomResult.rejectedReasons)
                         val deltaText = formatNegativeCountDelta(
                             delta = negativeDelta,
@@ -702,6 +700,9 @@ class MainActivity : ComponentActivity() {
                     runtimeEvents = validationRuntimeEvents,
                     nowMs = nowMs
                 )
+                if (webDebugServer?.isRunning == true) {
+                    recordWebDebugRuntimeEvents(roomResult.events, livingRoom?.id, frameTimestampMs)
+                }
                 overlayView.updatePoseData(
                     results = results,
                     bitmap = bitmap,
@@ -4333,6 +4334,7 @@ class MainActivity : ComponentActivity() {
         webBounceHandled.clear()
         webLastBounceIndex = null
         webLatestAnalysisMs = -1L
+        webCoverageFromMs = 0L
         webLastPoseFrame = null
         if (webAutoBounce) webBounceArmedAtMs = currentVideoTimestampMs()
     }
@@ -4347,6 +4349,11 @@ class MainActivity : ComponentActivity() {
         livingRoomId: String?,
         analysisTimeMs: Long
     ) {
+        if (webLatestAnalysisMs < 0L || analysisTimeMs < webLatestAnalysisMs - 700L ||
+            analysisTimeMs - webLatestAnalysisMs > 2_500L
+        ) {
+            webCoverageFromMs = analysisTimeMs
+        }
         if (webLatestAnalysisMs >= 0L && analysisTimeMs < webLatestAnalysisMs - 700L) {
             webRuntimeEvents.removeAll { it.timeMs > analysisTimeMs }
             webRuntimeEventKeys.clear()
@@ -4382,12 +4389,16 @@ class MainActivity : ComponentActivity() {
             currentPlayState != PlayState.PLAYING
         ) return
         val marked = eventMarkerManager.getEvents()
-        val rows = SispWebEventMatcher.match(marked, webRuntimeEvents, analysisTimeMs)
+        val rows = SispWebEventMatcher.match(
+            marked, webRuntimeEvents, analysisTimeMs, observedFromMs = webCoverageFromMs
+        )
         for (row in rows) {
             val event = marked[row.markedIndex]
             if (event.timestampMs + SispWebEventMatcher.WINDOW_MS < webBounceArmedAtMs) continue
             val key = event.type.name + ":" + event.frameIndex + ":" + event.timestampMs
-            if (row.status == "PENDING" || !webBounceHandled.add(key)) continue
+            if (row.status == "PENDING" || row.status == "UNOBSERVED" ||
+                !webBounceHandled.add(key)
+            ) continue
             if (row.status == "MATCH") continue
             // 一次失败只触发一次，播放器停在人工事件的原始标记时间，不循环反跳。
             togglePause(findViewById(R.id.btnPause))
@@ -4453,7 +4464,9 @@ class MainActivity : ComponentActivity() {
         if (!server.hasClients || !isMainStartupInitialized) return
         val rooms = RoomRepository.getAllRooms()
         val marked = eventMarkerManager.getEvents()
-        val matches = SispWebEventMatcher.match(marked, webRuntimeEvents, webLatestAnalysisMs)
+        val matches = SispWebEventMatcher.match(
+            marked, webRuntimeEvents, webLatestAnalysisMs, observedFromMs = webCoverageFromMs
+        )
         val roomData = JSONArray()
         val countData = JSONObject()
         rooms.forEach { room ->
