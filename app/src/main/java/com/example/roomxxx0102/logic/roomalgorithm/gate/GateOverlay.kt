@@ -36,7 +36,7 @@ object GateOverlay {
             val side=d.groundSide?.let{String.format(Locale.US,"%.3f",it)}?:"-"
             lines+="#${d.track} ${d.phase} ${d.direction?:""} gate=${d.gateId?:"-"} depth=$depth side=$side ${d.evidence?:""}"
         }
-        if(s.v==null) lines+="本地视觉不可用：仅使用门底边"
+        if(s.v==null) lines+=if(s.label.startsWith("V5")) "V5 无法获得差分数据：不允许脚点回退" else "本地视觉不可用：仅使用门底边"
         if(s.v?.notes?.any { it.contains("SCENE_CHANGED") }==true) lines+="稀疏全局采样检测到画面整体变化"
         return lines
     }
