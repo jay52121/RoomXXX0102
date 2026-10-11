@@ -270,6 +270,8 @@ function renderDetail(){
     lines.push('分析帧：'+f.frameSeq+' · '+clock(f.timeMs)+' · '+(f.persons||[]).length+' 人');
     lines.push('判定：'+(d.summary||'-'));
     if(d.rejected?.length)lines.push('拒绝：'+d.rejected.slice(0,5).join(' | '));
+    if(d.trackSwitches?.length)lines.push('各 Track 候选：'+d.trackSwitches.map(t=>
+      '#'+t.trackId+' '+t.type+' '+t.fromRoomId+'→'+t.toRoomId+' score='+Number(t.score).toFixed(2)).join('；'));
     if(d.pending&&Object.keys(d.pending).length)lines.push('待判门：'+JSON.stringify(d.pending));
     if(d.details&&Object.keys(d.details).length)lines.push('参数/证据：'+JSON.stringify(d.details).slice(0,2500));
   }
