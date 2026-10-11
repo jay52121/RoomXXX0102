@@ -5,6 +5,7 @@ import com.example.roomxxx0102.logic.roomalgorithm.gate.GateSettings
 import com.example.roomxxx0102.logic.roomalgorithm.gate.GateRuntime
 import com.example.roomxxx0102.logic.roomalgorithm.gate.GateDiagnosticBus
 import com.example.roomxxx0102.data.model.BoundaryVertex
+import com.example.roomxxx0102.data.model.PoseResult
 import android.animation.ValueAnimator
 import android.widget.CheckBox
 import android.Manifest
@@ -80,11 +81,12 @@ import com.example.roomxxx0102.logic.pointing.PointingConfidenceStatus
 import com.example.roomxxx0102.logic.presence.PresencePoint
 import com.example.roomxxx0102.logic.presence.PresenceRoomSnapshot
 import com.example.roomxxx0102.logic.presence.PresenceSwitchDisplayType
+import com.example.roomxxx0102.logic.presence.PresenceSwitchEvent
 import com.example.roomxxx0102.logic.presence.PresenceDoorSnapshot
 import com.example.roomxxx0102.logic.presence.RoomPresenceChangeLogger
-import com.example.roomxxx0102.logic.presence.PresenceSwitchEvent
 import com.example.roomxxx0102.logic.roomalgorithm.RoomAlgorithmEngine
 import com.example.roomxxx0102.logic.roomalgorithm.RoomAlgorithmFrameInput
+import com.example.roomxxx0102.logic.roomalgorithm.RoomAlgorithmFrameResult
 import com.example.roomxxx0102.logic.roomalgorithm.RoomAlgorithmRegistry
 import com.example.roomxxx0102.logic.roomalgorithm.RoomAlgorithmSceneInfo
 import com.example.roomxxx0102.logic.validation.DeviceHitMarkedEvent
@@ -96,6 +98,11 @@ import com.example.roomxxx0102.logic.validation.EventType
 import com.example.roomxxx0102.logic.validation.MarkedEvent
 import com.example.roomxxx0102.logic.validation.MarkedEventPortalBinding
 import com.example.roomxxx0102.logic.validation.RuntimeRoomEvent
+import com.example.roomxxx0102.logic.validation.SispWebDebugServer
+import com.example.roomxxx0102.logic.validation.SispWebEventMatcher
+import com.example.roomxxx0102.logic.validation.WebRuntimeEvent
+import org.json.JSONArray
+import org.json.JSONObject
 import com.example.roomxxx0102.logic.video.VideoFeeder
 import com.example.roomxxx0102.ui.audio.AudioCommandLogUpdate
 import com.example.roomxxx0102.ui.audio.KwsPanelScreen
@@ -289,6 +296,28 @@ class MainActivity : ComponentActivity() {
     private var roomAlgorithmFrameSeq = 0L
     private val roomPresenceChangeLogger = RoomPresenceChangeLogger("ROOM_PRESENCE_CHANGE")
     private val eventMarkerManager = EventMarkerManager()
+    @Volatile private var webDebugServer: SispWebDebugServer? = null
+    private val webDebugTimer = Handler(Looper.getMainLooper())
+    private val webRuntimeEvents: MutableList<WebRuntimeEvent> = mutableListOf()
+    private val webRuntimeEventKeys: MutableSet<String> = mutableSetOf()
+    private val webBounceHandled: MutableSet<String> = mutableSetOf()
+    private var webAutoBounce = false
+    /** 浏览器断开后不再悄悄改变手机原本的暂停逻辑。 */
+    private fun webAutoBounceActive(): Boolean =
+        webAutoBounce && webDebugServer?.hasClients == true
+    private var webBounceArmedAtMs = Long.MAX_VALUE
+    private var webLastBounceIndex: Int? = null
+    private var webLatestAnalysisMs = -1L
+    private var webCoverageFromMs = 0L
+    private val webObservedSpans: MutableList<LongRange> = mutableListOf()
+    @Volatile private var webLastPoseFrame: JSONObject? = null
+    private val webStateTicker = object : Runnable {
+        override fun run() {
+            if (webDebugServer?.isRunning != true) return
+            if (webDebugServer?.hasClients == true) publishWebDebugState()
+            webDebugTimer.postDelayed(this, 350L)
+        }
+    }
     private var debugInfoPanelVisible = false
     private data class DiagnosticReplaySavedSettings(
         val roomAlgorithmId: String,
@@ -434,6 +463,13 @@ class MainActivity : ComponentActivity() {
                 sceneInfo = RoomAlgorithmSceneInfo(isVideoPlayback = isVideoMode),
                 poseMetadata = sourceMeta
             ))
+            if (webDebugServer?.hasClients == true) {
+                val payload = buildWebPoseFrame(
+                    frameTimestampMs, frameSeq, frameWidth, frameHeight, results, roomResult
+                )
+                webLastPoseFrame = payload
+                webDebugServer?.publish(payload)
+            }
             if (isDiagnosticReplayActive) {
                 GateDiagnosticBus.frameFor(frameSeq)?.let { diagnosticRecorder?.recordFrame(it, results) }
             }
@@ -583,7 +619,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     val shouldAutoPause = AppSettings.isPauseOnRoomSwitchEnabled &&
-                        playStateBefore != PlayState.PAUSED
+                        !webAutoBounceActive() && playStateBefore != PlayState.PAUSED
                     var didAutoPause = false
                     if (shouldAutoPause) {
                         val pauseButton = findViewById<Button>(R.id.btnPause)
@@ -617,7 +653,7 @@ class MainActivity : ComponentActivity() {
                     if (negativeDelta.isNotEmpty()) {
                         val playStateBefore = currentPlayState
                         val shouldAutoPause = AppSettings.isPauseOnRoomSwitchEnabled &&
-                            playStateBefore != PlayState.PAUSED
+                            !webAutoBounceActive() && playStateBefore != PlayState.PAUSED
                         val likelyCause = resolveCountDeltaLikelyCause(roomResult.rejectedReasons)
                         val deltaText = formatNegativeCountDelta(
                             delta = negativeDelta,
@@ -667,6 +703,9 @@ class MainActivity : ComponentActivity() {
                     runtimeEvents = validationRuntimeEvents,
                     nowMs = nowMs
                 )
+                if (webDebugServer?.isRunning == true) {
+                    recordWebDebugRuntimeEvents(roomResult.events, livingRoom?.id, frameTimestampMs)
+                }
                 overlayView.updatePoseData(
                     results = results,
                     bitmap = bitmap,
@@ -1362,6 +1401,7 @@ class MainActivity : ComponentActivity() {
         btnRewind.setOnTouchListener(createSeekHoldTouchListener(direction = -1))
         btnForward.setOnTouchListener(createSeekHoldTouchListener(direction = 1))
         val btnDebugPanel = findViewById<Button>(R.id.btnDebugPanel)
+        findViewById<Button>(R.id.btnWebDebug).setOnClickListener { showWebDebugDialog() }
         manualBindingView.setOnCloseInfoRequested {
             setDebugInfoPanelVisible(false)
         }
@@ -3101,6 +3141,7 @@ class MainActivity : ComponentActivity() {
 
     private fun bindEventMarkersToVideo(videoKey: String?) {
         if (boundEventVideoKey == videoKey && boundDeviceHitVideoKey == videoKey) return
+        resetWebDebugRuntime()
         boundEventVideoKey = videoKey
         eventMarkerManager.bindVideo(videoKey)
         bindDeviceHitMarkersToVideo(videoKey)
@@ -3453,7 +3494,8 @@ class MainActivity : ComponentActivity() {
         nowMs: Long
     ) {
         if (!isVideoMode) return
-        val pauseEnabled = AppSettings.isSmartMatchPauseEnabled
+        // 网页自动回跳优先负责暂停；旧智能匹配仍记录提示，但不能抢先暂停。
+        val pauseEnabled = AppSettings.isSmartMatchPauseEnabled && !webAutoBounceActive()
         val markedEvents = eventMarkerManager.getEvents()
         val previousTimestampMs = lastValidationTimestampMs
         lastValidationTimestampMs = if (currentPlayState == PlayState.PLAYING) nowMs else null
@@ -4249,6 +4291,407 @@ class MainActivity : ComponentActivity() {
         if (recreateAlgorithm) ensureRoomAlgorithm()
     }
 
+
+    // —— 网页结构化调试台：主线程共享播放/标注状态，网络线程只搬运 JSON ——
+
+    private fun showWebDebugDialog() {
+        val current = webDebugServer
+        if (current?.isRunning == true) {
+            AlertDialog.Builder(this)
+                .setTitle("SISP 网页调试已开启")
+                .setMessage("电脑与手机连同一个局域网后打开：\n" + current.localUrl() +
+                    "\n\n仅传 Pose/地图/事件 JSON，不传视频或截图。")
+                .setPositiveButton("复制网址") { _, _ ->
+                    copyTextToClipboard("sisp_web_debug", current.localUrl())
+                    Toast.makeText(this, "调试网址已复制", Toast.LENGTH_SHORT).show()
+                }
+                .setNeutralButton("停止服务") { _, _ ->
+                    webDebugTimer.removeCallbacks(webStateTicker)
+                    current.stop()
+                    webDebugServer = null
+                    webAutoBounce = false
+                    findViewById<Button>(R.id.btnWebDebug).text = "网页调试"
+                }
+                .setNegativeButton("关闭", null).show()
+            return
+        }
+        val server = SispWebDebugServer(applicationContext) { message ->
+            runOnUiThread {
+                if (webDebugServer?.isRunning == true) handleWebDebugCommand(message)
+            }
+        }
+        if (!server.start()) {
+            server.stop()
+            Toast.makeText(this, "网页服务启动失败：8765 端口可能被占用", Toast.LENGTH_LONG).show()
+            return
+        }
+        webDebugServer = server
+        findViewById<Button>(R.id.btnWebDebug).text = "网页在线"
+        webDebugTimer.removeCallbacks(webStateTicker)
+        webDebugTimer.post(webStateTicker)
+        showWebDebugDialog()
+    }
+
+    private fun resetWebDebugRuntime() {
+        webRuntimeEvents.clear()
+        webRuntimeEventKeys.clear()
+        webBounceHandled.clear()
+        webLastBounceIndex = null
+        webLatestAnalysisMs = -1L
+        webCoverageFromMs = 0L
+        webObservedSpans.clear()
+        webLastPoseFrame = null
+        if (webAutoBounce) webBounceArmedAtMs = currentVideoTimestampMs()
+    }
+
+    private fun webEventIdentity(item: WebRuntimeEvent): String {
+        return item.type + ":" + item.timeMs + ":" + item.trackId + ":" +
+            item.fromRoomId + ":" + item.toRoomId + ":" + item.doorId
+    }
+
+    private fun recordWebDebugRuntimeEvents(
+        events: List<PresenceSwitchEvent>,
+        livingRoomId: String?,
+        analysisTimeMs: Long
+    ) {
+        val backwards = webLatestAnalysisMs >= 0L &&
+            analysisTimeMs < webLatestAnalysisMs - 700L
+        val gap = webLatestAnalysisMs >= 0L &&
+            analysisTimeMs - webLatestAnalysisMs > 2_500L
+        if (backwards) webObservedSpans.clear()
+        if (webObservedSpans.isEmpty() || gap) {
+            webCoverageFromMs = analysisTimeMs
+            webObservedSpans.add(analysisTimeMs..analysisTimeMs)
+        } else {
+            val tail = webObservedSpans.last()
+            webObservedSpans[webObservedSpans.lastIndex] =
+                tail.first..maxOf(tail.last, analysisTimeMs)
+        }
+        if (backwards) {
+            webRuntimeEvents.removeAll { it.timeMs > analysisTimeMs }
+            webRuntimeEventKeys.clear()
+            webRuntimeEvents.forEach { webRuntimeEventKeys.add(webEventIdentity(it)) }
+        }
+        webLatestAnalysisMs = analysisTimeMs
+        for (event in events) {
+            val type = livingRoomId?.let { mapPresenceEventType(event, it) } ?: continue
+            val effectiveTime = event.timestampMs.takeIf { it >= 0L } ?: analysisTimeMs
+            val record = WebRuntimeEvent(
+                type = type.name,
+                timeMs = effectiveTime,
+                fromRoomId = event.fromRoomId,
+                toRoomId = event.toRoomId,
+                doorId = event.doorId,
+                trackId = event.trackId,
+                reason = event.reason.toString()
+            )
+            if (webRuntimeEventKeys.add(webEventIdentity(record))) {
+                webRuntimeEvents.add(record)
+            }
+        }
+        // 防止长时间播放无限增长；只保留最近 1500 个算法切换事件。
+        while (webRuntimeEvents.size > 1500) {
+            val removed = webRuntimeEvents.removeAt(0)
+            webRuntimeEventKeys.remove(webEventIdentity(removed))
+        }
+        maybeAutoBounceWebMiss(analysisTimeMs)
+    }
+
+    private fun maybeAutoBounceWebMiss(analysisTimeMs: Long) {
+        if (!webAutoBounceActive() || !isVideoMode || isDiagnosticReplayActive ||
+            currentPlayState != PlayState.PLAYING
+        ) return
+        val marked = eventMarkerManager.getEvents()
+        val rows = SispWebEventMatcher.match(
+            marked, webRuntimeEvents, analysisTimeMs,
+            observedFromMs = webCoverageFromMs,
+            observedSpans = webObservedSpans
+        )
+        for (row in rows) {
+            val event = marked[row.markedIndex]
+            if (event.timestampMs + SispWebEventMatcher.WINDOW_MS < webBounceArmedAtMs) continue
+            val key = event.type.name + ":" + event.frameIndex + ":" + event.timestampMs
+            if (row.status == "PENDING" || row.status == "UNOBSERVED" ||
+                !webBounceHandled.add(key)
+            ) continue
+            if (row.status == "MATCH") continue
+            // 一次失败只触发一次，播放器停在人工事件的原始标记时间，不循环反跳。
+            togglePause(findViewById(R.id.btnPause))
+            videoFeeder?.seekToMs(event.timestampMs.toInt())
+            selectMarkedEventForBinding(event, seek = false)
+            webLastBounceIndex = row.markedIndex
+            Toast.makeText(this, "事件 " + (row.markedIndex + 1) +
+                " 未正确匹配（" + row.status + "），已跳回标记时间", Toast.LENGTH_LONG).show()
+            publishWebDebugState()
+            break
+        }
+    }
+
+    private fun buildWebPoseFrame(
+        timeMs: Long,
+        frameSeq: Long,
+        imageWidth: Int,
+        imageHeight: Int,
+        poses: List<PoseResult>,
+        result: RoomAlgorithmFrameResult
+    ): JSONObject {
+        fun safe(value: Float): Double = if (value.isFinite()) value.toDouble() else 0.0
+        val people = JSONArray()
+        for (pose in poses) {
+            val keypoints = JSONArray()
+            pose.keypoints.take(17).forEach { key ->
+                keypoints.put(JSONArray().put(safe(key.x)).put(safe(key.y)).put(safe(key.conf)))
+            }
+            val box = pose.box
+            people.put(JSONObject()
+                .put("id", pose.id)
+                .put("score", safe(pose.score))
+                .put("confirmed", pose.isConfirmed)
+                .put("source", pose.idSource.name)
+                .put("moving", pose.isMoving)
+                .put("shielded", pose.isShielded)
+                .put("box", JSONArray().put(safe(box.left)).put(safe(box.top))
+                    .put(safe(box.right)).put(safe(box.bottom)))
+                .put("pts", keypoints))
+        }
+        val pending = JSONObject()
+        result.pendingDoorCounters.forEach { (room, count) -> pending.put(room, count) }
+        val details = JSONObject()
+        result.debugInfo.details.entries.take(36).forEach { (name, value) ->
+            details.put(name, value.take(240))
+        }
+        val trackSwitches = JSONArray()
+        result.trackSwitchScores.forEach { (trackId, hint) ->
+            trackSwitches.put(JSONObject()
+                .put("trackId", trackId)
+                .put("score", hint.score)
+                .put("type", hint.type.name)
+                .put("fromRoomId", hint.fromRoomId ?: JSONObject.NULL)
+                .put("toRoomId", hint.toRoomId ?: JSONObject.NULL))
+        }
+        return JSONObject()
+            .put("type", "frame")
+            .put("timeMs", timeMs)
+            .put("frameSeq", frameSeq)
+            .put("width", imageWidth)
+            .put("height", imageHeight)
+            .put("persons", people)
+            .put("debug", JSONObject()
+                .put("summary", result.debugInfo.summary)
+                .put("pending", pending)
+                .put("trackSwitches", trackSwitches)
+                .put("details", details)
+                .put("rejected", JSONArray(result.rejectedReasons.take(8))))
+    }
+
+    private fun publishWebDebugState() {
+        val server = webDebugServer ?: return
+        if (!server.hasClients || !isMainStartupInitialized) return
+        val rooms = RoomRepository.getAllRooms()
+        val marked = eventMarkerManager.getEvents()
+        val matches = SispWebEventMatcher.match(
+            marked, webRuntimeEvents, webLatestAnalysisMs,
+            observedFromMs = webCoverageFromMs,
+            observedSpans = webObservedSpans
+        )
+        val roomData = JSONArray()
+        val countData = JSONObject()
+        rooms.forEach { room ->
+            countData.put(room.id, room.persistentPersonCount)
+            val polygon = JSONArray()
+            room.boundaryVertices.forEach { vertex ->
+                polygon.put(JSONArray().put(vertex.point.x.toDouble()).put(vertex.point.y.toDouble()))
+            }
+            val entrances = JSONArray()
+            room.entrances.forEach { entrance ->
+                entrances.put(JSONArray()
+                    .put(JSONArray().put(entrance.startPoint.x.toDouble()).put(entrance.startPoint.y.toDouble()))
+                    .put(JSONArray().put(entrance.endPoint.x.toDouble()).put(entrance.endPoint.y.toDouble())))
+            }
+            fun point(p: PointF?): Any {
+                return if (p == null) JSONObject.NULL
+                else JSONArray().put(p.x.toDouble()).put(p.y.toDouble())
+            }
+            roomData.put(JSONObject()
+                .put("id", room.id).put("name", room.name)
+                .put("living", room.isSovereignTerritory)
+                .put("blind", room.isLivingBlindZone)
+                .put("entrance", room.isEntranceDoor)
+                .put("vertices", polygon).put("entrances", entrances)
+                .put("label", point(room.labelPoint))
+                .put("anchor", point(room.anchorPoint)))
+        }
+        val eventData = JSONArray()
+        marked.forEach { event ->
+            eventData.put(JSONObject().put("type", event.type.name)
+                .put("timeMs", event.timestampMs)
+                .put("frameIndex", event.frameIndex)
+                .put("portalRoomId", event.portalRoomId ?: JSONObject.NULL))
+        }
+        val runtimeData = JSONArray()
+        webRuntimeEvents.forEach { event ->
+            runtimeData.put(JSONObject().put("type", event.type)
+                .put("timeMs", event.timeMs)
+                .put("fromRoomId", event.fromRoomId)
+                .put("toRoomId", event.toRoomId)
+                .put("doorId", event.doorId)
+                .put("trackId", event.trackId ?: JSONObject.NULL)
+                .put("reason", event.reason))
+        }
+        val matchData = JSONArray()
+        matches.forEach { row ->
+            matchData.put(JSONObject()
+                .put("index", row.markedIndex)
+                .put("status", row.status)
+                .put("runtimeIndex", row.runtimeIndex ?: JSONObject.NULL)
+                .put("deltaMs", row.deltaMs ?: JSONObject.NULL))
+        }
+        server.publish(JSONObject()
+            .put("type", "state")
+            .put("videoKey", boundEventVideoKey?.hashCode()?.toString() ?: "")
+            .put("algorithm", roomAlgorithm.runtimeTag)
+            .put("timeMs", if (isVideoMode) currentVideoTimestampMs() else 0L)
+            .put("durationMs", (videoFeeder?.getDurationMs() ?: 0).toLong())
+            .put("imageWidth", webLastPoseFrame?.optInt("width") ?: 1920)
+            .put("imageHeight", webLastPoseFrame?.optInt("height") ?: 1080)
+            .put("playing", isVideoMode && currentPlayState == PlayState.PLAYING)
+            .put("rooms", roomData).put("counts", countData)
+            .put("marked", eventData).put("runtime", runtimeData)
+            .put("matches", matchData)
+            .put("selectedIndex", MarkedEventPortalBinding.selectedIndex() ?: JSONObject.NULL)
+            .put("autoBounce", webAutoBounce)
+            .put("lastBounceIndex", webLastBounceIndex ?: JSONObject.NULL))
+    }
+
+    private fun webSeekTo(timeMs: Long) {
+        val duration = (videoFeeder?.getDurationMs() ?: 0).toLong().coerceAtLeast(0L)
+        val clamped = timeMs.coerceIn(0L, duration)
+        videoFeeder?.seekToMs(clamped.toInt())
+        scheduleEventMarkerUiRefresh(150L)
+    }
+
+    private fun handleWebDebugCommand(input: JSONObject) {
+        val cmd = input.optString("cmd")
+        if (cmd == "sync") {
+            publishWebDebugState()
+            webLastPoseFrame?.let { frame -> webDebugServer?.publish(frame) }
+            return
+        }
+        if (cmd == "auto_bounce") {
+            webAutoBounce = input.optBoolean("enabled", false)
+            webBounceArmedAtMs = currentVideoTimestampMs()
+            webBounceHandled.clear()
+            webLastBounceIndex = null
+            publishWebDebugState()
+            return
+        }
+        if (!isVideoMode || isDiagnosticReplayActive) {
+            sendWebDebugError("只允许在普通视频回顾模式操作（诊断回放中不可编辑）")
+            return
+        }
+        fun pauseForEdit() {
+            if (currentPlayState == PlayState.PLAYING) togglePause(findViewById(R.id.btnPause))
+        }
+        val events = eventMarkerManager.getEvents()
+        val selected = MarkedEventPortalBinding.selectedEvent()
+        when (cmd) {
+            "play_pause" -> togglePause(findViewById(R.id.btnPause))
+            "seek" -> webSeekTo(input.optLong("timeMs", currentVideoTimestampMs()))
+            "seek_delta" -> webSeekTo(currentVideoTimestampMs() +
+                input.optLong("deltaMs", 0L).coerceIn(-60_000L, 60_000L))
+            "step" -> {
+                pauseForEdit()
+                if (input.optInt("direction", 1) < 0) videoFeeder?.seekBackwardFrame()
+                else videoFeeder?.seekForwardFrame()
+                scheduleEventMarkerUiRefresh()
+            }
+            "mark" -> {
+                val direction = when (input.optString("direction")) {
+                    "ENTER" -> EventType.ENTER
+                    "EXIT" -> EventType.EXIT
+                    else -> null
+                }
+                if (direction == null) sendWebDebugError("进出方向不合法")
+                else {
+                    pauseForEdit()
+                    addMarkedEvent(direction)
+                }
+            }
+            "select" -> {
+                val index = input.optInt("index", -1)
+                val item = events.getOrNull(index)
+                if (item == null) sendWebDebugError("人工事件不存在")
+                else {
+                    pauseForEdit()
+                    selectMarkedEventForBinding(item)
+                }
+            }
+            "navigate" -> {
+                pauseForEdit()
+                navigateMarkedEvent(if (input.optInt("direction", 1) < 0) -1 else 1)
+            }
+            "next_unbound" -> {
+                pauseForEdit()
+                navigateNextUnboundEvent()
+            }
+            "bind" -> {
+                val index = input.optInt("index", -1)
+                val roomId = input.optString("roomId")
+                val item = events.getOrNull(index)
+                when {
+                    item == null -> sendWebDebugError("先选择要标记的人工事件")
+                    RoomRepository.getSubRooms().none { it.id == roomId } ->
+                        sendWebDebugError("选择的房门不存在")
+                    else -> {
+                        pauseForEdit()
+                        if (selected != item) selectMarkedEventForBinding(item)
+                        MarkedEventPortalBinding.bindSelectedPortal(roomId)
+                        refreshEventMarkerUi()
+                    }
+                }
+            }
+            "unbind" -> {
+                if (selected == null) sendWebDebugError("请先选择人工事件")
+                else {
+                    pauseForEdit()
+                    MarkedEventPortalBinding.bindSelectedPortal(null)
+                    refreshEventMarkerUi()
+                }
+            }
+            "flip_type" -> {
+                if (selected == null) sendWebDebugError("请先选择人工事件")
+                else {
+                    pauseForEdit()
+                    val newType = if (selected.type == EventType.ENTER) EventType.EXIT else EventType.ENTER
+                    if (eventMarkerManager.changeExactEventType(selected, newType) == null) {
+                        sendWebDebugError("同一帧已有此方向事件，不能重复")
+                    }
+                    refreshEventMarkerUi()
+                }
+            }
+            "delete_selected" -> {
+                if (selected == null) sendWebDebugError("请先选择人工事件")
+                else {
+                    pauseForEdit()
+                    if (eventMarkerManager.removeExactEvent(selected)) {
+                        MarkedEventPortalBinding.clearSelection()
+                        resetEventValidationTracking(clearRuntimeEvents = false)
+                    }
+                    refreshEventMarkerUi()
+                }
+            }
+            else -> sendWebDebugError("不支持的操作：" + cmd.take(40))
+        }
+        publishWebDebugState()
+    }
+
+    private fun sendWebDebugError(message: String) {
+        webDebugServer?.publish(JSONObject()
+            .put("type", "response")
+            .put("ok", false)
+            .put("message", message))
+    }
+
     private fun togglePause(btn: Button) {
         if (isDiagnosticReplayActive) {
             Toast.makeText(this, "诊断回放将自动完整播放", Toast.LENGTH_SHORT).show()
@@ -4343,6 +4786,7 @@ class MainActivity : ComponentActivity() {
      * 目标是清除追踪/ROI/Presence/人数等运行期状态，避免历史状态污染。
      */
     private fun hardRestartPlayback() {
+        resetWebDebugRuntime()
         MarkedEventPortalBinding.clearSelection()
         kwsLogClearSignal.intValue += 1
         yoloAnalyzer?.reset()
@@ -4395,6 +4839,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        webDebugTimer.removeCallbacksAndMessages(null)
+        webDebugServer?.stop()
+        webDebugServer = null
         if (isDiagnosticReplayActive) {
             isDiagnosticReplayActive = false
             diagnosticRecorder = null

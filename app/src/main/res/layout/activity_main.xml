@@ -205,6 +205,22 @@
             android:textSize="12sp"
             android:textStyle="bold" />
 
+        <!-- 只开启结构化网页调试；视频帧与 Bitmap 不会通过此入口传输。 -->
+        <Button
+            android:id="@+id/btnWebDebug"
+            android:layout_width="86dp"
+            android:layout_height="38dp"
+            android:layout_marginBottom="7dp"
+            android:background="@drawable/bg_side_action_button"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="6dp"
+            android:text="网页调试"
+            android:textAllCaps="false"
+            android:textColor="#F2F7FF"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
         <Button
             android:id="@+id/btnDiagnosticReplay"
             android:layout_width="86dp"
