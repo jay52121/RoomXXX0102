@@ -35,6 +35,25 @@ class SispWebEventMatcherTest {
         assertEquals("MISS", result.single().status)
     }
 
+    @Test fun observedSegmentsDoNotAssumeSkippedFrames() {
+        val marked = listOf(mark(EventType.ENTER, 5_000L, "bedroom"))
+        val partial = SispWebEventMatcher.match(
+            marked, emptyList(), observedUntilMs = 5_300L,
+            observedSpans = listOf(4_000L..5_300L)
+        )
+        assertEquals("PENDING", partial.single().status)
+        val incomplete = SispWebEventMatcher.match(
+            marked, emptyList(), observedUntilMs = 7_000L,
+            observedSpans = listOf(0L..2_000L, 6_000L..7_000L)
+        )
+        assertEquals("UNOBSERVED", incomplete.single().status)
+        val covered = SispWebEventMatcher.match(
+            marked, emptyList(), observedUntilMs = 7_000L,
+            observedSpans = listOf(0L..6_500L)
+        )
+        assertEquals("MISS", covered.single().status)
+    }
+
     @Test fun startupMidVideoCannotFabricateMiss() {
         val result = SispWebEventMatcher.match(
             listOf(mark(EventType.ENTER, 2_000L, "bedroom")),
