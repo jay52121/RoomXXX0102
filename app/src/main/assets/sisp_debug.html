@@ -302,7 +302,8 @@ el('eventTimeline').addEventListener('click',e=>{
   const r=e.currentTarget.getBoundingClientRect();const ratio=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));command('seek',{timeMs:Math.round((state.durationMs||0)*ratio)});
 });
 document.addEventListener('keydown',e=>{
-  if(e.target.closest('input,textarea,select,[contenteditable=true]'))return;
+  // 进度条或开关拥有焦点时快捷键依旧生效；仅文字输入框吞掉快捷键。
+  if(e.target.closest('textarea,select,input[type=text],input[type=number],[contenteditable=true]'))return;
   const code=e.code;
   const map={Space:['play_pause',{}],ArrowLeft:['seek_delta',{deltaMs:-5000}],ArrowRight:['seek_delta',{deltaMs:5000}],
     Comma:['step',{direction:-1}],Period:['step',{direction:1}],KeyI:['mark',{direction:'ENTER'}],KeyO:['mark',{direction:'EXIT'}]};
