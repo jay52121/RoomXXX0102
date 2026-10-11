@@ -190,6 +190,41 @@ class EventMarkerManager {
         return matched
     }
 
+    /** 网页标注只能删被明确选中的这一条，不能误删同一帧其它事件。 */
+    fun removeExactEvent(event: MarkedEvent): Boolean {
+        val key = boundVideoKey ?: return false
+        val list = eventMap[key] ?: return false
+        val removed = list.removeAll {
+            it.type == event.type && it.frameIndex == event.frameIndex &&
+                it.timestampMs == event.timestampMs
+        }
+        if (!removed) return false
+        saveEventsForVideo(key, list)
+        MarkedEventRuntimeSource.update(key, list)
+        MarkedEventPortalBinding.onEventsChanged()
+        return true
+    }
+
+    /** 仅更正人工 ENTER/EXIT 类型，原时间、房门绑定保持不变。 */
+    fun changeExactEventType(event: MarkedEvent, newType: EventType): MarkedEvent? {
+        val key = boundVideoKey ?: return null
+        val list = eventMap[key] ?: return null
+        val index = list.indexOfFirst {
+            it.type == event.type && it.frameIndex == event.frameIndex &&
+                it.timestampMs == event.timestampMs
+        }
+        if (index < 0) return null
+        if (list.any { it.type == newType && it.frameIndex == event.frameIndex && it.timestampMs == event.timestampMs }) {
+            if (event.type != newType) return null
+        }
+        val updated = event.copy(type = newType)
+        list[index] = updated
+        saveEventsForVideo(key, list)
+        MarkedEventRuntimeSource.update(key, list)
+        MarkedEventPortalBinding.select(updated)
+        return updated
+    }
+
     fun findNextEventAfter(timestampMs: Long): MarkedEvent? {
         val key = boundVideoKey
         if (key == null) {
