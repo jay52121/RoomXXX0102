@@ -4312,7 +4312,7 @@ class MainActivity : ComponentActivity() {
         }
         val server = SispWebDebugServer(applicationContext) { message ->
             runOnUiThread {
-                if (webDebugServer === server) handleWebDebugCommand(message)
+                if (webDebugServer?.isRunning == true) handleWebDebugCommand(message)
             }
         }
         if (!server.start()) {
