@@ -302,6 +302,9 @@ class MainActivity : ComponentActivity() {
     private val webRuntimeEventKeys: MutableSet<String> = mutableSetOf()
     private val webBounceHandled: MutableSet<String> = mutableSetOf()
     private var webAutoBounce = false
+    /** 浏览器断开后不再悄悄改变手机原本的暂停逻辑。 */
+    private fun webAutoBounceActive(): Boolean =
+        webAutoBounce && webDebugServer?.hasClients == true
     private var webBounceArmedAtMs = Long.MAX_VALUE
     private var webLastBounceIndex: Int? = null
     private var webLatestAnalysisMs = -1L
@@ -616,7 +619,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     val shouldAutoPause = AppSettings.isPauseOnRoomSwitchEnabled &&
-                        !webAutoBounce && playStateBefore != PlayState.PAUSED
+                        !webAutoBounceActive() && playStateBefore != PlayState.PAUSED
                     var didAutoPause = false
                     if (shouldAutoPause) {
                         val pauseButton = findViewById<Button>(R.id.btnPause)
@@ -650,7 +653,7 @@ class MainActivity : ComponentActivity() {
                     if (negativeDelta.isNotEmpty()) {
                         val playStateBefore = currentPlayState
                         val shouldAutoPause = AppSettings.isPauseOnRoomSwitchEnabled &&
-                            !webAutoBounce && playStateBefore != PlayState.PAUSED
+                            !webAutoBounceActive() && playStateBefore != PlayState.PAUSED
                         val likelyCause = resolveCountDeltaLikelyCause(roomResult.rejectedReasons)
                         val deltaText = formatNegativeCountDelta(
                             delta = negativeDelta,
@@ -3492,7 +3495,7 @@ class MainActivity : ComponentActivity() {
     ) {
         if (!isVideoMode) return
         // 网页自动回跳优先负责暂停；旧智能匹配仍记录提示，但不能抢先暂停。
-        val pauseEnabled = AppSettings.isSmartMatchPauseEnabled && !webAutoBounce
+        val pauseEnabled = AppSettings.isSmartMatchPauseEnabled && !webAutoBounceActive()
         val markedEvents = eventMarkerManager.getEvents()
         val previousTimestampMs = lastValidationTimestampMs
         lastValidationTimestampMs = if (currentPlayState == PlayState.PLAYING) nowMs else null
@@ -4395,7 +4398,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun maybeAutoBounceWebMiss(analysisTimeMs: Long) {
-        if (!webAutoBounce || !isVideoMode || isDiagnosticReplayActive ||
+        if (!webAutoBounceActive() || !isVideoMode || isDiagnosticReplayActive ||
             currentPlayState != PlayState.PLAYING
         ) return
         val marked = eventMarkerManager.getEvents()
