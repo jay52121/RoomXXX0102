@@ -84,7 +84,6 @@ import com.example.roomxxx0102.logic.presence.PresenceSwitchDisplayType
 import com.example.roomxxx0102.logic.presence.PresenceSwitchEvent
 import com.example.roomxxx0102.logic.presence.PresenceDoorSnapshot
 import com.example.roomxxx0102.logic.presence.RoomPresenceChangeLogger
-import com.example.roomxxx0102.logic.presence.PresenceSwitchEvent
 import com.example.roomxxx0102.logic.roomalgorithm.RoomAlgorithmEngine
 import com.example.roomxxx0102.logic.roomalgorithm.RoomAlgorithmFrameInput
 import com.example.roomxxx0102.logic.roomalgorithm.RoomAlgorithmFrameResult
