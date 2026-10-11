@@ -307,6 +307,9 @@ class MainActivity : ComponentActivity() {
         webAutoBounce && webDebugServer?.hasClients == true
     private var webBounceArmedAtMs = Long.MAX_VALUE
     private var webLastBounceIndex: Int? = null
+    @Volatile private var webSessionEpoch = 0L
+    /** 显式 seek 即便只跳过 0.2 秒，也不能跨越未分析区间合并成“完整观察”。 */
+    private var webCoverageBreakPending = false
     private var webLatestAnalysisMs = -1L
     private var webCoverageFromMs = 0L
     private val webObservedSpans: MutableList<LongRange> = mutableListOf()
@@ -2744,6 +2747,7 @@ class MainActivity : ComponentActivity() {
 
     private fun switchToCameraRuntimeMode() {
         if (!isVideoMode) return
+        resetWebDebugRuntime()
         MarkedEventPortalBinding.clearSelection()
         showRuntimeSwitchLoading("正在进入 Live…")
         isVideoMode = false
@@ -3030,7 +3034,12 @@ class MainActivity : ComponentActivity() {
         MarkedEventPortalBinding.select(event)
         // 选好事件就收起遮住房门的大信息面板，但保留整个调试模式。
         setDebugInfoPanelVisible(false)
-        if (seek) videoFeeder?.seekToMs(event.timestampMs.toInt())
+        if (seek) {
+            if (kotlin.math.abs(currentVideoTimestampMs() - event.timestampMs) > 120L) {
+                webCoverageBreakPending = true
+            }
+            videoFeeder?.seekToMs(event.timestampMs.toInt())
+        }
         refreshEventMarkerUi()
         scheduleEventMarkerUiRefresh(180L)
     }
@@ -3793,6 +3802,7 @@ class MainActivity : ComponentActivity() {
 
     private fun onSeekBackwardRequested() {
         if (isDiagnosticReplayActive) return
+        if (currentPlayState != PlayState.STILL) webCoverageBreakPending = true
         val beforePos = videoFeeder?.getCurrentPositionMs()
         val beforePlay = videoFeeder?.isPlaying()
         if (currentPlayState == PlayState.STILL) {
@@ -3813,6 +3823,7 @@ class MainActivity : ComponentActivity() {
 
     private fun onSeekForwardRequested() {
         if (isDiagnosticReplayActive) return
+        if (currentPlayState != PlayState.STILL) webCoverageBreakPending = true
         val beforePos = videoFeeder?.getCurrentPositionMs()
         val beforePlay = videoFeeder?.isPlaying()
         if (currentPlayState == PlayState.STILL) {
@@ -4326,6 +4337,8 @@ class MainActivity : ComponentActivity() {
             return
         }
         webDebugServer = server
+        // 每次重新开启网页服务从全新的观察会话开始，不混用上一次的运行事件/Pose。
+        resetWebDebugRuntime()
         findViewById<Button>(R.id.btnWebDebug).text = "网页在线"
         webDebugTimer.removeCallbacks(webStateTicker)
         webDebugTimer.post(webStateTicker)
@@ -4333,6 +4346,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun resetWebDebugRuntime() {
+        webSessionEpoch += 1L
+        webCoverageBreakPending = true
         webRuntimeEvents.clear()
         webRuntimeEventKeys.clear()
         webBounceHandled.clear()
@@ -4341,7 +4356,8 @@ class MainActivity : ComponentActivity() {
         webCoverageFromMs = 0L
         webObservedSpans.clear()
         webLastPoseFrame = null
-        if (webAutoBounce) webBounceArmedAtMs = currentVideoTimestampMs()
+        // 视频从头重放时不能沿用重放前的时间，否则开头事件永远不触发回跳。
+        if (webAutoBounce) webBounceArmedAtMs = 0L
     }
 
     private fun webEventIdentity(item: WebRuntimeEvent): String {
@@ -4359,7 +4375,9 @@ class MainActivity : ComponentActivity() {
         val gap = webLatestAnalysisMs >= 0L &&
             analysisTimeMs - webLatestAnalysisMs > 2_500L
         if (backwards) webObservedSpans.clear()
-        if (webObservedSpans.isEmpty() || gap) {
+        val explicitSeek = webCoverageBreakPending
+        webCoverageBreakPending = false
+        if (webObservedSpans.isEmpty() || gap || explicitSeek) {
             webCoverageFromMs = analysisTimeMs
             webObservedSpans.add(analysisTimeMs..analysisTimeMs)
         } else {
@@ -4417,6 +4435,7 @@ class MainActivity : ComponentActivity() {
             if (row.status == "MATCH") continue
             // 一次失败只触发一次，播放器停在人工事件的原始标记时间，不循环反跳。
             togglePause(findViewById(R.id.btnPause))
+            webCoverageBreakPending = true
             videoFeeder?.seekToMs(event.timestampMs.toInt())
             selectMarkedEventForBinding(event, seek = false)
             webLastBounceIndex = row.markedIndex
@@ -4471,6 +4490,7 @@ class MainActivity : ComponentActivity() {
         }
         return JSONObject()
             .put("type", "frame")
+            .put("epoch", webSessionEpoch)
             .put("timeMs", timeMs)
             .put("frameSeq", frameSeq)
             .put("width", imageWidth)
@@ -4548,6 +4568,7 @@ class MainActivity : ComponentActivity() {
         }
         server.publish(JSONObject()
             .put("type", "state")
+            .put("epoch", webSessionEpoch)
             .put("videoKey", boundEventVideoKey?.hashCode()?.toString() ?: "")
             .put("algorithm", roomAlgorithm.runtimeTag)
             .put("timeMs", if (isVideoMode) currentVideoTimestampMs() else 0L)
@@ -4566,6 +4587,9 @@ class MainActivity : ComponentActivity() {
     private fun webSeekTo(timeMs: Long) {
         val duration = (videoFeeder?.getDurationMs() ?: 0).toLong().coerceAtLeast(0L)
         val clamped = timeMs.coerceIn(0L, duration)
+        if (kotlin.math.abs(clamped - currentVideoTimestampMs()) > 120L) {
+            webCoverageBreakPending = true
+        }
         videoFeeder?.seekToMs(clamped.toInt())
         scheduleEventMarkerUiRefresh(150L)
     }

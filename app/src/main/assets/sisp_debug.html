@@ -117,15 +117,19 @@ function connection(){
     try{
       const m=JSON.parse(e.data);
       if(m.type==='frame'){
+        // 旧回放会话中的 Pose 绝不能混进新一轮算法状态。
+        if(state.epoch!=null&&m.epoch!==state.epoch)return;
         frame=m;lastFrameAt=Date.now();
         const key=m.timeMs;
         frameCache.set(key,m);
         if(frameCache.size>14000)frameCache.delete(frameCache.keys().next().value);
         renderCanvas();renderDetail();
       }else if(m.type==='state'){
-        const prevVideo=state.videoKey,prevSelection=state.selectedIndex;
+        const prevVideo=state.videoKey,prevEpoch=state.epoch,prevSelection=state.selectedIndex;
         state=m;
-        if(prevVideo&&m.videoKey!==prevVideo){frame=null;frameCache.clear()}
+        if((prevVideo&&m.videoKey!==prevVideo)||(prevEpoch!=null&&m.epoch!==prevEpoch)){
+          frame=null;frameCache.clear();selectedRuntimeIndex=null;
+        }
         if(prevSelection!==m.selectedIndex||m.marked?.[m.selectedIndex]?.portalRoomId===selectedRoom)selectedRoom=null;
         if((!frame||Math.abs((m.timeMs||0)-frame.timeMs)>1400)&&frameCache.size){
           let found=null,difference=180;
@@ -201,6 +205,8 @@ function renderCanvas(){
 function pointIn(poly,p){if(!poly||poly.length<3)return false;let inside=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){
   const a=poly[i],b=poly[j];if(((a[1]>p[1])!==(b[1]>p[1]))&&(p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0]))inside=!inside;}return inside}
 el('map').addEventListener('click',ev=>{
+  // 房间地图隐藏时禁止点到不可见的绑定区域。
+  if(!el('showRooms').checked)return;
   const g=normLayout(),b=el('map').getBoundingClientRect(),p=[(ev.clientX-b.left-g.ox)/g.vw,(ev.clientY-b.top-g.oy)/g.vh];
   if(p.some(x=>x<0||x>1))return;
   const rs=(state.rooms||[]).filter(room=>!room.living);
@@ -319,7 +325,11 @@ on('play','play_pause');on('back5','seek_delta',()=>({deltaMs:-5000}));on('forwa
 on('prevFrame','step',()=>({direction:-1}));on('nextFrame','step',()=>({direction:1}));
 on('markIn','mark',()=>({direction:'ENTER'}));on('markOut','mark',()=>({direction:'EXIT'}));
 on('prevEvent','navigate',()=>({direction:-1}));on('nextEvent','navigate',()=>({direction:1}));
-on('nextUnbound','next_unbound');on('clearBind','unbind');on('deleteEvent','delete_selected');on('flipEvent','flip_type');
+on('nextUnbound','next_unbound');on('clearBind','unbind');on('flipEvent','flip_type');
+el('deleteEvent').addEventListener('click',()=>{
+  const chosen=state.marked?.[state.selectedIndex];if(!chosen)return;
+  if(window.confirm('确定删除 '+clock(chosen.timeMs)+' 的'+(chosen.type==='ENTER'?'进入':'离开')+'人工事件？'))command('delete_selected');
+});
 el('autoBounce').addEventListener('change',e=>command('auto_bounce',{enabled:e.target.checked}));
 el('seekBar').addEventListener('input',e=>{dragging=true;el('timeText').textContent=clock(+e.target.value)+' / '+clock(state.durationMs)});
 el('seekBar').addEventListener('change',e=>{dragging=false;command('seek',{timeMs:Number(e.target.value)})});
