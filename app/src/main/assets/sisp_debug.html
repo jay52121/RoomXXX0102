@@ -48,7 +48,7 @@ footer{padding:8px 14px 12px;background:#152237;border-top:1px solid var(--edge)
 #controlRow{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:8px}
 #controlRow label{color:var(--muted);margin-left:auto}
 #currentEvent{color:var(--yellow);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.status{font-weight:700}.MATCH{color:var(--ok)}.MISS,.WRONG_PORTAL,.WRONG_DIRECTION{color:var(--bad)}.PENDING{color:#adbed0}
+.status{font-weight:700}.MATCH{color:var(--ok)}.MISS,.WRONG_PORTAL,.WRONG_DIRECTION{color:var(--bad)}.PENDING,.UNOBSERVED{color:#adbed0}
 kbd{border:1px solid #687989;border-radius:3px;padding:1px 4px;font-size:11px}
 @media(max-width:850px){main{display:flex;flex-direction:column;height:auto}#mapWrap{height:45vh}aside{min-height:480px}#roomsSection{max-height:none}#eventsSection{min-height:300px}}
 </style>
@@ -119,9 +119,18 @@ function connection(){
         if(frameCache.size>14000)frameCache.delete(frameCache.keys().next().value);
         renderCanvas();renderDetail();
       }else if(m.type==='state'){
-        const prevVideo=state.videoKey;
+        const prevVideo=state.videoKey,prevSelection=state.selectedIndex;
         state=m;
         if(prevVideo&&m.videoKey!==prevVideo){frame=null;frameCache.clear()}
+        if(prevSelection!==m.selectedIndex||m.marked?.[m.selectedIndex]?.portalRoomId===selectedRoom)selectedRoom=null;
+        if((!frame||Math.abs((m.timeMs||0)-frame.timeMs)>1400)&&frameCache.size){
+          let found=null,difference=180;
+          for(const record of frameCache.values()){
+            const dist=Math.abs(record.timeMs-(m.timeMs||0));
+            if(dist<difference){difference=dist;found=record}
+          }
+          if(found)frame=found;
+        }
         renderAll();
       }else if(m.type==='response'&&!m.ok){recentWarn=m.message||'操作失败';renderDetail()}
     }catch(err){recentWarn='收到的数据格式错误：'+String(err)}
@@ -203,7 +212,9 @@ function renderRoomList(){
     const d=document.createElement('div');d.className='room'+(state.marked?.[state.selectedIndex]?.portalRoomId===r.id?' selected':'');
     const count=state.counts?.[r.id]??0;
     d.innerHTML='<strong>'+esc(r.name)+'</strong><small>'+esc(r.living?'客厅/公共区域':r.blind?'盲区':r.entrance?'入户':'子房间')+' · '+Number(count)+' 人</small>';
-    d.title='点击绑定当前人工事件';d.onclick=()=>bindRoom(r.id);root.appendChild(d);
+    d.title=r.living?'公共房间不可用作门户真值':'点击绑定当前人工事件';
+    if(r.living){d.style.opacity='.65';d.style.cursor='default'}else d.onclick=()=>bindRoom(r.id);
+    root.appendChild(d);
   }
 }
 function renderEvents(){
@@ -213,7 +224,7 @@ function renderEvents(){
     const m=(state.matches||[])[i]||{status:'PENDING'};
     const tr=document.createElement('tr');if(state.selectedIndex===i)tr.className='selected';
     const delta=m.deltaMs==null?'':' '+(m.deltaMs>0?'+':'')+m.deltaMs+'ms';
-    const statusNames={MATCH:'匹配',MISS:'漏判',WRONG_PORTAL:'错门',WRONG_DIRECTION:'错方向',PENDING:'待确认'};
+    const statusNames={MATCH:e.portalRoomId?'匹配':'方向匹配',MISS:'漏判',WRONG_PORTAL:'错门',WRONG_DIRECTION:'错方向',PENDING:'待确认',UNOBSERVED:'未观察全窗口'};
     tr.innerHTML='<td>'+(i+1)+'</td><td>'+clock(e.timeMs)+'</td><td>'+(e.type==='ENTER'?'进入':'离开')+'</td><td>'+esc(names.get(e.portalRoomId)||'未绑定')+'</td>'+
       '<td class="status '+esc(m.status)+'">'+esc(statusNames[m.status]||m.status)+esc(delta)+'</td>';
     tr.onclick=()=>command('select',{index:i});root.appendChild(tr);
