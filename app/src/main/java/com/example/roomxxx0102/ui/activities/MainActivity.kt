@@ -4579,6 +4579,7 @@ class MainActivity : ComponentActivity() {
             .put("rooms", roomData).put("counts", countData)
             .put("marked", eventData).put("runtime", runtimeData)
             .put("matches", matchData)
+            .put("versions", runCatching { eventMarkerManager.listVersions() }.getOrDefault(JSONArray()))
             .put("selectedIndex", MarkedEventPortalBinding.selectedIndex() ?: JSONObject.NULL)
             .put("autoBounce", webAutoBounce)
             .put("lastBounceIndex", webLastBounceIndex ?: JSONObject.NULL))
@@ -4619,6 +4620,22 @@ class MainActivity : ComponentActivity() {
         val events = eventMarkerManager.getEvents()
         val selected = MarkedEventPortalBinding.selectedEvent()
         when (cmd) {
+            "save_version", "load_version" -> {
+                pauseForEdit()
+                runCatching {
+                    if (cmd == "save_version") eventMarkerManager.saveVersion(input.optString("name"))
+                    else {
+                        eventMarkerManager.loadVersion(input.getString("id"))
+                        resetEventValidationTracking(clearRuntimeEvents = false)
+                        webBounceHandled.clear()
+                        webLastBounceIndex = null
+                        refreshEventMarkerUi()
+                    }
+                }.onSuccess {
+                    webDebugServer?.publish(JSONObject().put("type", "response").put("ok", true)
+                        .put("message", if (cmd == "save_version") "版本已保存" else "版本已加载，原标注已自动备份"))
+                }.onFailure { sendWebDebugError(it.message ?: "版本操作失败") }
+            }
             "play_pause" -> togglePause(findViewById(R.id.btnPause))
             "seek" -> webSeekTo(input.optLong("timeMs", currentVideoTimestampMs()))
             "seek_delta" -> webSeekTo(currentVideoTimestampMs() +

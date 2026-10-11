@@ -118,6 +118,7 @@ class EventMarkerManager {
     private val eventMap: MutableMap<String, MutableList<MarkedEvent>> = mutableMapOf()
     private var storageDir: File? = null
     private var boundVideoKey: String? = null
+    private var versionsCache: JSONArray? = null
 
     fun init(context: Context) {
         storageDir = File(context.filesDir, "event_markers").apply {
@@ -126,6 +127,7 @@ class EventMarkerManager {
     }
 
     fun bindVideo(videoKey: String?) {
+        versionsCache = null
         boundVideoKey = videoKey
         MarkedEventPortalBinding.attach(this)
         if (videoKey.isNullOrBlank()) {
@@ -285,6 +287,79 @@ class EventMarkerManager {
             if (runtime.type != markedEvent.type) return@any false
             kotlin.math.abs(runtime.timestampMs - markedEvent.timestampMs) <= windowMs
         }
+    }
+
+    private fun versionDirectory(): File {
+        val key = requireNotNull(boundVideoKey) { "请先配置视频" }
+        val current = requireNotNull(resolveEventsFile(key)) { "事件存储未初始化" }
+        return File(current.parentFile, current.name + ".versions").apply {
+            check(exists() || mkdirs()) { "无法创建版本目录" }
+        }
+    }
+
+    fun listVersions(): JSONArray {
+        if (boundVideoKey == null) return JSONArray()
+        versionsCache?.let { return it }
+        val result = JSONArray()
+        versionDirectory().listFiles()?.filter { it.extension == "json" }
+            ?.sortedByDescending { it.name }?.forEach { file ->
+                runCatching {
+                    val root = JSONObject(file.readText(Charsets.UTF_8))
+                    result.put(JSONObject().put("id", file.name)
+                        .put("name", root.getString("name"))
+                        .put("savedAt", root.getLong("savedAt"))
+                        .put("count", root.getJSONArray("events").length()))
+                }
+            }
+        versionsCache = result
+        return result
+    }
+
+    fun saveVersion(name: String) {
+        val key = requireNotNull(boundVideoKey) { "请先配置视频" }
+        val array = JSONArray()
+        getEvents().forEach { event ->
+            array.put(JSONObject().put("type", event.type.name).put("frameIndex", event.frameIndex)
+                .put("timestampMs", event.timestampMs).apply {
+                    event.portalRoomId?.let { put("portalRoomId", it) }
+                })
+        }
+        val root = JSONObject().put("videoKey", key).put("events", array)
+        val now = System.currentTimeMillis()
+        root.put("version", 1).put("name", name.trim().take(80).ifBlank { "标注版本" })
+            .put("savedAt", now)
+        val file = File(versionDirectory(), "$now-${java.util.UUID.randomUUID()}.json")
+        file.writeText(root.toString(), Charsets.UTF_8)
+        versionsCache = null
+    }
+
+    fun loadVersion(id: String) {
+        require(Regex("[0-9]+-[a-f0-9-]+\\.json").matches(id)) { "版本编号无效" }
+        val key = requireNotNull(boundVideoKey) { "请先配置视频" }
+        val root = JSONObject(File(versionDirectory(), id).readText(Charsets.UTF_8))
+        require(root.getInt("version") == 1 && isSameVideoKey(root.getString("videoKey"), key)) {
+            "版本与当前视频不匹配"
+        }
+        val array = root.getJSONArray("events")
+        val events = (0 until array.length()).map { index ->
+            val item = array.getJSONObject(index)
+            val frame = item.getInt("frameIndex")
+            val time = item.getLong("timestampMs")
+            require(frame >= 0 && time >= 0) { "版本事件数据无效" }
+            MarkedEvent(EventType.valueOf(item.getString("type")), frame, time,
+                item.optString("portalRoomId", "").takeIf { it.isNotBlank() })
+        }.sortedBy { it.timestampMs }
+        saveVersion("加载前自动备份")
+        // 先落盘成功再替换内存，失败时保留当前标注。
+        val current = requireNotNull(resolveEventsFile(key))
+        val pending = File(current.parentFile, current.name + ".pending")
+        root.put("videoKey", key)
+        pending.writeText(root.toString(), Charsets.UTF_8)
+        check(pending.renameTo(current)) { "恢复版本写入失败" }
+        eventMap[key] = events.toMutableList()
+        MarkedEventPortalBinding.clearSelection()
+        MarkedEventPortalBinding.onEventsChanged()
+        MarkedEventRuntimeSource.update(key, events)
     }
 
     private fun loadEventsForVideo(videoKey: String): List<MarkedEvent> {

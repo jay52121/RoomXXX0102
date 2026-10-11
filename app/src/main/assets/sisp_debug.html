@@ -71,6 +71,7 @@ kbd{border:1px solid #687989;border-radius:3px;padding:1px 4px;font-size:11px}
   <aside>
     <section id="roomsSection"><h2>房间地图与人数（点击绑定）</h2><div id="roomList"></div></section>
     <section id="eventsSection"><div class="sectionHeading"><h2 style="margin:0">人工事件 ↔ 算法匹配</h2><span id="eventStats" style="color:var(--muted)"></span></div>
+      <div style="display:flex;gap:8px;padding:8px 12px;flex-wrap:wrap"><button id="saveVersion">保存版本</button><select id="versions" style="min-width:160px;max-width:260px"><option value="">选择标注版本</option></select><button id="loadVersion">加载版本</button><span id="versionNotice" role="status"></span></div>
       <div id="eventList"><table><thead><tr><th>#</th><th>时间</th><th>方向</th><th>房门</th><th>匹配</th></tr></thead><tbody id="eventRows"></tbody></table></div>
       <details id="runtimePanel" style="border-top:1px solid var(--edge);max-height:35%;overflow:auto">
         <summary style="cursor:pointer;padding:8px 12px;color:#ffdb9b">算法事件与额外误报（点击定位）</summary>
@@ -139,8 +140,17 @@ function connection(){
           }
           if(found)frame=found;
         }
+        const signature=JSON.stringify(m.versions||[]);
+        if(el('versions').dataset.signature!==signature){
+          const previous=el('versions').value;el('versions').replaceChildren(new Option('选择标注版本',''));
+          for(const v of m.versions||[])el('versions').add(new Option(v.name+' · '+new Date(v.savedAt).toLocaleString()+' · '+v.count+'条',v.id));
+          el('versions').value=previous;el('versions').dataset.signature=signature;
+        }
         renderAll();
-      }else if(m.type==='response'&&!m.ok){recentWarn=m.message||'操作失败';renderDetail()}
+      }else if(m.type==='response'){
+        el('versionNotice').textContent=m.message||'';
+        if(!m.ok){recentWarn=m.message||'操作失败';renderDetail()}
+      }
     }catch(err){recentWarn='收到的数据格式错误：'+String(err)}
   };
 }
@@ -321,6 +331,8 @@ function renderAll(){
   renderRoomList();renderEvents();renderTimeline();renderCanvas();renderDetail();
 }
 function on(id,cmd,extra=()=>({})){el(id).addEventListener('click',()=>command(cmd,extra()))}
+el('saveVersion').onclick=()=>{const name=window.prompt('保存当前视频的整套事件标注，版本名称：','标注 '+new Date().toLocaleString());if(name!==null)command('save_version',{name})};
+el('loadVersion').onclick=()=>{const id=el('versions').value;if(!id)return;if(window.confirm('加载此版本将替换当前视频全部人工事件和门绑定。当前标注会自动备份，是否继续？'))command('load_version',{id})};
 on('play','play_pause');on('back5','seek_delta',()=>({deltaMs:-5000}));on('forward5','seek_delta',()=>({deltaMs:5000}));
 on('prevFrame','step',()=>({direction:-1}));on('nextFrame','step',()=>({direction:1}));
 on('markIn','mark',()=>({direction:'ENTER'}));on('markOut','mark',()=>({direction:'EXIT'}));

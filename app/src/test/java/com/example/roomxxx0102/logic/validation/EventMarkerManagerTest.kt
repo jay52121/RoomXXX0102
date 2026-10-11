@@ -12,6 +12,21 @@ import org.junit.Test
  * Manager 不调用 init()，因此不会读写磁盘，也不会调用 Android 框架方法。
  */
 class EventMarkerManagerTest {
+    @Test fun versionLoadingRejectsPathsBeforeReadingFiles() {
+        val manager = EventMarkerManager()
+        listOf("../other.json", "/tmp/events.json", "events.json", "1-x.json").forEach { id ->
+            val error = runCatching { manager.loadVersion(id) }.exceptionOrNull()
+            assertTrue(error is IllegalArgumentException)
+            assertEquals("版本编号无效", error?.message)
+        }
+    }
+
+    @Test fun savingVersionRequiresBoundVideo() {
+        val error = runCatching { EventMarkerManager().saveVersion("测试") }.exceptionOrNull()
+        assertTrue(error is IllegalArgumentException)
+        assertEquals("请先配置视频", error?.message)
+    }
+
     @Test fun sameExternalVideoAcceptsDocumentAndMediaStoreUris() {
         val manager = EventMarkerManager()
         val document = "uri:content://com.android.providers.media.documents/document/video%3A1000012482"
