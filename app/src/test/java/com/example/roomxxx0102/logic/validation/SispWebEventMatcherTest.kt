@@ -94,4 +94,17 @@ class SispWebEventMatcherTest {
         assertEquals("MATCH", result[0].status)
         assertEquals("MISS", result[1].status)
     }
+    @Test fun shortSeekGapMustNotProduceFalseMiss() {
+        // 即使跳过 300ms（小于旧代码的 2.5 秒门槛），中间的录像确实没有分析。
+        // 标记时刻 5000ms 的完整证据窗应是 4000..6000，不能由两段拼出来。
+        val result = SispWebEventMatcher.match(
+            marked = listOf(mark(EventType.ENTER, 5_000L, "bedroom")),
+            runtime = emptyList(),
+            observedUntilMs = 6_500L,
+            observedSpans = listOf(3_500L..4_600L, 4_900L..6_500L)
+        )
+        assertEquals("UNOBSERVED", result.single().status)
+    }
+
+
 }
