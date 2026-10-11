@@ -421,7 +421,8 @@ internal class PortalV4Core(
         // WAIT_CLEAR prevents counting the same crossing twice, but cannot suppress a new
         // finite reverse crossing backed by fresh, stable ground observations.
         // commit() clears groundHistory, so every observation here is post-commit.
-        if (t - w.committedAt >= policy.waitClearMs && p.track in observedTracks) {
+        if (t - w.committedAt >= policy.waitClearMs && p.track in observedTracks &&
+            p.lastStrong == t) {
             val ground = p.ground
             val from = p.room
             if (ground?.strong == true && from != null) {
