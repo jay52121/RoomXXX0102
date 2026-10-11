@@ -3,7 +3,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GateConfigTest {
-    @Test fun methodsHaveDistinctStableIds() { assertEquals(3,GateMethod.entries.map { it.id }.toSet().size) }
+    @Test fun methodsHaveDistinctStableIds() {
+        val ids = GateMethod.entries.map { it.id }.toSet()
+        assertEquals(GateMethod.entries.size, ids.size)
+        assertTrue(ids.containsAll(setOf("portal_v4_diff","portal_v4_lk","portal_v4_mog2","portal_v5_diff")))
+    }
     @Test fun unknownMethodIsNotSilentlyMog2() { assertEquals(null,GateMethod.from("removed")) }
     @Test fun invalidConfigCannotRemoveComputeBounds() {
         val c=GateConfig(GateMethod.OPTICAL_FLOW,points=999999,visionEdge=9999,sampleMs=0,fbError=Double.NaN,
