@@ -136,12 +136,20 @@ internal class SispWebDebugServer(
             }
 
             val headers = linkedMapOf<String, String>()
-            repeat(40) {
+            var complete = false
+            for (i in 0 until 40) {
                 val line = readLine(input) ?: return
-                if (line.isEmpty()) return@repeat
+                if (line.isEmpty()) {
+                    complete = true
+                    break
+                }
                 val separator = line.indexOf(':')
                 if (separator > 0) headers[line.substring(0, separator).trim().lowercase()] =
                     line.substring(separator + 1).trim()
+            }
+            if (!complete) {
+                respondError(output, 400, "Too many headers")
+                return
             }
 
             if (path == "/") {
@@ -182,10 +190,11 @@ internal class SispWebDebugServer(
                 "Sec-WebSocket-Accept: $accept\r\n\r\n").toByteArray(StandardCharsets.US_ASCII))
             output.flush()
             socket.soTimeout = 0
-            client = Client(socket, output)
-            clients.add(client)
-            executor.execute { client.writeLoop() }
-            readWebSocketLoop(input, client)
+            val session = Client(socket, output)
+            client = session
+            clients.add(session)
+            executor.execute { session.writeLoop() }
+            readWebSocketLoop(input, session)
         } catch (e: Exception) {
             if (active.get()) Log.i("SispWebDebug", "connection closed: ${e.message}")
         } finally {
