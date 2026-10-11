@@ -425,7 +425,7 @@ internal class PortalV4Core(
             p.lastStrong == t) {
             val ground = p.ground
             val from = p.room
-            if (ground?.strong == true && p.lastStrong == t && from != null) {
+            if (ground?.strong == true && from != null) {
                 val source = sourcePointFor(p, w.gate, from)
                 if (source != null) {
                     val margin = max(0.004, ground.uncertainty * 1.35)
