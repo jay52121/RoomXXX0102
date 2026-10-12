@@ -17,6 +17,7 @@ fun main() {
             previous = pos
         }
         val d = core.diagnostic("gate")!!
-        println("period=$period events=${result.map { it.direction + \"@\" + it.timeMs }} phase=${d.phase} travel=${d.progress}")
+        val eventText = result.map { it.direction + "@" + it.timeMs }
+        println("period=$period events=$eventText phase=${d.phase} travel=${d.progress}")
     }
 }
