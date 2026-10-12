@@ -138,6 +138,15 @@ class DiffV53CoreTest {
         assertTrue(outputs.isEmpty())
     }
 
+    @Test fun newestNativeRecordingUsesActualOutputFrame() {
+        val s = replay("v53_native_recorded_diff.txt")
+        assertEquals(1737, s.frameCount)
+        assertEquals(1247, s.signalCount)
+        assertTrue(s.matched >= 24)
+        assertTrue(s.total - s.matched <= 4)
+        assertTrue(s.in500Ms >= 16)
+    }
+
     @Test fun staticForegroundCannotBecomeCrossing() {
         val core = DiffV53Core("living_room", emptySet())
         val outputs = mutableListOf<DiffV5Transfer>()
