@@ -35,8 +35,11 @@ class DiffV53CoreTest {
                 "F" -> { feed(); time = p[1].toLong(); healthy = p[2] == "1"; frameCount++ }
                 "S" -> {
                     fun decimal(i: Int): Double? = p[i].toDoubleOrNull()
+                    fun grid(i: Int): List<Int> =
+                        if (i >= p.size || p[i].isBlank()) emptyList()
+                        else p[i].split(',').mapNotNull { it.toIntOrNull() }
                     signals += DiffV5Signal(p[1].toLong(), p[2], p[3], p[4].toInt(), p[5], p[6].toInt(),
-                        decimal(7), decimal(8), decimal(9), decimal(10), p[11].toInt())
+                        decimal(7), decimal(8), decimal(9), decimal(10), p[11].toInt(), grid(12), grid(13))
                     signalCount++
                 }
             }
