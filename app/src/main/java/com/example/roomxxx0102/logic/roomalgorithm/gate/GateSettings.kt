@@ -70,11 +70,13 @@ object GateSettings {
     fun activate(c:Context?,id:String?) { GateRuntime.configure(GateMethod.from(id)?.let { load(c,it) }) }
     fun showEditor(context:Context,id:String?) {
         val method=GateMethod.from(id)
-        if(method==null) { Toast.makeText(context,"请先选择 V4/V5/V5.1/V5.2 算法",Toast.LENGTH_SHORT).show();return }
+        if(method==null) { Toast.makeText(context,"请先选择房间算法",Toast.LENGTH_SHORT).show();return }
         val config=load(context,method);val json=encode(config)
         val fields=common+when(method) { GateMethod.OPTICAL_FLOW->optical;GateMethod.MOG2->mog;else->emptyList() }
         val layout=LinearLayout(context).apply { orientation=LinearLayout.VERTICAL;setPadding(24,16,24,16) }
-        layout.addView(TextView(context).apply { text=if(method==GateMethod.V5_3_DIFFERENCE)
+        layout.addView(TextView(context).apply { text=if(method==GateMethod.V5_4_DIFFERENCE)
+            "V5.4 重新建模门区穿门状态：WATCH、接近、跨越、遮挡、完成及折返。V5.2 的框重叠启动不变；新增加门区局部双向 LK 光流，直接量测沿门法线的运动，避免仅凭差分面积及观察时长猜测穿门。仍为实验版；旧录像没有LK运动数据，必须重新实测，目标T-100至T+1000ms。"
+        else if(method==GateMethod.V5_3_DIFFERENCE)
             "V5.3：延续人体框与门区重叠触发的低负荷差分。穿门候选从最近约1.15秒滚动分析，再验证200~600ms内的新方向变化和门区空间前景；相邻门不再一律锁定950ms。按实际输出帧计时，目标T+500ms，严格窗口T-100至T+1000ms；仍属实测验证版。"
         else if(method==GateMethod.V5_2_DIFFERENCE)
             "V5.2 提前采集与实时差分：人体轮廓进入门区即可预启动像素分析，避免等脚点接触后才处理；短暂遮挡由持续运动证据确认，已有强退出证据可纠正遗漏的进入状态。严格按事件真正输出视频帧 T-100 至 T+1000ms 验收，目标 500ms。采集提前可能改变前景背景，必须再次实测验证。"
