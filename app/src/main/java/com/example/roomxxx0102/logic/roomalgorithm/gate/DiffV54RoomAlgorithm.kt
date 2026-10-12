@@ -132,8 +132,13 @@ class DiffV54RoomAlgorithm internal constructor(
                 emptySet(), room != null)
         }
         val counts = roomIds.associateWith { engine.counts[it] ?: 0 }
+        val stateNotes = if (GateDiagnosticBus.isCapturing()) measurements.mapNotNull { m ->
+            engine.diagnostic(m.gateId)?.let { d ->
+                "V54_STAGE:${m.roomId}:${d.phase}:travel10000=${(d.progress*10000).toInt()}:lk=${d.opticalFrames}:unc100=${(d.uncertainty*100).toInt()}"
+            }
+        } else emptyList()
         val decision = FlowDecision(counts, counts, counts, people.count { it.room == null },
-            events, people, verified.map { "V54_DIFF:${it.direction}:${it.roomId}:${it.evidence}" })
+            events, people, verified.map { "V54_PHYSICAL:${it.direction}:${it.roomId}:${it.evidence}" } + stateNotes)
         lastDecision = decision
         lastSequence = seq
         lastTime = time
