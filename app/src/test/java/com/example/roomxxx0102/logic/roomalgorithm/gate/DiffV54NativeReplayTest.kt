@@ -22,7 +22,8 @@ class DiffV54NativeReplayTest {
     private data class Truth(val id: Int, val timeMs: Long, val roomId: String, val dir: String)
     private data class Result(val events: List<DiffV54Core.Crossing>, val frames: Int,
                       val measures: Int, val truths: List<Truth>)
-    private fun replay(): Result {
+    private fun replay(dropChance: Double = 0.0, seed: Long = 1L): Result {
+        val rng = java.util.Random(seed)
         val input = javaClass.classLoader!!.getResourceAsStream("v54_real_device_flow_replay.txt")
             ?: error("Missing pinned V5.4 native recording")
         val core = DiffV54Core("living_room", confirmMs=120L)
@@ -50,12 +51,16 @@ class DiffV54NativeReplayTest {
                 when(p[0]) {
                     "F" -> {
                         flush()
-                        now=p[1].toLong()
+                        // Drop a complete analysis frame including every gate
+                        // measurement; human labels remain outside the decoder.
+                        val keep = dropChance <= 0.0 || rng.nextDouble() >= dropChance
+                        now = if (keep) p[1].toLong() else -1L
                         healthy=p[2]=="1"
                         detached=p[3]=="1"
-                        frames++
+                        if (keep) frames++
                     }
                     "M" -> {
+                        if (now < 0) return@forEach
                         signals += DiffV54Core.Measurement(
                             p[1].toLong(), p[2], p[3], p[4].toInt(), p[5]=="true",
                             parse(p[6]), parse(p[7]), parse(p[8]), p[9].toInt(),
@@ -92,11 +97,11 @@ class DiffV54NativeReplayTest {
         val extras=r.events.size-used.size
         println("V54_REAL_NATIVE frames=${r.frames} points=${r.measures} " +
             "matches=${used.size}/32 outputs=${r.events.size} extra=$extras within500=$quick")
-        // Verified physically meaningful correction (peak-to-current, not first-to-current)
-        // recovers EXIT #1 and #13 without increasing unmatched outputs.
-        assertTrue("Limited native improvement disappeared",used.size>=6)
-        assertTrue("False-positive count worsened",extras<=3)
-        assertTrue("Timely real crossings worsened",quick>=3)
+        // Assert the measured, unmodified real LK recording. This is still
+        // far from the desired 32/32 and is not an independent blind test.
+        assertTrue("Native LK regression below verified candidate floor",used.size>=11)
+        assertEquals("Causal stage transitions reintroduced early/late outputs",0,extras)
+        assertTrue("Prompt (<=500ms) response regression",quick>=7)
         assertTrue("Missing exterior EXIT near 3.823s",r.events.any {
             it.direction=="EXIT" && it.roomId==r.truths[0].roomId &&
                 it.timeMs in 3723L..4823L
@@ -105,6 +110,53 @@ class DiffV54NativeReplayTest {
             it.direction=="EXIT" && it.roomId==r.truths[12].roomId &&
                 it.timeMs in 68467L..69567L
         })
+    }
+
+    @Test fun genuineLaterBathroomInAndOutRecoverAfterAnEarlierRetreat() {
+        val r=replay()
+        val targetIn=r.truths.first { it.id == 23 }
+        val targetOut=r.truths.first { it.id == 24 }
+        assertTrue("RETREAT swallowed the next genuine ENTER",
+            r.events.any { it.roomId==targetIn.roomId && it.direction=="ENTER" &&
+                it.timeMs-targetIn.timeMs in -100L..1000L })
+        assertTrue("Same person's subsequent EXIT was lost or posted late",
+            r.events.any { it.roomId==targetOut.roomId && it.direction=="EXIT" &&
+                it.timeMs-targetOut.timeMs in -100L..1000L })
+        // The two previous early child-room entries must not recur.
+        for (id in listOf(10,20)) {
+            val gt=r.truths.first { it.id==id }
+            assertTrue("Saturation caused early child-room ENTER #$id",
+                r.events.none { it.roomId==gt.roomId && it.direction=="ENTER" &&
+                    it.timeMs < gt.timeMs-100L &&
+                    kotlin.math.abs(it.timeMs-gt.timeMs)<2000L })
+        }
+    }
+
+    @Test fun recordedSamplingDropoutsCannotRestoreTheRetreatLock() {
+        for (drop in listOf(.03,.10)) {
+            val scored=mutableListOf<Pair<Int,Int>>()
+            for (seed in 0L until 10L) {
+                val r=replay(drop,seed)
+                val used=mutableSetOf<Int>()
+                for (gt in r.truths) {
+                    val matches=r.events.indices.filter { i ->
+                        i !in used && r.events[i].roomId==gt.roomId &&
+                        r.events[i].direction==gt.dir &&
+                        r.events[i].timeMs-gt.timeMs in -100L..1000L
+                    }
+                    if (matches.isNotEmpty())
+                        used+=matches.minBy { abs(r.events[it].timeMs-gt.timeMs) }
+                }
+                val extras=r.events.size-used.size
+                scored+=used.size to extras
+                assertTrue("Drop=${drop*100}% seed=$seed matched only ${used.size}",
+                    used.size>=8)
+                assertTrue("Drop=${drop*100}% seed=$seed emitted $extras extras",
+                    extras<=3)
+            }
+            println("V54_DROPOUT $drop minHits=${scored.minOf { it.first }} " +
+                "worstExtra=${scored.maxOf { it.second }}")
+        }
     }
 
     @Test fun changingTrackIdCannotInheritEarlierPersonsMotion() {
