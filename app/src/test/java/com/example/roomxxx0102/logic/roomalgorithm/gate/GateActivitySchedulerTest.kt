@@ -16,6 +16,45 @@ class GateActivitySchedulerTest {
         id=id, box=FlowBox(.45,bottom-.18,.55,bottom), joints=emptyList(), score=score,
         locked=false, shielded=false)
 
+    @Test fun v52UsesBodyApertureOverlapBeforeFeetTouchButOldV51DoesNot() {
+        val crossing = person(bottom = .52)
+        val old = GateActivityScheduler(GateConfig(GateMethod.V5_1_DIFFERENCE))
+        assertEquals(GateSensorPhase.OFF, old.update(0, listOf(crossing), listOf(gate())).single().phase)
+        val early = GateActivityScheduler(GateConfig(GateMethod.V5_2_DIFFERENCE))
+        assertEquals(GateSensorPhase.ARMED, early.update(0, listOf(crossing), listOf(gate())).single().phase)
+        assertEquals(GateSensorPhase.ACTIVE, early.update(110, listOf(crossing), listOf(gate())).single().phase)
+        assertEquals(GateSensorPhase.HOLD, early.update(230, emptyList(), listOf(gate())).single().phase)
+        assertEquals(GateSensorPhase.OFF, early.update(1200, emptyList(), listOf(gate())).single().phase)
+    }
+
+    @Test fun v52StillEnforcesTwoActiveGatesMaximum() {
+        val cfg = GateConfig(GateMethod.V5_2_DIFFERENCE, maxActiveGates = 2)
+        val sched = GateActivityScheduler(cfg)
+        val doors = listOf(gate("a"), gate("b"), gate("c"))
+        val d = listOf(person(bottom = .52))
+        sched.update(0, d, doors)
+        val active = sched.update(100, d, doors)
+        assertEquals(2, active.count { it.phase == GateSensorPhase.ACTIVE })
+        assertEquals(2, active.count { it.shouldProcessPixels })
+    }
+
+    @Test fun v52DoesNotInheritActiveOnTrackSwap() {
+        val sched = GateActivityScheduler(GateConfig(GateMethod.V5_2_DIFFERENCE))
+        val first = person(id = 1, bottom = .52)
+        val second = person(id = 2, bottom = .52)
+        sched.update(0, listOf(first), listOf(gate()))
+        assertEquals(GateSensorPhase.ACTIVE, sched.update(100, listOf(first), listOf(gate())).single().phase)
+        assertEquals(GateSensorPhase.ARMED, sched.update(180, listOf(second), listOf(gate())).single().phase)
+        assertEquals(GateSensorPhase.ACTIVE, sched.update(290, listOf(second), listOf(gate())).single().phase)
+    }
+
+    @Test fun v52FarBodyNeverTriggersPixelProcessing() {
+        val sched = GateActivityScheduler(GateConfig(GateMethod.V5_2_DIFFERENCE))
+        val result = sched.update(0, listOf(person(bottom = .85)), listOf(gate())).single()
+        assertEquals(GateSensorPhase.OFF, result.phase)
+        assertFalse(result.shouldProcessPixels)
+    }
+
     @Test fun farPersonKeepsGateOff() {
         val s=GateActivityScheduler(GateConfig(GateMethod.DIFFERENCE))
         val d=s.update(0,listOf(person(bottom=.80)),listOf(gate())).single()

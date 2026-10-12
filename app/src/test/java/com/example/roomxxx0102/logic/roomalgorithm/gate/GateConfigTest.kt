@@ -6,7 +6,7 @@ class GateConfigTest {
     @Test fun methodsHaveDistinctStableIds() {
         val ids = GateMethod.entries.map { it.id }.toSet()
         assertEquals(GateMethod.entries.size, ids.size)
-        assertTrue(ids.containsAll(setOf("portal_v4_diff","portal_v4_lk","portal_v4_mog2","portal_v5_diff","portal_v5_1_diff")))
+        assertTrue(ids.containsAll(setOf("portal_v4_diff","portal_v4_lk","portal_v4_mog2","portal_v5_diff","portal_v5_1_diff","portal_v5_2_diff")))
     }
     @Test fun unknownMethodIsNotSilentlyMog2() { assertEquals(null,GateMethod.from("removed")) }
     @Test fun invalidConfigCannotRemoveComputeBounds() {

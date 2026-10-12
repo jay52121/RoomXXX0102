@@ -25,12 +25,17 @@ internal data class GateSensorDecision(
 }
 
 internal class GateActivityScheduler(private val cfg: GateConfig) {
+    // V5.2 only: start local optical evidence before a foot reaches the threshold.
+    // All V4/V5.0/V5.1 scheduling semantics remain unchanged.
+    private val earlyBody = cfg.method == GateMethod.V5_2_DIFFERENCE
     private data class State(
         var phase: GateSensorPhase = GateSensorPhase.OFF,
         var ownerTrack: Int? = null,
         var lastNearMs: Long = -1L,
         var lastContactMs: Long = -1L,
         var lastDistance: Double = Double.POSITIVE_INFINITY,
+        var firstOverlapMs: Long = -1L,
+        var overlapTrack: Int? = null,
     )
 
     private data class Candidate(
@@ -53,14 +58,21 @@ internal class GateActivityScheduler(private val cfg: GateConfig) {
         for (gate in gates) {
             if (gate.isBlind || gate.aperture.size < 3) continue
             for (d in eligibleDetections) {
-                val point = lowerBodyPoint(d)
-                if (gate.along(point) !in -0.22..1.22) continue
-                val distance = gate.distance(point)
-                val armBand = max(0.018, d.box.height * cfg.armDistanceScale)
-                if (distance > armBand) continue
-                val contactBand = max(0.010, d.box.height * cfg.contactScale * 1.25)
-                val contact = distance <= contactBand && lowerBodyTouchesAperture(gate, d, point)
-                candidates += Candidate(gate, d, point, distance, contact)
+                if (earlyBody) {
+                    val overlap = bodyApertureOverlap(gate, d)
+                    if (overlap < 0.24) continue
+                    // Rank by body/aperture intersection, not by leg or foot geometry.
+                    candidates += Candidate(gate, d, d.box.center, 1.0 - overlap, overlap >= 0.36)
+                } else {
+                    val point = lowerBodyPoint(d)
+                    if (gate.along(point) !in -0.22..1.22) continue
+                    val distance = gate.distance(point)
+                    val armBand = max(0.018, d.box.height * cfg.armDistanceScale)
+                    if (distance > armBand) continue
+                    val contactBand = max(0.010, d.box.height * cfg.contactScale * 1.25)
+                    val contact = distance <= contactBand && lowerBodyTouchesAperture(gate, d, point)
+                    candidates += Candidate(gate, d, point, distance, contact)
+                }
             }
         }
 
@@ -83,14 +95,32 @@ internal class GateActivityScheduler(private val cfg: GateConfig) {
             val state = states.getOrPut(gate.id) { State() }
             val c = selected[gate.id]
             if (c != null) {
+                val priorNear = state.lastNearMs
+                val sameOwner = state.overlapTrack == c.detection.id &&
+                    priorNear >= 0 && timeMs - priorNear <= cfg.maxGapMs
                 state.ownerTrack = c.detection.id
                 state.lastNearMs = timeMs
                 state.lastDistance = c.distance
                 if (c.contact) {
-                    state.phase = GateSensorPhase.ACTIVE
-                    state.lastContactMs = timeMs
+                    if (!earlyBody) {
+                        state.phase = GateSensorPhase.ACTIVE
+                        state.lastContactMs = timeMs
+                    } else {
+                        if (!sameOwner || state.firstOverlapMs < 0) state.firstOverlapMs = timeMs
+                        state.overlapTrack = c.detection.id
+                        // One extra analysis frame rejects isolated overlap flickers.
+                        if (timeMs - state.firstOverlapMs >= max(60, cfg.sampleMs)) {
+                            state.phase = GateSensorPhase.ACTIVE
+                            state.lastContactMs = timeMs
+                        } else {
+                            // A new owner never inherits the last person's ACTIVE state.
+                            state.phase = GateSensorPhase.ARMED
+                        }
+                    }
                 } else if (state.phase != GateSensorPhase.ACTIVE) {
                     state.phase = GateSensorPhase.ARMED
+                    state.firstOverlapMs = -1L
+                    state.overlapTrack = null
                 }
             } else {
                 val sinceContact = if (state.lastContactMs < 0) Long.MAX_VALUE else timeMs - state.lastContactMs
@@ -104,12 +134,28 @@ internal class GateActivityScheduler(private val cfg: GateConfig) {
                     state.ownerTrack = null
                     state.lastDistance = Double.POSITIVE_INFINITY
                     state.lastContactMs = -1L
+                    state.firstOverlapMs = -1L
+                    state.overlapTrack = null
                 }
             }
             result += GateSensorDecision(gate.id, state.phase, state.ownerTrack, state.lastDistance,
                 c?.contact == true || state.phase == GateSensorPhase.HOLD)
         }
         return result
+    }
+
+    /** Fraction of the person's bbox covered by the local door aperture bbox.
+     * The test is deliberately on the whole body, without reading feet or knees.
+     */
+    private fun bodyApertureOverlap(g: FlowGate, d: FlowDetection): Double {
+        if (g.aperture.size < 3) return 0.0
+        val left = g.aperture.minOf { it.x }
+        val right = g.aperture.maxOf { it.x }
+        val top = g.aperture.minOf { it.y }
+        val bottom = g.aperture.maxOf { it.y }
+        val width = (minOf(d.box.right, right) - maxOf(d.box.left, left)).coerceAtLeast(0.0)
+        val height = (minOf(d.box.bottom, bottom) - maxOf(d.box.top, top)).coerceAtLeast(0.0)
+        return (width * height / (d.box.width * d.box.height).coerceAtLeast(0.000001)).coerceIn(0.0, 1.0)
     }
 
     private fun lowerBodyPoint(d: FlowDetection): FlowPoint {
