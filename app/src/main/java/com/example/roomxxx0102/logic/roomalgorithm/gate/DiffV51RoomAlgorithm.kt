@@ -69,7 +69,7 @@ class DiffV51RoomAlgorithm internal constructor(
             roomIds = input.rooms.map { it.roomId }
             initialKnown = baseline.known && (!input.sceneInfo.isVideoPlayback || time <= 500)
             core = DiffV51Core(livingId, gates.filter { it.isExterior }.map { it.room }.toSet(),
-                if (initialKnown) baseline.counts else emptyMap())
+                if (initialKnown) baseline.counts else emptyMap(), config.confirmMs.toLong())
             if (GateDiagnosticBus.isCapturing()) GateDiagnosticBus.configure(config)
             vision = GateEventVision.create(gates, config)
             roomsCache = input.rooms.toList()
