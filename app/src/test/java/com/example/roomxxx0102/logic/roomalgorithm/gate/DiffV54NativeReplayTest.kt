@@ -19,8 +19,8 @@ import kotlin.math.abs
  * remains gated by independent new-video validation.
  */
 class DiffV54NativeReplayTest {
-    data class Truth(val id: Int, val timeMs: Long, val roomId: String, val dir: String)
-    data class Result(val events: List<DiffV54Core.Crossing>, val frames: Int,
+    private data class Truth(val id: Int, val timeMs: Long, val roomId: String, val dir: String)
+    private data class Result(val events: List<DiffV54Core.Crossing>, val frames: Int,
                       val measures: Int, val truths: List<Truth>)
     private fun replay(): Result {
         val input = javaClass.classLoader!!.getResourceAsStream("v54_real_device_flow_replay.txt")
