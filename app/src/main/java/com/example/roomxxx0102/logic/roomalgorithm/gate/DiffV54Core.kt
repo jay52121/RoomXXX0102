@@ -67,6 +67,19 @@ internal class DiffV54Core(
         var lastPublishedAt: Long = -1,
         var noise: Double = 0.002,
         var uncertainty: Double = 1.0,
+        // Candidate lifetime is distinct from the track lifetime.
+        var inwardStartSide: Double? = null,
+        var outwardStartSide: Double? = null,
+        var outwardStartAbs: Double = .0,
+        var saturationAt: Long = -1L,
+        var saturationSide: Double? = null,
+        var invisibleSince: Long = -1L,
+        var recoveredAt: Long = -1L,
+        var retreatAt: Long = -1L,
+        var retreatSide: Double? = null,
+        var retreatFromDir: Int = 0,
+        var retreatNewOptical: Int = 0,
+        var retreatSeenInactive: Long = -1L,
         var generation: Int = 0,
     )
 
@@ -168,14 +181,45 @@ internal class DiffV54Core(
         // noisy fallback, not a replacement for a witnessed mask transition.
         val disagreement = opticalDelta != null && poseDelta != null &&
             opticalDelta * poseDelta < 0 && abs(opticalDelta) > .001 && abs(poseDelta) > .004
+        // LK measures texture displacement while bodySide measures silhouette
+        // displacement: the scales differ substantially on oblique/narrow doors.
+        // An extremely small reliable LK vector must not silently suppress a
+        // coherent, much larger pose shift. Conflicts remain rejected.
         val actual = when {
+            opticalDelta != null && poseDelta != null && !disagreement ->
+                opticalDelta * .45 + poseDelta * .55
             opticalDelta != null -> opticalDelta
-            poseDelta != null -> poseDelta * 0.70
+            poseDelta != null -> poseDelta * .70
             else -> 0.0
         }
         if (opticalDelta != null) { g.flowSupport++; g.lastGoodOpticalAt = now }
-        if (!m.active) { if (g.phase in setOf(Phase.APPROACH_IN, Phase.APPROACH_OUT, Phase.TRANSIT_IN, Phase.TRANSIT_OUT)) g.phase = Phase.OCCLUDED }
-        else g.lastActiveAt = now
+        // RETREAT cancels an uncompleted attempt; it must not freeze a gate for
+        // the rest of an ACTIVE episode. A fresh inward run following a false
+        // outward hypothesis requires independent LK and body progression.
+        // The opposite, return leg of an incomplete inward approach stays
+        // suppressed unless the body actually disengages and re-appears.
+        if (g.phase == Phase.RETREAT) {
+            if (!m.active && g.retreatSeenInactive < 0) g.retreatSeenInactive = now
+            val poseMove = if (g.retreatSide != null && m.bodySide != null)
+                m.bodySide - g.retreatSide!! else 0.0
+            if (opticalDelta != null && opticalDelta < -.0018) g.retreatNewOptical++
+            val newInward = g.retreatFromDir == 1 && m.active &&
+                now - g.retreatAt in 280L..1700L &&
+                poseMove <= -.014 && g.retreatNewOptical >= 2 &&
+                (m.absorption ?: 0.0) >= .95
+            val newAfterGap = g.retreatSeenInactive >= 0 && m.active &&
+                now - g.retreatSeenInactive >= 260L
+            if (newInward || newAfterGap) resetKinematics(g)
+        }
+        if (!m.active) {
+            if (g.phase in setOf(Phase.APPROACH_IN, Phase.APPROACH_OUT, Phase.TRANSIT_IN, Phase.TRANSIT_OUT))
+                g.phase = Phase.OCCLUDED
+            if (g.saturationAt >= 0 && g.invisibleSince < 0) g.invisibleSince = now
+        } else {
+            if (g.invisibleSince >= 0 && now - g.invisibleSince >= 480L && g.recoveredAt < 0)
+                g.recoveredAt = now
+            g.lastActiveAt = now
+        }
         // Adaptive per-gate noise scale with bounded forgetting. Important when
         // different background references change pixel counts by 10-50x.
         if (poseDelta != null) {
@@ -196,8 +240,15 @@ internal class DiffV54Core(
                 g.reverseTravel = 0.0
                 g.peakAbs = m.absorption ?: 0.0
                 g.firstAbs = m.absorption ?: 0.0
+                g.inwardStartSide = if (observedDir < 0) m.bodySide else null
+                g.outwardStartSide = if (observedDir > 0) m.bodySide else null
+                g.outwardStartAbs = if (observedDir > 0) m.absorption ?: .0 else .0
                 g.flowSupport = if (opticalDelta != null) 1 else 0
                 g.settledAt = -1
+                g.saturationAt = -1L
+                g.saturationSide = null
+                g.invisibleSince = -1L
+                g.recoveredAt = -1L
                 g.generation++
             }
             if (g.direction == observedDir) {
@@ -214,6 +265,11 @@ internal class DiffV54Core(
                     g.reverseTravel >= max(.008, g.travel * .35)) {
                     g.pending = null
                     g.phase = Phase.RETREAT
+                    g.retreatAt = now
+                    g.retreatSide = m.bodySide
+                    g.retreatFromDir = g.direction
+                    g.retreatNewOptical = 0
+                    g.retreatSeenInactive = -1L
                     g.direction = 0
                     g.travel = 0.0
                 }
@@ -222,6 +278,11 @@ internal class DiffV54Core(
             if (g.settledAt < 0) g.settledAt = now
         }
         if (m.absorption != null) g.peakAbs = max(g.peakAbs, m.absorption)
+        if (g.direction < 0 && g.saturationAt < 0 && m.active &&
+            (m.absorption ?: .0) >= .975 && m.bodySide != null) {
+            g.saturationAt = now
+            g.saturationSide = m.bodySide
+        }
         val absorb = m.absorption ?: g.lastAbs
         val support = if (g.flowSupport >= 2 && now - g.lastGoodOpticalAt <= 450L) 1.0 else 0.0
         // Stable movement evidence, not a count of frames or a timer since the
@@ -237,10 +298,38 @@ internal class DiffV54Core(
             val cleared = absorb != null && g.peakAbs - absorb >= .085 && absorb <= .94
             val saturated = absorb != null && absorb >= .975 && g.peakAbs >= .98
             val settled = g.settledAt >= 0 && now - g.settledAt >= 80L
+            // Occupancy saturation indicates a person near the doorway, NOT
+            // completed entry. Require continued inward travel beyond the
+            // first saturation or a new visible pass after an occlusion.
+            val progressAfterSaturation = g.saturationAt >= 0 && m.bodySide != null &&
+                g.saturationSide != null && now - g.saturationAt >= 230L &&
+                g.saturationSide!! - m.bodySide >= .015
+            val reacquiredAfterOcclusion = g.saturationAt >= 0 &&
+                g.recoveredAt >= 0 && now - g.recoveredAt >= 80L &&
+                (m.absorption ?: 0.0) >= .975 && m.active &&
+                (m.bodySide == null || g.saturationSide == null ||
+                    m.bodySide <= g.saturationSide!! + .010)
+            // Large independently observed directional travel can also reach
+            // the plane when first saturation occurs late in a clear passage.
+            val strongPhysicalApproach = saturated && g.flowSupport >= 3 &&
+                g.inwardStartSide != null && m.bodySide != null &&
+                g.inwardStartSide!! - m.bodySide >= .045 && g.travel >= .046
+            // A genuine outward transit may still be fully inside the camera's
+            // wide aperture: allow coherent travel from an occupied, deep start
+            // instead of waiting until the foreground mask almost disappears.
+            val outwardBeyond = g.direction > 0 && g.outwardStartSide != null &&
+                m.bodySide != null && g.outwardStartAbs >= .93 &&
+                now - g.travelStartAt >= 280L &&
+                m.bodySide - g.outwardStartSide!! >= .020 &&
+                g.travel >= .024 && g.flowSupport >= 3 &&
+                now - g.lastGoodOpticalAt <= 350L
             val completed = if (g.direction < 0) {
-                saturated && (settled || (g.travel >= travelThreshold * 1.75 && g.flowSupport >= 2))
+                saturated && (progressAfterSaturation || reacquiredAfterOcclusion ||
+                    strongPhysicalApproach) &&
+                    (settled || g.flowSupport >= 2)
             } else {
-                cleared || (absorb != null && absorb <= .74 && g.flowSupport >= 2)
+                cleared || outwardBeyond ||
+                    (absorb != null && absorb <= .74 && g.flowSupport >= 2)
             }
             if (completed && support >= .9) {
                 val strength = (min(1.0, g.travel / travelThreshold) * .6 + support * .4).coerceIn(0.0, 1.0)
@@ -262,6 +351,11 @@ internal class DiffV54Core(
             opticalDelta != null && abs(opticalDelta) > epsilon * 1.5) {
             g.pending = null
             g.phase = Phase.RETREAT
+            g.retreatAt = now
+            g.retreatSide = m.bodySide
+            g.retreatFromDir = g.direction
+            g.retreatNewOptical = 0
+            g.retreatSeenInactive = -1L
             g.travel = 0.0
             g.direction = 0
         }
@@ -287,6 +381,18 @@ internal class DiffV54Core(
         g.travelStartAt = -1L
         g.lastMotionAt = -1L
         g.settledAt = -1L
+        g.inwardStartSide = null
+        g.outwardStartSide = null
+        g.outwardStartAbs = .0
+        g.saturationAt = -1L
+        g.saturationSide = null
+        g.invisibleSince = -1L
+        g.recoveredAt = -1L
+        g.retreatAt = -1L
+        g.retreatSide = null
+        g.retreatFromDir = 0
+        g.retreatNewOptical = 0
+        g.retreatSeenInactive = -1L
     }
 
     private fun publish(e: Crossing) {
