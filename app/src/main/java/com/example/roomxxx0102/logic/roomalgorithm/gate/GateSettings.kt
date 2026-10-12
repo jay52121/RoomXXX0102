@@ -74,7 +74,9 @@ object GateSettings {
         val config=load(context,method);val json=encode(config)
         val fields=common+when(method) { GateMethod.OPTICAL_FLOW->optical;GateMethod.MOG2->mog;else->emptyList() }
         val layout=LinearLayout(context).apply { orientation=LinearLayout.VERTICAL;setPadding(24,16,24,16) }
-        layout.addView(TextView(context).apply { text=if(method==GateMethod.V5_2_DIFFERENCE)
+        layout.addView(TextView(context).apply { text=if(method==GateMethod.V5_3_DIFFERENCE)
+            "V5.3：延续人体框与门区重叠触发的低负荷差分。穿门候选从最近约1.15秒滚动分析，再验证200~600ms内的新方向变化和门区空间前景；相邻门不再一律锁定950ms。按实际输出帧计时，目标T+500ms，严格窗口T-100至T+1000ms；仍属实测验证版。"
+        else if(method==GateMethod.V5_2_DIFFERENCE)
             "V5.2 提前采集与实时差分：人体轮廓进入门区即可预启动像素分析，避免等脚点接触后才处理；短暂遮挡由持续运动证据确认，已有强退出证据可纠正遗漏的进入状态。严格按事件真正输出视频帧 T-100 至 T+1000ms 验收，目标 500ms。采集提前可能改变前景背景，必须再次实测验证。"
         else if(method==GateMethod.V5_1_DIFFERENCE)
             "V5.1 实时差分：针对门区差分时序连续取证，证据充分后立即确认，不等待整个门口活动结束。以实际输出所在帧核验：提前最多100ms，目标延后500ms内，最迟1000ms。V5.0仍可选择，采集层暂复用 V4 Event ROI。"
