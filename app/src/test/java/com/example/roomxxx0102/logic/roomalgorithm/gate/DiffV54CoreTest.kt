@@ -59,6 +59,21 @@ class DiffV54CoreTest {
         assertTrue(runMotion(+1, 100, optical = false).isEmpty())
     }
 
+    @Test fun saturatedDoorwayBodyWithTinyInwardLKIsNotYetACompletedEntry() {
+        val core = DiffV54Core("living")
+        val out = mutableListOf<DiffV54Core.Crossing>()
+        // A person remains fully covered by the aperture while the LK tracks
+        // slow texture changes. Saturation alone MUST NOT start an ENTER.
+        for (i in 0..24) {
+            val t=i*90L
+            val side=-.130-.0002*i
+            out+=core.step(t,listOf(DiffV54Core.Measurement(t,"door","room",6,true,
+                side,.999,.5,3800,if(i==0)null else -.002,24)))
+        }
+        assertTrue("Saturation without a completed silhouette transition",
+            out.isEmpty())
+    }
+
     @Test fun stationaryPersonIsNotAnEnterOrExit() {
         val core = DiffV54Core("living")
         val outputs = mutableListOf<DiffV54Core.Crossing>()
