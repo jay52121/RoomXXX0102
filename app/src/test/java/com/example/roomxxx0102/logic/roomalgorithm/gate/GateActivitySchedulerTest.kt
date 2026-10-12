@@ -16,6 +16,16 @@ class GateActivitySchedulerTest {
         id=id, box=FlowBox(.45,bottom-.18,.55,bottom), joints=emptyList(), score=score,
         locked=false, shielded=false)
 
+    @Test fun v54ReusesBoundedBodyOverlapActivationInsteadOfScanningAllGates() {
+        val sched = GateActivityScheduler(GateConfig(GateMethod.V5_4_DIFFERENCE, maxActiveGates = 2))
+        val doors = listOf(gate("a"), gate("b"), gate("c"))
+        val detected = listOf(person(bottom = .52))
+        sched.update(0, detected, doors)
+        val active = sched.update(110, detected, doors)
+        assertEquals(2, active.count { it.phase == GateSensorPhase.ACTIVE })
+        assertEquals(2, active.count { it.shouldProcessPixels })
+    }
+
     @Test fun v52UsesBodyApertureOverlapBeforeFeetTouchButOldV51DoesNot() {
         val crossing = person(bottom = .52)
         val old = GateActivityScheduler(GateConfig(GateMethod.V5_1_DIFFERENCE))
