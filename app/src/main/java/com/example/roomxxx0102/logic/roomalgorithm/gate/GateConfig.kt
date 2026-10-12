@@ -5,7 +5,8 @@ internal enum class GateMethod(val id: String, val label: String) {
     OPTICAL_FLOW("portal_v4_lk", "V4-B 局部双向光流（精度候选）"),
     MOG2("portal_v4_mog2", "V4-C OpenCV MOG2（背景分离）"),
     V5_DIFFERENCE("portal_v5_diff", "V5 · 独立差分穿门（实测版）"),
-    V5_1_DIFFERENCE("portal_v5_1_diff", "V5.1 · 实时差分穿门（验证版）");
+    V5_1_DIFFERENCE("portal_v5_1_diff", "V5.1 · 实时差分穿门（验证版）"),
+    V5_2_DIFFERENCE("portal_v5_2_diff", "V5.2 · 提前采集实时差分（验证版）");
     companion object { fun from(id: String?) = entries.firstOrNull { it.id == id } }
 }
 
