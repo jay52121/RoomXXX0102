@@ -147,6 +147,33 @@ class DiffV53CoreTest {
         assertTrue(s.in500Ms >= 16)
     }
 
+    @Test fun longStaticObservationIsNotProofOfDoorCrossing() {
+        val core = DiffV53Core("living_room", emptySet())
+        val outputs = mutableListOf<DiffV5Transfer>()
+        for (i in 0 until 25) {
+            val t = i * 100L
+            outputs += core.step(t, listOf(DiffV5Signal(t, "G", "A", 1,
+                "ACTIVE", 2800, .35, -.11 - .0005 * i, .5, .95, 350)))
+        }
+        assertTrue(outputs.isEmpty())
+    }
+
+    @Test fun freshLocalSideAndForegroundTransitionCanConfirmEnter() {
+        val core = DiffV53Core("living_room", emptySet())
+        val outputs = mutableListOf<DiffV5Transfer>()
+        val sides = listOf(-.10,-.104,-.108,-.112,-.117,-.123,-.131,-.139,-.148,-.157,-.164)
+        val ratios = listOf(.82,.86,.89,.92,.94,.96,.97,.99,.994,.999,1.0)
+        for (i in sides.indices) {
+            val t = i * 100L
+            outputs += core.step(t, listOf(DiffV5Signal(t, "G", "A", 4,
+                "ACTIVE", 2800, .3 + .012 * i, sides[i], .82 - .035 * i, ratios[i], 1900)))
+        }
+        outputs += core.step(1250L, emptyList())
+        assertEquals(1, outputs.size)
+        assertEquals("ENTER", outputs.single().direction)
+        assertTrue(outputs.single().timeMs >= 800L)
+    }
+
     @Test fun staticForegroundCannotBecomeCrossing() {
         val core = DiffV53Core("living_room", emptySet())
         val outputs = mutableListOf<DiffV5Transfer>()
