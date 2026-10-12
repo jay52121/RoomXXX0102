@@ -16,7 +16,7 @@ def _integer(x: Any, name: str) -> int:
     return x
 
 def match(truths: list[dict], events: list[dict], late_ms: int = LATE_MS) -> list[tuple[int,int]]:
-    """Maximum-cardinality, minimum-time-error matching; no greedy stealing."""
+    """Maximum-cardinality, minimum-time-error bipartite matching; no greedy stealing."""
     nt, ne = len(truths), len(events)
     source, sink = nt + ne, nt + ne + 1
     graph: list[list[list[int]]] = [[] for _ in range(sink + 1)]
@@ -71,6 +71,10 @@ def score(truths: list[dict], events: list[dict]) -> dict:
             raise ValueError('All truth events require explicitly bound room and direction')
     ids = [t['id'] for t in truths]
     if len(ids)!=len(set(ids)) or not ids: raise ValueError('Truth IDs must be unique and nonempty')
+    for e in events:
+        _integer(e['responseMs'], 'event.responseMs')
+        if not e.get('roomId') or e['direction'] not in ('ENTER','EXIT'):
+            raise ValueError('Each event requires room and direction')
     pairs = match(truths,events); used = {j for _,j in pairs}; matched = {i for i,_ in pairs}
     rows = [dict(id=truths[i]['id'], roomId=truths[i]['portalRoomId'], direction=truths[i]['direction'],
         truthMs=truths[i]['timeMs'], responseMs=events[j]['responseMs'],
@@ -106,22 +110,63 @@ def audit_snapshot(path: Path) -> list[dict]:
         quality=score(truths,[dict(responseMs=t,eventMs=e,roomId=rooms[k],direction=d)
                for t,e,k,d in r['events']])) for r in snap['recordings']]
 
+def score_predictions(paths: list[Path], prediction_path: Path) -> list[dict]:
+    import re
+    supplied=json.loads(prediction_path.read_text(encoding='utf-8'))
+    if not re.fullmatch(r'[0-9a-f]{40}',supplied.get('codeSha','')):
+        raise ValueError('One pinned Git codeSha is required for the whole candidate')
+    runs=supplied.get('runs',[])
+    by_sha={r['sourceSha256']:r for r in runs}
+    if len(by_sha)!=len(runs):raise ValueError('Duplicate prediction runs')
+    reports=[]
+    for path in paths:
+        raw=path.read_bytes();sha=hashlib.sha256(raw).hexdigest();data=json.loads(raw)
+        if sha not in by_sha:raise ValueError('Missing prediction run for '+path.name)
+        r=by_sha.pop(sha)
+        if r.get('status')!='COMPLETE' or r.get('consumedFrames')!=len(data['frames']):
+            raise ValueError('Incomplete or blocked inference cannot pass: '+path.name)
+        publications(data)
+        frames={_integer(f['frameSeq'], 'frameSeq'):f for f in data['frames']}
+        if len(frames)!=len(data['frames']):raise ValueError('Duplicate input frame identifiers')
+        gate_room={g['id']:g['room'] for g in data['frames'][0]['input']['context']['gates']}
+        es=[];previous_publication=-1
+        for e in r['events']:
+            _integer(e['responseFrameSeq'],'responseFrameSeq')
+            if e['responseFrameSeq'] not in frames:raise ValueError('Invented response frame')
+            now=frames[e['responseFrameSeq']]['timeMs']
+            if 'responseMs' in e:_integer(e['responseMs'],'responseMs')
+            if e.get('responseMs',now)!=now:raise ValueError('Backdated actual response')
+            if now<previous_publication:raise ValueError('Publication sequence is not causal')
+            previous_publication=now
+            if gate_room.get(e['gateId'])!=e['roomId']:raise ValueError('Room/gate contradiction')
+            es.append(dict(e,responseMs=now))
+        reports.append(dict(file=path.name,sha256=sha,algorithm=supplied['codeSha'],
+                            quality=score(data['groundTruth'],es)))
+    if by_sha:raise ValueError('Prediction runs lack their original input files')
+    return reports
+
 def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('recordings', nargs='*',type=Path)
     parser.add_argument('--snapshot',type=Path)
+    parser.add_argument('--predictions',type=Path,help='New inference over the original frozen inputs')
     parser.add_argument('--report',required=True,type=Path)
     args=parser.parse_args()
     if bool(args.snapshot)==bool(args.recordings):
         raise ValueError('Use either raw recordings or an explicit --snapshot, not both')
-    reports=audit_snapshot(args.snapshot) if args.snapshot else [audit_file(p) for p in args.recordings]
+    if args.predictions and args.snapshot:
+        raise ValueError('New predictions require original frames, not the outcome-only snapshot')
+    reports=(score_predictions(args.recordings,args.predictions) if args.predictions else
+             audit_snapshot(args.snapshot) if args.snapshot else [audit_file(p) for p in args.recordings])
     manifest=json.loads(Path(__file__).with_name('recorded_outcomes.json').read_text())
     required={r['sourceSha256'] for r in manifest['recordings']}
     supplied={r['sha256'] for r in reports}
     if len(supplied)!=len(reports) or not required.issubset(supplied):
         raise ValueError('All six frozen baseline inputs are required, without duplicates')
-    result=dict(contract=dict(earlyMs=EARLY_MS,lateMs=LATE_MS,targetMs=TARGET_MS),
-        allPass=all(r['quality']['status']=='PASS' for r in reports), recordings=reports)
+    result=dict(mode='candidate_inference' if args.predictions else 'historical_output_audit',
+        contract=dict(earlyMs=EARLY_MS,lateMs=LATE_MS,targetMs=TARGET_MS),
+        allPass=all(r['quality']['status']=='PASS' for r in reports),
+        allTarget500=all(r['quality']['target500Status']=='PASS' for r in reports), recordings=reports)
     args.report.parent.mkdir(parents=True,exist_ok=True)
     args.report.write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     for r in reports:
