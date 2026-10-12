@@ -21,6 +21,16 @@ class RoomAlgorithmRegistryTest {
         assertEquals(3,keys.toSet().size)
     }
 
+    @Test fun v54PhysicalStateHasIndependentAlgorithmAndSettings() {
+        val config = RoomAlgorithmRegistry.CreationConfig(null)
+        val id = "portal_v5_4_diff"
+        assertTrue(RoomAlgorithmRegistry.options().any { it.algorithmId == id })
+        val engine = RoomAlgorithmRegistry.create(id, config)
+        assertEquals(id, engine.algorithmId)
+        assertTrue(engine.runtimeTag.startsWith("GateV5.4"))
+        assertTrue(engine.configurationKey != RoomAlgorithmRegistry.configurationKey("portal_v5_3_diff", config))
+    }
+
     @Test fun v53DifferenceKeepsEarlierVersionsSelectable() {
         val config = RoomAlgorithmRegistry.CreationConfig(null)
         val id = "portal_v5_3_diff"
