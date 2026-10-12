@@ -231,23 +231,28 @@ internal class GateEventVision private constructor(
                 // For V5.4 seed LK from the visible-body mask, *not* the
                 // reference-dependent foreground diff. This separates motion
                 // from changing background-reference amplitude.
-                val seed=if(cfg.method==GateMethod.V5_4_DIFFERENCE)
-                    when{bodyVisible!=null&&!bodyVisible.empty()->bodyVisible
-                         !state.owned.empty()->state.owned;else->state.mask}
-                    else when{ownership!=null&&!ownership.empty()->ownership
-                              !state.owned.empty()->state.owned;else->state.mask}
-                lk?.update(state.gate,owner,state.previous.takeUnless{it.empty()},gray,seed,state.rect,sourceWidth,sourceHeight,timeMs,started)?.let{flow->
-                    evidence=flow.copy(pixelChange=pixelChange,windowEvidence=listOf(window))
-                    if(cfg.method==GateMethod.V5_4_DIFFERENCE && flow.reliable){
-                        val signed=flow.live.mapNotNull{sample->
-                            sample.current?.let{point->state.gate.side(point)-state.gate.side(sample.previous)}
-                        }.filter{it.isFinite()}
-                        if(signed.size>=10){
-                            opticalNormalDelta=median(signed)
-                            opticalTrackedPoints=signed.size
+                // Only track visible human textures *inside* the gate aperture:
+                // never seed on background or on reference-dependent diff pixels.
+                val opticalSeed=if(cfg.method==GateMethod.V5_4_DIFFERENCE && bodyVisible!=null && !bodyVisible.empty())
+                    Mat().also{Core.bitwise_and(bodyVisible,state.mask,it)} else null
+                try{
+                    val seed=if(cfg.method==GateMethod.V5_4_DIFFERENCE)
+                        opticalSeed ?: state.owned.takeUnless{it.empty()} ?: state.mask
+                        else when{ownership!=null&&!ownership.empty()->ownership
+                                  !state.owned.empty()->state.owned;else->state.mask}
+                    lk?.update(state.gate,owner,state.previous.takeUnless{it.empty()},gray,seed,state.rect,sourceWidth,sourceHeight,timeMs,started)?.let{flow->
+                        evidence=flow.copy(pixelChange=pixelChange,windowEvidence=listOf(window))
+                        if(cfg.method==GateMethod.V5_4_DIFFERENCE && flow.reliable){
+                            val signed=flow.live.mapNotNull{sample->
+                                sample.current?.let{point->state.gate.side(point)-state.gate.side(sample.previous)}
+                            }.filter{it.isFinite()}
+                            if(signed.size>=10){
+                                opticalNormalDelta=median(signed)
+                                opticalTrackedPoints=signed.size
+                            }
                         }
                     }
-                }
+                }finally{opticalSeed?.release()}
             }
             val depth=if(owner>=0) portalDepthEvidence(state,owner,debugOwned,timeMs,exclusive) else null
             val body=if(owner>=0&&detection!=null) bodyVisible?.let{portalBodyEvidence(state,detection,it,timeMs,exclusive)} else null
@@ -284,6 +289,7 @@ internal class GateEventVision private constructor(
     }
 
     private fun startEpisode(state:PortalState,owner:Int,timeMs:Long){
+        if(cfg.method==GateMethod.V5_4_DIFFERENCE)lk?.dropGate(state.gate.id)
         state.resetEpisode(false);state.owner=owner;state.phase=GateSensorPhase.ACTIVE
         selectReference(state,timeMs)?.copyTo(state.reference);state.referenceKnown=!state.reference.empty()
         if(cfg.method==GateMethod.MOG2&&state.referenceKnown)state.mog=createMog(state)
