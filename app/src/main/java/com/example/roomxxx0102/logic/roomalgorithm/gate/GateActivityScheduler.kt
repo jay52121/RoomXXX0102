@@ -112,7 +112,8 @@ internal class GateActivityScheduler(private val cfg: GateConfig) {
                         if (timeMs - state.firstOverlapMs >= max(60, cfg.sampleMs)) {
                             state.phase = GateSensorPhase.ACTIVE
                             state.lastContactMs = timeMs
-                        } else if (state.phase != GateSensorPhase.ACTIVE) {
+                        } else {
+                            // A new owner never inherits the last person's ACTIVE state.
                             state.phase = GateSensorPhase.ARMED
                         }
                     }
