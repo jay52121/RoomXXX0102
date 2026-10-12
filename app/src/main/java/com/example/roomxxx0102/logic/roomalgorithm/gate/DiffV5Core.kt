@@ -22,6 +22,8 @@ internal data class DiffV5Signal(
     val bodyAlong: Double?,
     val absorption: Double?,
     val motionPixels: Int,
+    val ownedGrid: List<Int> = emptyList(),
+    val motionGrid: List<Int> = emptyList(),
 )
 
 internal data class DiffV5Transfer(
