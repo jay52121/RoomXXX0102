@@ -86,7 +86,9 @@ internal class GateEventVision private constructor(
     )
 
     private val scheduler=GateActivityScheduler(cfg)
-    private val lk=if(cfg.method==GateMethod.OPTICAL_FLOW) GateEventLk(cfg) else null
+    private val lk=if(cfg.method==GateMethod.OPTICAL_FLOW || cfg.method==GateMethod.V5_4_DIFFERENCE)
+        GateEventLk(if(cfg.method==GateMethod.V5_4_DIFFERENCE) cfg.copy(points=min(cfg.points,64),optionalBudgetMs=max(cfg.optionalBudgetMs,35)) else cfg)
+        else null
     private val states=linkedMapOf<String,PortalState>()
     private val openKernel=Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE,Size(3.0,3.0))
     private val growKernel=Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE,Size(3.0,3.0))
@@ -223,15 +225,33 @@ internal class GateEventVision private constructor(
             val clearFor=state.clear.observe(timeMs,remaining,ownCount,state.referenceKnown&&state.acquiredWhileVisible&&inspected,max(1200,cfg.maxGapMs*4),cfg.clearRatio)
             val window=FlowWindowEvidence(state.gate.id,state.contacted.size,state.clear.peak,remaining,clearFor,state.referenceKnown,exclusive,state.acquiredWhileVisible,timeMs)
             var evidence=FlowEvidence(owner,imageAvailable=true,frameHealthy=true,pixelChange=pixelChange,windowEvidence=listOf(window),reason="PORTAL_LOCAL_EVENT_DIFF")
-            if(cfg.method==GateMethod.OPTICAL_FLOW){
-                val seed=when{ownership!=null&&!ownership.empty()->ownership;!state.owned.empty()->state.owned;else->state.mask}
-                lk?.update(state.gate,owner,state.previous.takeUnless{it.empty()},gray,seed,state.rect,sourceWidth,sourceHeight,timeMs,started)?.let{
-                    evidence=it.copy(pixelChange=pixelChange,windowEvidence=listOf(window))
+            var opticalNormalDelta:Double?=null
+            var opticalTrackedPoints=0
+            if(cfg.method==GateMethod.OPTICAL_FLOW || cfg.method==GateMethod.V5_4_DIFFERENCE){
+                // For V5.4 seed LK from the visible-body mask, *not* the
+                // reference-dependent foreground diff. This separates motion
+                // from changing background-reference amplitude.
+                val seed=if(cfg.method==GateMethod.V5_4_DIFFERENCE)
+                    when{bodyVisible!=null&&!bodyVisible.empty()->bodyVisible
+                         !state.owned.empty()->state.owned;else->state.mask}
+                    else when{ownership!=null&&!ownership.empty()->ownership
+                              !state.owned.empty()->state.owned;else->state.mask}
+                lk?.update(state.gate,owner,state.previous.takeUnless{it.empty()},gray,seed,state.rect,sourceWidth,sourceHeight,timeMs,started)?.let{flow->
+                    evidence=flow.copy(pixelChange=pixelChange,windowEvidence=listOf(window))
+                    if(cfg.method==GateMethod.V5_4_DIFFERENCE && flow.reliable){
+                        val signed=flow.live.mapNotNull{sample->
+                            sample.current?.let{point->state.gate.side(point)-state.gate.side(sample.previous)}
+                        }.filter{it.isFinite()}
+                        if(signed.size>=10){
+                            opticalNormalDelta=median(signed)
+                            opticalTrackedPoints=signed.size
+                        }
+                    }
                 }
             }
             val depth=if(owner>=0) portalDepthEvidence(state,owner,debugOwned,timeMs,exclusive) else null
             val body=if(owner>=0&&detection!=null) bodyVisible?.let{portalBodyEvidence(state,detection,it,timeMs,exclusive)} else null
-            val diagnostic=if(GateDiagnosticBus.isCapturing() || (cfg.method==GateMethod.V5_DIFFERENCE || cfg.method==GateMethod.V5_1_DIFFERENCE || cfg.method==GateMethod.V5_2_DIFFERENCE || cfg.method==GateMethod.V5_3_DIFFERENCE)) GatePortalDiagnostic(
+            val diagnostic=if(GateDiagnosticBus.isCapturing() || (cfg.method==GateMethod.V5_DIFFERENCE || cfg.method==GateMethod.V5_1_DIFFERENCE || cfg.method==GateMethod.V5_2_DIFFERENCE || cfg.method==GateMethod.V5_3_DIFFERENCE || cfg.method==GateMethod.V5_4_DIFFERENCE)) GatePortalDiagnostic(
                 gateId=state.gate.id,
                 ownerTrack=state.owner,
                 phase=decision.phase.name,
@@ -251,6 +271,8 @@ internal class GateEventVision private constructor(
                 visiblePosePoints=body?.visiblePosePoints,
                 bodyAlong=body?.centerAlong,
                 bodySide=body?.centerSide,
+                opticalNormalDelta=opticalNormalDelta,
+                opticalTrackedPoints=opticalTrackedPoints,
             ) else null
             gray.copyTo(state.previous);state.lastProcessed=timeMs
             val view=GateEventTileView(
