@@ -212,7 +212,7 @@ internal class EventDiagnosticRecorder(
         )))
         root.put("portalColumns", JSONArray(listOf(
             "gate","owner","phase","schedulerDist","contact","referenceKnown","exclusive","foreground",
-            "peak","clearForMs","historyFrames","bodyMotionRatio","motion","owned","opticalNormalDelta","opticalTrackedPoints"
+            "peak","clearForMs","historyFrames","bodyMotionRatio","motion","owned","opticalNormalDelta","opticalTrackedPoints","opticalCandidateTracks","opticalMatureTracks","opticalSpatialCells","opticalReliable","opticalBudgetSkipped"
         )))
         root.put("maskColumns", JSONArray(listOf("pixels","p20","p50","p80","grid8x4")))
         root.put("outputColumns", JSONArray(listOf("person","track","from","to","gate","direction","dt","inferred","reason")))
@@ -379,6 +379,8 @@ internal class EventDiagnosticRecorder(
         .put(p.peakPixels).put(p.clearForMs).put(p.historyFrames).put(nullableNumber(p.bodyMotionRatio))
         .put(maskJson(p.motion)).put(maskJson(p.owned))
         .put(nullableNumber(p.opticalNormalDelta)).put(p.opticalTrackedPoints)
+        .put(p.opticalCandidateTracks).put(p.opticalMatureTracks)
+        .put(p.opticalSpatialCells).put(p.opticalReliable).put(p.opticalBudgetSkipped)
 
     private fun maskJson(mask: GateMaskDigest?): Any {
         if (mask == null) return JSONObject.NULL
