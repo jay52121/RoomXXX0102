@@ -102,7 +102,10 @@ internal class DiffV54Core(
         // never generated from the absence of a healthy frame by itself.
         val due = gates.mapNotNull { (gate, g) ->
             val p = g.pending ?: return@mapNotNull null
-            if (timeMs < p.at + confirmMs) return@mapNotNull null
+            // Optical outward foreground clearing can flicker before the actual
+            // completed crossing. Observe an additional 70ms for reversal;
+            // do NOT stamp the event with its earlier candidate time.
+            if (timeMs < p.at + confirmMs + if (p.dir > 0) 70L else 0L) return@mapNotNull null
             if (g.phase == Phase.RETREAT || g.owner < 0 || timeMs - g.lastSampleAt > 400) {
                 g.pending = null
                 return@mapNotNull null
