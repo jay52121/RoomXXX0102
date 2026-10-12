@@ -7,7 +7,8 @@ internal enum class GateMethod(val id: String, val label: String) {
     V5_DIFFERENCE("portal_v5_diff", "V5 · 独立差分穿门（实测版）"),
     V5_1_DIFFERENCE("portal_v5_1_diff", "V5.1 · 实时差分穿门（验证版）"),
     V5_2_DIFFERENCE("portal_v5_2_diff", "V5.2 · 提前采集实时差分（验证版）"),
-    V5_3_DIFFERENCE("portal_v5_3_diff", "V5.3 · 局部穿门状态识别（验证版）");
+    V5_3_DIFFERENCE("portal_v5_3_diff", "V5.3 · 局部穿门状态识别（验证版）"),
+    V5_4_DIFFERENCE("portal_v5_4_diff", "V5.4 · 物理穿门状态估计（验证版）");
     companion object { fun from(id: String?) = entries.firstOrNull { it.id == id } }
 }
 
