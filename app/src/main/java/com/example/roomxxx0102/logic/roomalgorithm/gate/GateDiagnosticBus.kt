@@ -38,6 +38,11 @@ internal data class GatePortalDiagnostic(
     val bodySide: Double? = null,
     val opticalNormalDelta: Double? = null,
     val opticalTrackedPoints: Int = 0,
+    val opticalCandidateTracks: Int = 0,
+    val opticalMatureTracks: Int = 0,
+    val opticalSpatialCells: Int = 0,
+    val opticalReliable: Boolean = false,
+    val opticalBudgetSkipped: Boolean = false,
 )
 
 internal data class GateDiagnosticPerson(

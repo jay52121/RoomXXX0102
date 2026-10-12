@@ -102,7 +102,10 @@ internal class DiffV54Core(
         // never generated from the absence of a healthy frame by itself.
         val due = gates.mapNotNull { (gate, g) ->
             val p = g.pending ?: return@mapNotNull null
-            if (timeMs < p.at + confirmMs) return@mapNotNull null
+            // Optical outward foreground clearing can flicker before the actual
+            // completed crossing. Observe an additional 70ms for reversal;
+            // do NOT stamp the event with its earlier candidate time.
+            if (timeMs < p.at + confirmMs + if (p.dir > 0) 70L else 0L) return@mapNotNull null
             if (g.phase == Phase.RETREAT || g.owner < 0 || timeMs - g.lastSampleAt > 400) {
                 g.pending = null
                 return@mapNotNull null
@@ -146,7 +149,10 @@ internal class DiffV54Core(
         val now = m.timeMs
         val dt = if (g.lastSampleAt < 0) 100L else now - g.lastSampleAt
         // Do not integrate a long tracking gap as if every intermediate frame existed.
-        if (dt > 650 || (g.owner != -1 && g.owner != m.owner && dt > 250)) {
+        // A new tracked person must never inherit the previous owner's directional
+        // distance, pending candidate, optical confidence, or last pose -- not
+        // even when ByteTrack reassigns an id in consecutive 90ms frames.
+        if (dt > 650 || (g.owner != -1 && g.owner != m.owner)) {
             resetKinematics(g)
         }
         g.owner = m.owner
@@ -224,7 +230,11 @@ internal class DiffV54Core(
         if (g.pending == null && g.direction != 0 && g.travel >= travelThreshold && !disagreement &&
             g.phase !in setOf(Phase.CONFIRMED, Phase.RETREAT)) {
             g.phase = if (g.direction < 0) Phase.TRANSIT_IN else Phase.TRANSIT_OUT
-            val cleared = absorb != null && g.firstAbs - absorb >= .12 && absorb <= .91
+            // Clearing is measured relative to the occupancy PEAK observed during
+            // this exit, not the pre-contact first sample. The latter can be
+            // lower than the body occupancy at exit (real-device #1 and #13),
+            // causing an impossible 'first minus current' confirmation.
+            val cleared = absorb != null && g.peakAbs - absorb >= .085 && absorb <= .94
             val saturated = absorb != null && absorb >= .975 && g.peakAbs >= .98
             val settled = g.settledAt >= 0 && now - g.settledAt >= 80L
             val completed = if (g.direction < 0) {

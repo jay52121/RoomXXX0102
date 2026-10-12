@@ -227,6 +227,11 @@ internal class GateEventVision private constructor(
             var evidence=FlowEvidence(owner,imageAvailable=true,frameHealthy=true,pixelChange=pixelChange,windowEvidence=listOf(window),reason="PORTAL_LOCAL_EVENT_DIFF")
             var opticalNormalDelta:Double?=null
             var opticalTrackedPoints=0
+            var opticalCandidateTracks=0
+            var opticalMatureTracks=0
+            var opticalSpatialCells=0
+            var opticalReliable=false
+            var opticalBudgetSkipped=false
             if(cfg.method==GateMethod.OPTICAL_FLOW || cfg.method==GateMethod.V5_4_DIFFERENCE){
                 // For V5.4 seed LK from the visible-body mask, *not* the
                 // reference-dependent foreground diff. This separates motion
@@ -242,6 +247,13 @@ internal class GateEventVision private constructor(
                                   !state.owned.empty()->state.owned;else->state.mask}
                     lk?.update(state.gate,owner,state.previous.takeUnless{it.empty()},gray,seed,state.rect,sourceWidth,sourceHeight,timeMs,started)?.let{flow->
                         evidence=flow.copy(pixelChange=pixelChange,windowEvidence=listOf(window))
+                        if(cfg.method==GateMethod.V5_4_DIFFERENCE){
+                            opticalCandidateTracks=flow.samples.size
+                            opticalMatureTracks=flow.live.size
+                            opticalSpatialCells=flow.cells
+                            opticalReliable=flow.reliable
+                            opticalBudgetSkipped=flow.reason=="LK_BUDGET_SKIP"
+                        }
                         if(cfg.method==GateMethod.V5_4_DIFFERENCE && flow.reliable){
                             val signed=flow.live.mapNotNull{sample->
                                 sample.current?.let{point->state.gate.side(point)-state.gate.side(sample.previous)}
@@ -278,6 +290,11 @@ internal class GateEventVision private constructor(
                 bodySide=body?.centerSide,
                 opticalNormalDelta=opticalNormalDelta,
                 opticalTrackedPoints=opticalTrackedPoints,
+                opticalCandidateTracks=opticalCandidateTracks,
+                opticalMatureTracks=opticalMatureTracks,
+                opticalSpatialCells=opticalSpatialCells,
+                opticalReliable=opticalReliable,
+                opticalBudgetSkipped=opticalBudgetSkipped || lk?.budgetExceeded==true,
             ) else null
             gray.copyTo(state.previous);state.lastProcessed=timeMs
             val view=GateEventTileView(
