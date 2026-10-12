@@ -27,7 +27,7 @@ internal data class GateSensorDecision(
 internal class GateActivityScheduler(private val cfg: GateConfig) {
     // V5.2 only: start local optical evidence before a foot reaches the threshold.
     // All V4/V5.0/V5.1 scheduling semantics remain unchanged.
-    private val earlyBody = cfg.method == GateMethod.V5_2_DIFFERENCE
+    private val earlyBody = cfg.method == GateMethod.V5_2_DIFFERENCE || cfg.method == GateMethod.V5_3_DIFFERENCE
     private data class State(
         var phase: GateSensorPhase = GateSensorPhase.OFF,
         var ownerTrack: Int? = null,
