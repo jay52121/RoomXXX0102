@@ -30,9 +30,11 @@ object RoomAlgorithmRegistry {
 
     private val registrations = GateMethod.entries.map { method ->
         Registration(AlgorithmOption(method.id, method.label)) { config ->
-            if (method == GateMethod.V5_DIFFERENCE) {
-                DiffV5RoomAlgorithm(config.appContext, GateSettings.load(config.appContext, method))
-            } else GateRoomAlgorithm(config.appContext, GateSettings.load(config.appContext, method))
+            when (method) {
+                GateMethod.V5_DIFFERENCE -> DiffV5RoomAlgorithm(config.appContext, GateSettings.load(config.appContext, method))
+                GateMethod.V5_1_DIFFERENCE -> DiffV51RoomAlgorithm(config.appContext, GateSettings.load(config.appContext, method))
+                else -> GateRoomAlgorithm(config.appContext, GateSettings.load(config.appContext, method))
+            }
         }
     } + listOf(
         Registration(AlgorithmOption(PORTAL_V3_FLOW_ID, "Portal V3 · 门线与人体光流（实验）")) { config ->
