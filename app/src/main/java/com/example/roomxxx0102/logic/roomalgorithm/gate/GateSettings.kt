@@ -74,7 +74,9 @@ object GateSettings {
         val config=load(context,method);val json=encode(config)
         val fields=common+when(method) { GateMethod.OPTICAL_FLOW->optical;GateMethod.MOG2->mog;else->emptyList() }
         val layout=LinearLayout(context).apply { orientation=LinearLayout.VERTICAL;setPadding(24,16,24,16) }
-        layout.addView(TextView(context).apply { text=if(method==GateMethod.V5_DIFFERENCE)
+        layout.addView(TextView(context).apply { text=if(method==GateMethod.V5_1_DIFFERENCE)
+            "V5.1 实时差分：针对门区差分时序连续取证，证据充分后立即确认，不等待整个门口活动结束。以实际输出所在帧核验：提前最多100ms，目标延后500ms内，最迟1000ms。V5.0仍可选择，采集层暂复用 V4 Event ROI。"
+        else if(method==GateMethod.V5_DIFFERENCE)
             "V5 差分判定实验：采集层暂复用 V4 Event ROI，判定与人数账本完全独立；在门口活动结束后延迟确认，不使用脚点跨门结论。建议与 V4 同视频对照；这不是新录像泛化保证。"
         else "V4.1 不再把整幅视频缩成 480/640 后做视觉。当前约 2232 宽视频默认保留原始截图尺寸；所有门平时只以约 10fps 保存 1 秒局部历史，只有候选人体真正接触后的 1～2 扇门才运行差分/MOG2/LK。参数按方案独立保存。" })
         val edits=fields.associate { f ->
