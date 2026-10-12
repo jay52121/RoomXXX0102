@@ -231,7 +231,7 @@ internal class GateEventVision private constructor(
             }
             val depth=if(owner>=0) portalDepthEvidence(state,owner,debugOwned,timeMs,exclusive) else null
             val body=if(owner>=0&&detection!=null) bodyVisible?.let{portalBodyEvidence(state,detection,it,timeMs,exclusive)} else null
-            val diagnostic=if(GateDiagnosticBus.isCapturing() || cfg.method==GateMethod.V5_DIFFERENCE) GatePortalDiagnostic(
+            val diagnostic=if(GateDiagnosticBus.isCapturing() || (cfg.method==GateMethod.V5_DIFFERENCE || cfg.method==GateMethod.V5_1_DIFFERENCE)) GatePortalDiagnostic(
                 gateId=state.gate.id,
                 ownerTrack=state.owner,
                 phase=decision.phase.name,
