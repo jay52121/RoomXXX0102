@@ -1,0 +1,32 @@
+[
+  {
+    "drop_fraction": 0.03,
+    "jitter_px": 0,
+    "trials": 30,
+    "strict_all32_no_extras": 30,
+    "all32_within500_no_extras": 27,
+    "minimum_strict_matches": 32,
+    "max_extras": 0,
+    "minimum_within500": 31
+  },
+  {
+    "drop_fraction": 0.1,
+    "jitter_px": 0,
+    "trials": 30,
+    "strict_all32_no_extras": 27,
+    "all32_within500_no_extras": 21,
+    "minimum_strict_matches": 31,
+    "max_extras": 1,
+    "minimum_within500": 29
+  },
+  {
+    "drop_fraction": 0,
+    "jitter_px": 0.5,
+    "trials": 30,
+    "strict_all32_no_extras": 29,
+    "all32_within500_no_extras": 29,
+    "minimum_strict_matches": 31,
+    "max_extras": 1,
+    "minimum_within500": 31
+  }
+]

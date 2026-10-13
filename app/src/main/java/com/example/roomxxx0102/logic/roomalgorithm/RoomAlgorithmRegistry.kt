@@ -36,6 +36,7 @@ object RoomAlgorithmRegistry {
                 GateMethod.V5_2_DIFFERENCE -> DiffV52RoomAlgorithm(config.appContext, GateSettings.load(config.appContext, method))
                 GateMethod.V5_3_DIFFERENCE -> DiffV53RoomAlgorithm(config.appContext, GateSettings.load(config.appContext, method))
                 GateMethod.V5_4_DIFFERENCE -> DiffV54RoomAlgorithm(config.appContext, GateSettings.load(config.appContext, method))
+                GateMethod.V6_TEMPORAL -> SceneTemporalRoomAlgorithm(config.appContext, GateSettings.load(config.appContext, method))
                 else -> GateRoomAlgorithm(config.appContext, GateSettings.load(config.appContext, method))
             }
         }

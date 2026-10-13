@@ -71,6 +71,10 @@ object GateSettings {
     fun showEditor(context:Context,id:String?) {
         val method=GateMethod.from(id)
         if(method==null) { Toast.makeText(context,"请先选择房间算法",Toast.LENGTH_SHORT).show();return }
+        if(method==GateMethod.V6_TEMPORAL) {
+            Toast.makeText(context,"V6 为固定机位监督训练模型，V4/V5 差分参数不适用；仅供实验验证，未知动作验收尚未通过。",Toast.LENGTH_LONG).show()
+            return
+        }
         val config=load(context,method);val json=encode(config)
         val fields=common+when(method) { GateMethod.OPTICAL_FLOW->optical;GateMethod.MOG2->mog;else->emptyList() }
         val layout=LinearLayout(context).apply { orientation=LinearLayout.VERTICAL;setPadding(24,16,24,16) }

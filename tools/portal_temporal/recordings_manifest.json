@@ -1,0 +1,1472 @@
+[
+  {
+    "id": 0,
+    "name": "SISP_V5_1_DIFF_全程判定_工作标注32条_20261012_203538_847.json",
+    "algorithm": "GateV5.1-DIFF-REALTIME",
+    "sha256": "7b0810f2849898e8ee1c803c6573819f39d0699fcfd5ac95b7f818adc6374f47",
+    "fixture_sha256": "99e1be80faff2cfeeefd74ae9424c10c67dd6a6f774ecd0c85923db163a9d007",
+    "frames": 1633,
+    "truth": [
+      {
+        "id": 1,
+        "timeMs": 3823,
+        "frame": 115,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 2,
+        "timeMs": 6469,
+        "frame": 196,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 3,
+        "timeMs": 14867,
+        "frame": 450,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 4,
+        "timeMs": 21037,
+        "frame": 637,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 5,
+        "timeMs": 26656,
+        "frame": 807,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 6,
+        "timeMs": 31394,
+        "frame": 951,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 7,
+        "timeMs": 35912,
+        "frame": 1088,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 8,
+        "timeMs": 37605,
+        "frame": 1139,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 9,
+        "timeMs": 42021,
+        "frame": 1273,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 10,
+        "timeMs": 50438,
+        "frame": 1528,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 11,
+        "timeMs": 57243,
+        "frame": 1734,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 12,
+        "timeMs": 62452,
+        "frame": 1892,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 13,
+        "timeMs": 68567,
+        "frame": 2077,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 14,
+        "timeMs": 71843,
+        "frame": 2177,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 15,
+        "timeMs": 77252,
+        "frame": 2340,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 16,
+        "timeMs": 81512,
+        "frame": 2470,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 17,
+        "timeMs": 85179,
+        "frame": 2581,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 18,
+        "timeMs": 86972,
+        "frame": 2635,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 19,
+        "timeMs": 89948,
+        "frame": 2725,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 20,
+        "timeMs": 97725,
+        "frame": 2961,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 21,
+        "timeMs": 109140,
+        "frame": 3307,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 22,
+        "timeMs": 112201,
+        "frame": 3400,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 23,
+        "timeMs": 114099,
+        "frame": 3457,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 24,
+        "timeMs": 116604,
+        "frame": 3533,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 25,
+        "timeMs": 120297,
+        "frame": 3645,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 26,
+        "timeMs": 124381,
+        "frame": 3769,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 27,
+        "timeMs": 126617,
+        "frame": 3836,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 28,
+        "timeMs": 130938,
+        "frame": 3967,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 29,
+        "timeMs": 133068,
+        "frame": 4032,
+        "direction": "ENTER",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 30,
+        "timeMs": 136134,
+        "frame": 4125,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 31,
+        "timeMs": 141948,
+        "frame": 4301,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 32,
+        "timeMs": 145477,
+        "frame": 4408,
+        "direction": "EXIT",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      }
+    ],
+    "rooms": {
+      "60d4045e-7a03-4caf-930b-fb3680f83177": "次卧",
+      "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb": "儿童房",
+      "a41c1aac-efee-4a12-8a84-cd976e9b4ca3": "卫生间",
+      "af80da94-d18b-4684-8121-171ad528bd13": "书房",
+      "c018e0d6-d54c-4201-9646-13a83b27c898": "厨房",
+      "c8ef1ff5-2541-42c8-9a2d-a6852087d717": "主卧",
+      "e07d03fb-98e7-42ac-af88-38eda2e58d01": "入户",
+      "ebab322a-430b-4cc6-a43d-fab7e33bab20": "盲区",
+      "living_room": "客厅"
+    }
+  },
+  {
+    "id": 1,
+    "name": "SISP_V5_2_DIFF_全程判定_工作标注32条_20261012_213034_672.json",
+    "algorithm": "GateV5.2-DIFF-EARLY-ROI",
+    "sha256": "5a70125dc112fc4bcc2cd5c3eb1f8eaa00f613854899b54334c2febffadd3f9c",
+    "fixture_sha256": "04deb4517d59b587c7cc1c6dbf7be7e134937d1180651aa206bba5b8dbc65350",
+    "frames": 1737,
+    "truth": [
+      {
+        "id": 1,
+        "timeMs": 3823,
+        "frame": 115,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 2,
+        "timeMs": 6469,
+        "frame": 196,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 3,
+        "timeMs": 14867,
+        "frame": 450,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 4,
+        "timeMs": 21037,
+        "frame": 637,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 5,
+        "timeMs": 26656,
+        "frame": 807,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 6,
+        "timeMs": 31394,
+        "frame": 951,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 7,
+        "timeMs": 35912,
+        "frame": 1088,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 8,
+        "timeMs": 37605,
+        "frame": 1139,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 9,
+        "timeMs": 42021,
+        "frame": 1273,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 10,
+        "timeMs": 50438,
+        "frame": 1528,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 11,
+        "timeMs": 57243,
+        "frame": 1734,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 12,
+        "timeMs": 62452,
+        "frame": 1892,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 13,
+        "timeMs": 68567,
+        "frame": 2077,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 14,
+        "timeMs": 71843,
+        "frame": 2177,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 15,
+        "timeMs": 77252,
+        "frame": 2340,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 16,
+        "timeMs": 81512,
+        "frame": 2470,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 17,
+        "timeMs": 85179,
+        "frame": 2581,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 18,
+        "timeMs": 86972,
+        "frame": 2635,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 19,
+        "timeMs": 89948,
+        "frame": 2725,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 20,
+        "timeMs": 97725,
+        "frame": 2961,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 21,
+        "timeMs": 109140,
+        "frame": 3307,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 22,
+        "timeMs": 112201,
+        "frame": 3400,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 23,
+        "timeMs": 114099,
+        "frame": 3457,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 24,
+        "timeMs": 116604,
+        "frame": 3533,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 25,
+        "timeMs": 120297,
+        "frame": 3645,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 26,
+        "timeMs": 124381,
+        "frame": 3769,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 27,
+        "timeMs": 126617,
+        "frame": 3836,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 28,
+        "timeMs": 130938,
+        "frame": 3967,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 29,
+        "timeMs": 133068,
+        "frame": 4032,
+        "direction": "ENTER",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 30,
+        "timeMs": 136134,
+        "frame": 4125,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 31,
+        "timeMs": 141948,
+        "frame": 4301,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 32,
+        "timeMs": 145477,
+        "frame": 4408,
+        "direction": "EXIT",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      }
+    ],
+    "rooms": {
+      "60d4045e-7a03-4caf-930b-fb3680f83177": "次卧",
+      "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb": "儿童房",
+      "a41c1aac-efee-4a12-8a84-cd976e9b4ca3": "卫生间",
+      "af80da94-d18b-4684-8121-171ad528bd13": "书房",
+      "c018e0d6-d54c-4201-9646-13a83b27c898": "厨房",
+      "c8ef1ff5-2541-42c8-9a2d-a6852087d717": "主卧",
+      "e07d03fb-98e7-42ac-af88-38eda2e58d01": "入户",
+      "ebab322a-430b-4cc6-a43d-fab7e33bab20": "盲区",
+      "living_room": "客厅"
+    }
+  },
+  {
+    "id": 2,
+    "name": "SISP_V5_3_DIFF_全程判定_工作标注32条_20261012_223502_015.json",
+    "algorithm": "GateV5.3-DIFF-LOCAL-FRONTIER",
+    "sha256": "913107d269d4165da83f7b36d727d7166bc6d23f2a77fc15a57de602c8e9f7b3",
+    "fixture_sha256": "bd5a3b327a9305f0b497384d89da8b37816bdf1b9fe717d666c9d98bf65c09d6",
+    "frames": 1742,
+    "truth": [
+      {
+        "id": 1,
+        "timeMs": 3823,
+        "frame": 115,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 2,
+        "timeMs": 6469,
+        "frame": 196,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 3,
+        "timeMs": 14867,
+        "frame": 450,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 4,
+        "timeMs": 21037,
+        "frame": 637,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 5,
+        "timeMs": 26656,
+        "frame": 807,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 6,
+        "timeMs": 31394,
+        "frame": 951,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 7,
+        "timeMs": 35912,
+        "frame": 1088,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 8,
+        "timeMs": 37605,
+        "frame": 1139,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 9,
+        "timeMs": 42021,
+        "frame": 1273,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 10,
+        "timeMs": 50438,
+        "frame": 1528,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 11,
+        "timeMs": 57243,
+        "frame": 1734,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 12,
+        "timeMs": 62452,
+        "frame": 1892,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 13,
+        "timeMs": 68567,
+        "frame": 2077,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 14,
+        "timeMs": 71843,
+        "frame": 2177,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 15,
+        "timeMs": 77252,
+        "frame": 2340,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 16,
+        "timeMs": 81512,
+        "frame": 2470,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 17,
+        "timeMs": 85179,
+        "frame": 2581,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 18,
+        "timeMs": 86972,
+        "frame": 2635,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 19,
+        "timeMs": 89948,
+        "frame": 2725,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 20,
+        "timeMs": 97725,
+        "frame": 2961,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 21,
+        "timeMs": 109140,
+        "frame": 3307,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 22,
+        "timeMs": 112201,
+        "frame": 3400,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 23,
+        "timeMs": 114099,
+        "frame": 3457,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 24,
+        "timeMs": 116604,
+        "frame": 3533,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 25,
+        "timeMs": 120297,
+        "frame": 3645,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 26,
+        "timeMs": 124381,
+        "frame": 3769,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 27,
+        "timeMs": 126617,
+        "frame": 3836,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 28,
+        "timeMs": 130938,
+        "frame": 3967,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 29,
+        "timeMs": 133068,
+        "frame": 4032,
+        "direction": "ENTER",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 30,
+        "timeMs": 136134,
+        "frame": 4125,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 31,
+        "timeMs": 141948,
+        "frame": 4301,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 32,
+        "timeMs": 145477,
+        "frame": 4408,
+        "direction": "EXIT",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      }
+    ],
+    "rooms": {
+      "60d4045e-7a03-4caf-930b-fb3680f83177": "次卧",
+      "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb": "儿童房",
+      "a41c1aac-efee-4a12-8a84-cd976e9b4ca3": "卫生间",
+      "af80da94-d18b-4684-8121-171ad528bd13": "书房",
+      "c018e0d6-d54c-4201-9646-13a83b27c898": "厨房",
+      "c8ef1ff5-2541-42c8-9a2d-a6852087d717": "主卧",
+      "e07d03fb-98e7-42ac-af88-38eda2e58d01": "入户",
+      "ebab322a-430b-4cc6-a43d-fab7e33bab20": "盲区",
+      "living_room": "客厅"
+    }
+  },
+  {
+    "id": 3,
+    "name": "SISP_V5_4_FLOW_全程判定_工作标注32条_20261012_235434_681.json",
+    "algorithm": "GateV5.4-PHYSICAL-OPTICAL-FLOW",
+    "sha256": "aefb76674bb7b815a844d2dd36569c2ff9641a7782464a47db4e81745f0efa6d",
+    "fixture_sha256": "37093b697292e5e4760dce4eef93cd0f1e94335a32b6d749bed062387e6e79a2",
+    "frames": 1681,
+    "truth": [
+      {
+        "id": 1,
+        "timeMs": 3823,
+        "frame": 115,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 2,
+        "timeMs": 6469,
+        "frame": 196,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 3,
+        "timeMs": 14867,
+        "frame": 450,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 4,
+        "timeMs": 21037,
+        "frame": 637,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 5,
+        "timeMs": 26656,
+        "frame": 807,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 6,
+        "timeMs": 31394,
+        "frame": 951,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 7,
+        "timeMs": 35912,
+        "frame": 1088,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 8,
+        "timeMs": 37605,
+        "frame": 1139,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 9,
+        "timeMs": 42021,
+        "frame": 1273,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 10,
+        "timeMs": 50438,
+        "frame": 1528,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 11,
+        "timeMs": 57243,
+        "frame": 1734,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 12,
+        "timeMs": 62452,
+        "frame": 1892,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 13,
+        "timeMs": 68567,
+        "frame": 2077,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 14,
+        "timeMs": 71843,
+        "frame": 2177,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 15,
+        "timeMs": 77252,
+        "frame": 2340,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 16,
+        "timeMs": 81512,
+        "frame": 2470,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 17,
+        "timeMs": 85179,
+        "frame": 2581,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 18,
+        "timeMs": 86972,
+        "frame": 2635,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 19,
+        "timeMs": 89948,
+        "frame": 2725,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 20,
+        "timeMs": 97725,
+        "frame": 2961,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 21,
+        "timeMs": 109140,
+        "frame": 3307,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 22,
+        "timeMs": 112201,
+        "frame": 3400,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 23,
+        "timeMs": 114099,
+        "frame": 3457,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 24,
+        "timeMs": 116604,
+        "frame": 3533,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 25,
+        "timeMs": 120297,
+        "frame": 3645,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 26,
+        "timeMs": 124381,
+        "frame": 3769,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 27,
+        "timeMs": 126617,
+        "frame": 3836,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 28,
+        "timeMs": 130938,
+        "frame": 3967,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 29,
+        "timeMs": 133068,
+        "frame": 4032,
+        "direction": "ENTER",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 30,
+        "timeMs": 136134,
+        "frame": 4125,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 31,
+        "timeMs": 141948,
+        "frame": 4301,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 32,
+        "timeMs": 145477,
+        "frame": 4408,
+        "direction": "EXIT",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      }
+    ],
+    "rooms": {
+      "60d4045e-7a03-4caf-930b-fb3680f83177": "次卧",
+      "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb": "儿童房",
+      "a41c1aac-efee-4a12-8a84-cd976e9b4ca3": "卫生间",
+      "af80da94-d18b-4684-8121-171ad528bd13": "书房",
+      "c018e0d6-d54c-4201-9646-13a83b27c898": "厨房",
+      "c8ef1ff5-2541-42c8-9a2d-a6852087d717": "主卧",
+      "e07d03fb-98e7-42ac-af88-38eda2e58d01": "入户",
+      "ebab322a-430b-4cc6-a43d-fab7e33bab20": "盲区",
+      "living_room": "客厅"
+    }
+  },
+  {
+    "id": 4,
+    "name": "SISP_V5_DIFF_全程判定_工作标注32条_20261012_141631_459.json",
+    "algorithm": "GateV5.0-DIFF-ONLINE-EXPERIMENT",
+    "sha256": "c5ff9835c3afbebd0ae5793d65dc59ab4fa2f74d924b0b8668bfa27100b0b990",
+    "fixture_sha256": "2a659d9f224ea235713aabb2e441742aa4ec1b94575467e6a454f1a2b43f64ca",
+    "frames": 1786,
+    "truth": [
+      {
+        "id": 1,
+        "timeMs": 3823,
+        "frame": 115,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 2,
+        "timeMs": 6469,
+        "frame": 196,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 3,
+        "timeMs": 14867,
+        "frame": 450,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 4,
+        "timeMs": 21037,
+        "frame": 637,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 5,
+        "timeMs": 26656,
+        "frame": 807,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 6,
+        "timeMs": 31394,
+        "frame": 951,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 7,
+        "timeMs": 35912,
+        "frame": 1088,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 8,
+        "timeMs": 37605,
+        "frame": 1139,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 9,
+        "timeMs": 42021,
+        "frame": 1273,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 10,
+        "timeMs": 50438,
+        "frame": 1528,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 11,
+        "timeMs": 57243,
+        "frame": 1734,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 12,
+        "timeMs": 62452,
+        "frame": 1892,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 13,
+        "timeMs": 68567,
+        "frame": 2077,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 14,
+        "timeMs": 71843,
+        "frame": 2177,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 15,
+        "timeMs": 77252,
+        "frame": 2340,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 16,
+        "timeMs": 81512,
+        "frame": 2470,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 17,
+        "timeMs": 85179,
+        "frame": 2581,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 18,
+        "timeMs": 86972,
+        "frame": 2635,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 19,
+        "timeMs": 89948,
+        "frame": 2725,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 20,
+        "timeMs": 97725,
+        "frame": 2961,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 21,
+        "timeMs": 109140,
+        "frame": 3307,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 22,
+        "timeMs": 112201,
+        "frame": 3400,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 23,
+        "timeMs": 114099,
+        "frame": 3457,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 24,
+        "timeMs": 116604,
+        "frame": 3533,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 25,
+        "timeMs": 120297,
+        "frame": 3645,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 26,
+        "timeMs": 124381,
+        "frame": 3769,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 27,
+        "timeMs": 126617,
+        "frame": 3836,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 28,
+        "timeMs": 130938,
+        "frame": 3967,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 29,
+        "timeMs": 133068,
+        "frame": 4032,
+        "direction": "ENTER",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 30,
+        "timeMs": 136134,
+        "frame": 4125,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 31,
+        "timeMs": 141948,
+        "frame": 4301,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 32,
+        "timeMs": 145477,
+        "frame": 4408,
+        "direction": "EXIT",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      }
+    ],
+    "rooms": {
+      "60d4045e-7a03-4caf-930b-fb3680f83177": "次卧",
+      "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb": "儿童房",
+      "a41c1aac-efee-4a12-8a84-cd976e9b4ca3": "卫生间",
+      "af80da94-d18b-4684-8121-171ad528bd13": "书房",
+      "c018e0d6-d54c-4201-9646-13a83b27c898": "厨房",
+      "c8ef1ff5-2541-42c8-9a2d-a6852087d717": "主卧",
+      "e07d03fb-98e7-42ac-af88-38eda2e58d01": "入户",
+      "ebab322a-430b-4cc6-a43d-fab7e33bab20": "盲区",
+      "living_room": "客厅"
+    }
+  },
+  {
+    "id": 5,
+    "name": "SISP_DIFFERENCE_全程判定_工作标注32条_20261012_001104_657.txt",
+    "algorithm": "GateV4.3-DIFFERENCE-CONTINUITY_ABSORPTION",
+    "sha256": "b31f4abb0b56ffa68613f81af33a93c279aebe52300463dea9be6b9f54051fd3",
+    "fixture_sha256": "846cf61ed3d5d19a8479fa8f16a3828823910626af3fb60d26d60629fd894738",
+    "frames": 1431,
+    "truth": [
+      {
+        "id": 1,
+        "timeMs": 3823,
+        "frame": 115,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 2,
+        "timeMs": 6469,
+        "frame": 196,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 3,
+        "timeMs": 14867,
+        "frame": 450,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 4,
+        "timeMs": 21037,
+        "frame": 637,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 5,
+        "timeMs": 26656,
+        "frame": 807,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 6,
+        "timeMs": 31394,
+        "frame": 951,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 7,
+        "timeMs": 35912,
+        "frame": 1088,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 8,
+        "timeMs": 37605,
+        "frame": 1139,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 9,
+        "timeMs": 42021,
+        "frame": 1273,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 10,
+        "timeMs": 50438,
+        "frame": 1528,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 11,
+        "timeMs": 57243,
+        "frame": 1734,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 12,
+        "timeMs": 62452,
+        "frame": 1892,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 13,
+        "timeMs": 68567,
+        "frame": 2077,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 14,
+        "timeMs": 71843,
+        "frame": 2177,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 15,
+        "timeMs": 77252,
+        "frame": 2340,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 16,
+        "timeMs": 81512,
+        "frame": 2470,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 17,
+        "timeMs": 85179,
+        "frame": 2581,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 18,
+        "timeMs": 86972,
+        "frame": 2635,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 19,
+        "timeMs": 89948,
+        "frame": 2725,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 20,
+        "timeMs": 97725,
+        "frame": 2961,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 21,
+        "timeMs": 109140,
+        "frame": 3307,
+        "direction": "ENTER",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 22,
+        "timeMs": 112201,
+        "frame": 3400,
+        "direction": "EXIT",
+        "portalRoomId": "60d4045e-7a03-4caf-930b-fb3680f83177"
+      },
+      {
+        "id": 23,
+        "timeMs": 114099,
+        "frame": 3457,
+        "direction": "ENTER",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 24,
+        "timeMs": 116604,
+        "frame": 3533,
+        "direction": "EXIT",
+        "portalRoomId": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3"
+      },
+      {
+        "id": 25,
+        "timeMs": 120297,
+        "frame": 3645,
+        "direction": "ENTER",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 26,
+        "timeMs": 124381,
+        "frame": 3769,
+        "direction": "EXIT",
+        "portalRoomId": "af80da94-d18b-4684-8121-171ad528bd13"
+      },
+      {
+        "id": 27,
+        "timeMs": 126617,
+        "frame": 3836,
+        "direction": "ENTER",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 28,
+        "timeMs": 130938,
+        "frame": 3967,
+        "direction": "EXIT",
+        "portalRoomId": "c018e0d6-d54c-4201-9646-13a83b27c898"
+      },
+      {
+        "id": 29,
+        "timeMs": 133068,
+        "frame": 4032,
+        "direction": "ENTER",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 30,
+        "timeMs": 136134,
+        "frame": 4125,
+        "direction": "EXIT",
+        "portalRoomId": "e07d03fb-98e7-42ac-af88-38eda2e58d01"
+      },
+      {
+        "id": 31,
+        "timeMs": 141948,
+        "frame": 4301,
+        "direction": "ENTER",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      },
+      {
+        "id": 32,
+        "timeMs": 145477,
+        "frame": 4408,
+        "direction": "EXIT",
+        "portalRoomId": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb"
+      }
+    ],
+    "rooms": {
+      "60d4045e-7a03-4caf-930b-fb3680f83177": "次卧",
+      "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb": "儿童房",
+      "a41c1aac-efee-4a12-8a84-cd976e9b4ca3": "卫生间",
+      "af80da94-d18b-4684-8121-171ad528bd13": "书房",
+      "c018e0d6-d54c-4201-9646-13a83b27c898": "厨房",
+      "c8ef1ff5-2541-42c8-9a2d-a6852087d717": "主卧",
+      "e07d03fb-98e7-42ac-af88-38eda2e58d01": "入户",
+      "ebab322a-430b-4cc6-a43d-fab7e33bab20": "盲区",
+      "living_room": "客厅"
+    }
+  }
+]
