@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "reviewed_code_commit": "cf2089c967f571a5a0cc0f6f9f784c802c5fbf32",
+  "expected_truth_sha256": "c5ccf03445ab2f11b4043a15c712509d8cdcc5863871df40bd4e5ec151987988",
+  "all_recordings_same_source_video": true,
+  "event_timestamp_source": "containing frame.timeMs",
+  "event_count": 32,
+  "early_ms": 100,
+  "latest_ms": 1000,
+  "target_ms": 500,
+  "records": [
+    {"algorithm":"GateV5.1-DIFF-REALTIME","input_sha256":"7b0810f2849898e8ee1c803c6573819f39d0699fcfd5ac95b7f818adc6374f47","frames":1633,"outputs":28,"hard_matches":27,"within500_matches":18,"unmatched_outputs":1,"event_contract_status":"FAIL","filename":"SISP_V5_1_DIFF_全程判定_工作标注32条_20261012_203538_847.json"},
+    {"algorithm":"GateV5.2-DIFF-EARLY-ROI","input_sha256":"5a70125dc112fc4bcc2cd5c3eb1f8eaa00f613854899b54334c2febffadd3f9c","frames":1737,"outputs":24,"hard_matches":16,"within500_matches":12,"unmatched_outputs":8,"event_contract_status":"FAIL","filename":"SISP_V5_2_DIFF_全程判定_工作标注32条_20261012_213034_672.json"},
+    {"algorithm":"GateV5.3-DIFF-LOCAL-FRONTIER","input_sha256":"913107d269d4165da83f7b36d727d7166bc6d23f2a77fc15a57de602c8e9f7b3","frames":1742,"outputs":27,"hard_matches":24,"within500_matches":15,"unmatched_outputs":3,"event_contract_status":"FAIL","filename":"SISP_V5_3_DIFF_全程判定_工作标注32条_20261012_223502_015.json"},
+    {"algorithm":"GateV5.4-PHYSICAL-OPTICAL-FLOW","input_sha256":"aefb76674bb7b815a844d2dd36569c2ff9641a7782464a47db4e81745f0efa6d","frames":1681,"outputs":7,"hard_matches":4,"within500_matches":2,"unmatched_outputs":3,"event_contract_status":"FAIL","filename":"SISP_V5_4_FLOW_全程判定_工作标注32条_20261012_235434_681.json"},
+    {"algorithm":"GateV5.0-DIFF-ONLINE-EXPERIMENT","input_sha256":"c5ff9835c3afbebd0ae5793d65dc59ab4fa2f74d924b0b8668bfa27100b0b990","frames":1786,"outputs":27,"hard_matches":0,"within500_matches":0,"unmatched_outputs":27,"event_contract_status":"FAIL","filename":"SISP_V5_DIFF_全程判定_工作标注32条_20261012_141631_459.json"},
+    {"algorithm":"GateV4.3-DIFFERENCE-CONTINUITY_ABSORPTION","input_sha256":"b31f4abb0b56ffa68613f81af33a93c279aebe52300463dea9be6b9f54051fd3","frames":1431,"outputs":15,"hard_matches":12,"within500_matches":10,"unmatched_outputs":3,"event_contract_status":"FAIL","filename":"SISP_DIFFERENCE_全程判定_工作标注32条_20261012_001104_657.txt"}
+  ],
+  "full_system_acceptance":"NOT_ESTABLISHED"
+}
