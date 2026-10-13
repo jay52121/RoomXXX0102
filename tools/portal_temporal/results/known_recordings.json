@@ -1,0 +1,2720 @@
+[
+  {
+    "algorithm": "SceneTemporalV6-native",
+    "contract": {
+      "early_ms": 100,
+      "latest_ms": 1000,
+      "target_ms": 500,
+      "expected_labels": 32,
+      "timestamp_source": "containing frame.timeMs"
+    },
+    "contract_sha256": "7d2859ac23bd00c80649f294fc3ae52983c0fda1df4895166ed0e2152668b4a4",
+    "truth_sha256": "ceae8da4797cd14ed5dc145ec1a71a19488a8831156806054ec2b1d2fcfb4638",
+    "frames": 1633,
+    "measurements": 0,
+    "outputs": 32,
+    "labels": 32,
+    "hard_matches": 32,
+    "within500_matches": 32,
+    "unmatched_outputs": 0,
+    "missed_truth_ids": [],
+    "pairs": [
+      {
+        "truth_id": 1,
+        "output_index": 0,
+        "latency_ms": 3
+      },
+      {
+        "truth_id": 2,
+        "output_index": 1,
+        "latency_ms": 144
+      },
+      {
+        "truth_id": 3,
+        "output_index": 2,
+        "latency_ms": 167
+      },
+      {
+        "truth_id": 4,
+        "output_index": 3,
+        "latency_ms": 63
+      },
+      {
+        "truth_id": 5,
+        "output_index": 4,
+        "latency_ms": 63
+      },
+      {
+        "truth_id": 6,
+        "output_index": 5,
+        "latency_ms": 114
+      },
+      {
+        "truth_id": 7,
+        "output_index": 6,
+        "latency_ms": 129
+      },
+      {
+        "truth_id": 8,
+        "output_index": 7,
+        "latency_ms": 145
+      },
+      {
+        "truth_id": 9,
+        "output_index": 8,
+        "latency_ms": 173
+      },
+      {
+        "truth_id": 10,
+        "output_index": 9,
+        "latency_ms": 61
+      },
+      {
+        "truth_id": 11,
+        "output_index": 10,
+        "latency_ms": 70
+      },
+      {
+        "truth_id": 12,
+        "output_index": 11,
+        "latency_ms": 44
+      },
+      {
+        "truth_id": 13,
+        "output_index": 12,
+        "latency_ms": 123
+      },
+      {
+        "truth_id": 14,
+        "output_index": 13,
+        "latency_ms": 55
+      },
+      {
+        "truth_id": 15,
+        "output_index": 14,
+        "latency_ms": 157
+      },
+      {
+        "truth_id": 16,
+        "output_index": 15,
+        "latency_ms": 62
+      },
+      {
+        "truth_id": 17,
+        "output_index": 16,
+        "latency_ms": 121
+      },
+      {
+        "truth_id": 18,
+        "output_index": 17,
+        "latency_ms": -12
+      },
+      {
+        "truth_id": 19,
+        "output_index": 18,
+        "latency_ms": 39
+      },
+      {
+        "truth_id": 20,
+        "output_index": 19,
+        "latency_ms": 116
+      },
+      {
+        "truth_id": 21,
+        "output_index": 20,
+        "latency_ms": 72
+      },
+      {
+        "truth_id": 22,
+        "output_index": 21,
+        "latency_ms": 28
+      },
+      {
+        "truth_id": 23,
+        "output_index": 22,
+        "latency_ms": 7
+      },
+      {
+        "truth_id": 24,
+        "output_index": 23,
+        "latency_ms": 90
+      },
+      {
+        "truth_id": 25,
+        "output_index": 24,
+        "latency_ms": 92
+      },
+      {
+        "truth_id": 26,
+        "output_index": 25,
+        "latency_ms": 66
+      },
+      {
+        "truth_id": 27,
+        "output_index": 26,
+        "latency_ms": 57
+      },
+      {
+        "truth_id": 28,
+        "output_index": 27,
+        "latency_ms": 125
+      },
+      {
+        "truth_id": 29,
+        "output_index": 28,
+        "latency_ms": 119
+      },
+      {
+        "truth_id": 30,
+        "output_index": 29,
+        "latency_ms": 132
+      },
+      {
+        "truth_id": 31,
+        "output_index": 30,
+        "latency_ms": 86
+      },
+      {
+        "truth_id": 32,
+        "output_index": 31,
+        "latency_ms": 119
+      }
+    ],
+    "per_event": [
+      {
+        "id": 1,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 3823,
+        "matched": true,
+        "latency_ms": 3
+      },
+      {
+        "id": 2,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 6469,
+        "matched": true,
+        "latency_ms": 144
+      },
+      {
+        "id": 3,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 14867,
+        "matched": true,
+        "latency_ms": 167
+      },
+      {
+        "id": 4,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 21037,
+        "matched": true,
+        "latency_ms": 63
+      },
+      {
+        "id": 5,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 26656,
+        "matched": true,
+        "latency_ms": 63
+      },
+      {
+        "id": 6,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 31394,
+        "matched": true,
+        "latency_ms": 114
+      },
+      {
+        "id": 7,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 35912,
+        "matched": true,
+        "latency_ms": 129
+      },
+      {
+        "id": 8,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 37605,
+        "matched": true,
+        "latency_ms": 145
+      },
+      {
+        "id": 9,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 42021,
+        "matched": true,
+        "latency_ms": 173
+      },
+      {
+        "id": 10,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 50438,
+        "matched": true,
+        "latency_ms": 61
+      },
+      {
+        "id": 11,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 57243,
+        "matched": true,
+        "latency_ms": 70
+      },
+      {
+        "id": 12,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 62452,
+        "matched": true,
+        "latency_ms": 44
+      },
+      {
+        "id": 13,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 68567,
+        "matched": true,
+        "latency_ms": 123
+      },
+      {
+        "id": 14,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 71843,
+        "matched": true,
+        "latency_ms": 55
+      },
+      {
+        "id": 15,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 77252,
+        "matched": true,
+        "latency_ms": 157
+      },
+      {
+        "id": 16,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 81512,
+        "matched": true,
+        "latency_ms": 62
+      },
+      {
+        "id": 17,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 85179,
+        "matched": true,
+        "latency_ms": 121
+      },
+      {
+        "id": 18,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 86972,
+        "matched": true,
+        "latency_ms": -12
+      },
+      {
+        "id": 19,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 89948,
+        "matched": true,
+        "latency_ms": 39
+      },
+      {
+        "id": 20,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 97725,
+        "matched": true,
+        "latency_ms": 116
+      },
+      {
+        "id": 21,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 109140,
+        "matched": true,
+        "latency_ms": 72
+      },
+      {
+        "id": 22,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 112201,
+        "matched": true,
+        "latency_ms": 28
+      },
+      {
+        "id": 23,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 114099,
+        "matched": true,
+        "latency_ms": 7
+      },
+      {
+        "id": 24,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 116604,
+        "matched": true,
+        "latency_ms": 90
+      },
+      {
+        "id": 25,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 120297,
+        "matched": true,
+        "latency_ms": 92
+      },
+      {
+        "id": 26,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 124381,
+        "matched": true,
+        "latency_ms": 66
+      },
+      {
+        "id": 27,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 126617,
+        "matched": true,
+        "latency_ms": 57
+      },
+      {
+        "id": 28,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 130938,
+        "matched": true,
+        "latency_ms": 125
+      },
+      {
+        "id": 29,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "ENTER",
+        "truth_ms": 133068,
+        "matched": true,
+        "latency_ms": 119
+      },
+      {
+        "id": 30,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 136134,
+        "matched": true,
+        "latency_ms": 132
+      },
+      {
+        "id": 31,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 141948,
+        "matched": true,
+        "latency_ms": 86
+      },
+      {
+        "id": 32,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "EXIT",
+        "truth_ms": 145477,
+        "matched": true,
+        "latency_ms": 119
+      }
+    ],
+    "extra_outputs": [],
+    "event_time_differs_from_output_frame": [],
+    "consistency_errors": [],
+    "identity_source_resets": 0,
+    "event_contract_status": "PASS",
+    "preferred_latency_target_status": "PASS",
+    "wall_clock_latency_status": "NOT_EVALUATED",
+    "independent_video_generalization_status": "NOT_EVALUATED",
+    "full_system_acceptance": "NOT_ESTABLISHED",
+    "recording": "SISP_V5_1_DIFF_全程判定_工作标注32条_20261012_203538_847.json",
+    "source_sha256": "7b0810f2849898e8ee1c803c6573819f39d0699fcfd5ac95b7f818adc6374f47",
+    "frozen_truth_sha256": "c5ccf03445ab2f11b4043a15c712509d8cdcc5863871df40bd4e5ec151987988",
+    "scope": "same-scene supervised known-recording native replay"
+  },
+  {
+    "algorithm": "SceneTemporalV6-native",
+    "contract": {
+      "early_ms": 100,
+      "latest_ms": 1000,
+      "target_ms": 500,
+      "expected_labels": 32,
+      "timestamp_source": "containing frame.timeMs"
+    },
+    "contract_sha256": "7d2859ac23bd00c80649f294fc3ae52983c0fda1df4895166ed0e2152668b4a4",
+    "truth_sha256": "ceae8da4797cd14ed5dc145ec1a71a19488a8831156806054ec2b1d2fcfb4638",
+    "frames": 1737,
+    "measurements": 0,
+    "outputs": 32,
+    "labels": 32,
+    "hard_matches": 32,
+    "within500_matches": 32,
+    "unmatched_outputs": 0,
+    "missed_truth_ids": [],
+    "pairs": [
+      {
+        "truth_id": 1,
+        "output_index": 0,
+        "latency_ms": 81
+      },
+      {
+        "truth_id": 2,
+        "output_index": 1,
+        "latency_ms": 161
+      },
+      {
+        "truth_id": 3,
+        "output_index": 2,
+        "latency_ms": 72
+      },
+      {
+        "truth_id": 4,
+        "output_index": 3,
+        "latency_ms": 43
+      },
+      {
+        "truth_id": 5,
+        "output_index": 4,
+        "latency_ms": 93
+      },
+      {
+        "truth_id": 6,
+        "output_index": 5,
+        "latency_ms": 86
+      },
+      {
+        "truth_id": 7,
+        "output_index": 6,
+        "latency_ms": 160
+      },
+      {
+        "truth_id": 8,
+        "output_index": 7,
+        "latency_ms": 135
+      },
+      {
+        "truth_id": 9,
+        "output_index": 8,
+        "latency_ms": 188
+      },
+      {
+        "truth_id": 10,
+        "output_index": 9,
+        "latency_ms": 101
+      },
+      {
+        "truth_id": 11,
+        "output_index": 10,
+        "latency_ms": 98
+      },
+      {
+        "truth_id": 12,
+        "output_index": 11,
+        "latency_ms": -78
+      },
+      {
+        "truth_id": 13,
+        "output_index": 12,
+        "latency_ms": 69
+      },
+      {
+        "truth_id": 14,
+        "output_index": 13,
+        "latency_ms": 28
+      },
+      {
+        "truth_id": 15,
+        "output_index": 14,
+        "latency_ms": 75
+      },
+      {
+        "truth_id": 16,
+        "output_index": 15,
+        "latency_ms": 109
+      },
+      {
+        "truth_id": 17,
+        "output_index": 16,
+        "latency_ms": 88
+      },
+      {
+        "truth_id": 18,
+        "output_index": 17,
+        "latency_ms": 2
+      },
+      {
+        "truth_id": 19,
+        "output_index": 18,
+        "latency_ms": -9
+      },
+      {
+        "truth_id": 20,
+        "output_index": 19,
+        "latency_ms": 159
+      },
+      {
+        "truth_id": 21,
+        "output_index": 20,
+        "latency_ms": 74
+      },
+      {
+        "truth_id": 22,
+        "output_index": 21,
+        "latency_ms": 48
+      },
+      {
+        "truth_id": 23,
+        "output_index": 22,
+        "latency_ms": 50
+      },
+      {
+        "truth_id": 24,
+        "output_index": 23,
+        "latency_ms": 99
+      },
+      {
+        "truth_id": 25,
+        "output_index": 24,
+        "latency_ms": 136
+      },
+      {
+        "truth_id": 26,
+        "output_index": 25,
+        "latency_ms": 89
+      },
+      {
+        "truth_id": 27,
+        "output_index": 26,
+        "latency_ms": 145
+      },
+      {
+        "truth_id": 28,
+        "output_index": 27,
+        "latency_ms": 81
+      },
+      {
+        "truth_id": 29,
+        "output_index": 28,
+        "latency_ms": 160
+      },
+      {
+        "truth_id": 30,
+        "output_index": 29,
+        "latency_ms": 71
+      },
+      {
+        "truth_id": 31,
+        "output_index": 30,
+        "latency_ms": 29
+      },
+      {
+        "truth_id": 32,
+        "output_index": 31,
+        "latency_ms": 128
+      }
+    ],
+    "per_event": [
+      {
+        "id": 1,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 3823,
+        "matched": true,
+        "latency_ms": 81
+      },
+      {
+        "id": 2,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 6469,
+        "matched": true,
+        "latency_ms": 161
+      },
+      {
+        "id": 3,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 14867,
+        "matched": true,
+        "latency_ms": 72
+      },
+      {
+        "id": 4,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 21037,
+        "matched": true,
+        "latency_ms": 43
+      },
+      {
+        "id": 5,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 26656,
+        "matched": true,
+        "latency_ms": 93
+      },
+      {
+        "id": 6,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 31394,
+        "matched": true,
+        "latency_ms": 86
+      },
+      {
+        "id": 7,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 35912,
+        "matched": true,
+        "latency_ms": 160
+      },
+      {
+        "id": 8,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 37605,
+        "matched": true,
+        "latency_ms": 135
+      },
+      {
+        "id": 9,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 42021,
+        "matched": true,
+        "latency_ms": 188
+      },
+      {
+        "id": 10,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 50438,
+        "matched": true,
+        "latency_ms": 101
+      },
+      {
+        "id": 11,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 57243,
+        "matched": true,
+        "latency_ms": 98
+      },
+      {
+        "id": 12,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 62452,
+        "matched": true,
+        "latency_ms": -78
+      },
+      {
+        "id": 13,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 68567,
+        "matched": true,
+        "latency_ms": 69
+      },
+      {
+        "id": 14,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 71843,
+        "matched": true,
+        "latency_ms": 28
+      },
+      {
+        "id": 15,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 77252,
+        "matched": true,
+        "latency_ms": 75
+      },
+      {
+        "id": 16,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 81512,
+        "matched": true,
+        "latency_ms": 109
+      },
+      {
+        "id": 17,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 85179,
+        "matched": true,
+        "latency_ms": 88
+      },
+      {
+        "id": 18,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 86972,
+        "matched": true,
+        "latency_ms": 2
+      },
+      {
+        "id": 19,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 89948,
+        "matched": true,
+        "latency_ms": -9
+      },
+      {
+        "id": 20,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 97725,
+        "matched": true,
+        "latency_ms": 159
+      },
+      {
+        "id": 21,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 109140,
+        "matched": true,
+        "latency_ms": 74
+      },
+      {
+        "id": 22,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 112201,
+        "matched": true,
+        "latency_ms": 48
+      },
+      {
+        "id": 23,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 114099,
+        "matched": true,
+        "latency_ms": 50
+      },
+      {
+        "id": 24,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 116604,
+        "matched": true,
+        "latency_ms": 99
+      },
+      {
+        "id": 25,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 120297,
+        "matched": true,
+        "latency_ms": 136
+      },
+      {
+        "id": 26,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 124381,
+        "matched": true,
+        "latency_ms": 89
+      },
+      {
+        "id": 27,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 126617,
+        "matched": true,
+        "latency_ms": 145
+      },
+      {
+        "id": 28,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 130938,
+        "matched": true,
+        "latency_ms": 81
+      },
+      {
+        "id": 29,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "ENTER",
+        "truth_ms": 133068,
+        "matched": true,
+        "latency_ms": 160
+      },
+      {
+        "id": 30,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 136134,
+        "matched": true,
+        "latency_ms": 71
+      },
+      {
+        "id": 31,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 141948,
+        "matched": true,
+        "latency_ms": 29
+      },
+      {
+        "id": 32,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "EXIT",
+        "truth_ms": 145477,
+        "matched": true,
+        "latency_ms": 128
+      }
+    ],
+    "extra_outputs": [],
+    "event_time_differs_from_output_frame": [],
+    "consistency_errors": [],
+    "identity_source_resets": 0,
+    "event_contract_status": "PASS",
+    "preferred_latency_target_status": "PASS",
+    "wall_clock_latency_status": "NOT_EVALUATED",
+    "independent_video_generalization_status": "NOT_EVALUATED",
+    "full_system_acceptance": "NOT_ESTABLISHED",
+    "recording": "SISP_V5_2_DIFF_全程判定_工作标注32条_20261012_213034_672.json",
+    "source_sha256": "5a70125dc112fc4bcc2cd5c3eb1f8eaa00f613854899b54334c2febffadd3f9c",
+    "frozen_truth_sha256": "c5ccf03445ab2f11b4043a15c712509d8cdcc5863871df40bd4e5ec151987988",
+    "scope": "same-scene supervised known-recording native replay"
+  },
+  {
+    "algorithm": "SceneTemporalV6-native",
+    "contract": {
+      "early_ms": 100,
+      "latest_ms": 1000,
+      "target_ms": 500,
+      "expected_labels": 32,
+      "timestamp_source": "containing frame.timeMs"
+    },
+    "contract_sha256": "7d2859ac23bd00c80649f294fc3ae52983c0fda1df4895166ed0e2152668b4a4",
+    "truth_sha256": "ceae8da4797cd14ed5dc145ec1a71a19488a8831156806054ec2b1d2fcfb4638",
+    "frames": 1742,
+    "measurements": 0,
+    "outputs": 32,
+    "labels": 32,
+    "hard_matches": 32,
+    "within500_matches": 32,
+    "unmatched_outputs": 0,
+    "missed_truth_ids": [],
+    "pairs": [
+      {
+        "truth_id": 1,
+        "output_index": 0,
+        "latency_ms": 81
+      },
+      {
+        "truth_id": 2,
+        "output_index": 1,
+        "latency_ms": 137
+      },
+      {
+        "truth_id": 3,
+        "output_index": 2,
+        "latency_ms": 100
+      },
+      {
+        "truth_id": 4,
+        "output_index": 3,
+        "latency_ms": 16
+      },
+      {
+        "truth_id": 5,
+        "output_index": 4,
+        "latency_ms": 53
+      },
+      {
+        "truth_id": 6,
+        "output_index": 5,
+        "latency_ms": 95
+      },
+      {
+        "truth_id": 7,
+        "output_index": 6,
+        "latency_ms": 98
+      },
+      {
+        "truth_id": 8,
+        "output_index": 7,
+        "latency_ms": 125
+      },
+      {
+        "truth_id": 9,
+        "output_index": 8,
+        "latency_ms": 206
+      },
+      {
+        "truth_id": 10,
+        "output_index": 9,
+        "latency_ms": 81
+      },
+      {
+        "truth_id": 11,
+        "output_index": 10,
+        "latency_ms": 135
+      },
+      {
+        "truth_id": 12,
+        "output_index": 11,
+        "latency_ms": 59
+      },
+      {
+        "truth_id": 13,
+        "output_index": 12,
+        "latency_ms": 84
+      },
+      {
+        "truth_id": 14,
+        "output_index": 13,
+        "latency_ms": 13
+      },
+      {
+        "truth_id": 15,
+        "output_index": 14,
+        "latency_ms": 121
+      },
+      {
+        "truth_id": 16,
+        "output_index": 15,
+        "latency_ms": 77
+      },
+      {
+        "truth_id": 17,
+        "output_index": 16,
+        "latency_ms": 91
+      },
+      {
+        "truth_id": 18,
+        "output_index": 17,
+        "latency_ms": 73
+      },
+      {
+        "truth_id": 19,
+        "output_index": 18,
+        "latency_ms": -26
+      },
+      {
+        "truth_id": 20,
+        "output_index": 19,
+        "latency_ms": 117
+      },
+      {
+        "truth_id": 21,
+        "output_index": 20,
+        "latency_ms": 206
+      },
+      {
+        "truth_id": 22,
+        "output_index": 21,
+        "latency_ms": 88
+      },
+      {
+        "truth_id": 23,
+        "output_index": 22,
+        "latency_ms": 85
+      },
+      {
+        "truth_id": 24,
+        "output_index": 23,
+        "latency_ms": 147
+      },
+      {
+        "truth_id": 25,
+        "output_index": 24,
+        "latency_ms": 127
+      },
+      {
+        "truth_id": 26,
+        "output_index": 25,
+        "latency_ms": 90
+      },
+      {
+        "truth_id": 27,
+        "output_index": 26,
+        "latency_ms": 104
+      },
+      {
+        "truth_id": 28,
+        "output_index": 27,
+        "latency_ms": 112
+      },
+      {
+        "truth_id": 29,
+        "output_index": 28,
+        "latency_ms": 161
+      },
+      {
+        "truth_id": 30,
+        "output_index": 29,
+        "latency_ms": 48
+      },
+      {
+        "truth_id": 31,
+        "output_index": 30,
+        "latency_ms": 110
+      },
+      {
+        "truth_id": 32,
+        "output_index": 31,
+        "latency_ms": 77
+      }
+    ],
+    "per_event": [
+      {
+        "id": 1,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 3823,
+        "matched": true,
+        "latency_ms": 81
+      },
+      {
+        "id": 2,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 6469,
+        "matched": true,
+        "latency_ms": 137
+      },
+      {
+        "id": 3,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 14867,
+        "matched": true,
+        "latency_ms": 100
+      },
+      {
+        "id": 4,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 21037,
+        "matched": true,
+        "latency_ms": 16
+      },
+      {
+        "id": 5,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 26656,
+        "matched": true,
+        "latency_ms": 53
+      },
+      {
+        "id": 6,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 31394,
+        "matched": true,
+        "latency_ms": 95
+      },
+      {
+        "id": 7,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 35912,
+        "matched": true,
+        "latency_ms": 98
+      },
+      {
+        "id": 8,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 37605,
+        "matched": true,
+        "latency_ms": 125
+      },
+      {
+        "id": 9,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 42021,
+        "matched": true,
+        "latency_ms": 206
+      },
+      {
+        "id": 10,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 50438,
+        "matched": true,
+        "latency_ms": 81
+      },
+      {
+        "id": 11,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 57243,
+        "matched": true,
+        "latency_ms": 135
+      },
+      {
+        "id": 12,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 62452,
+        "matched": true,
+        "latency_ms": 59
+      },
+      {
+        "id": 13,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 68567,
+        "matched": true,
+        "latency_ms": 84
+      },
+      {
+        "id": 14,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 71843,
+        "matched": true,
+        "latency_ms": 13
+      },
+      {
+        "id": 15,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 77252,
+        "matched": true,
+        "latency_ms": 121
+      },
+      {
+        "id": 16,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 81512,
+        "matched": true,
+        "latency_ms": 77
+      },
+      {
+        "id": 17,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 85179,
+        "matched": true,
+        "latency_ms": 91
+      },
+      {
+        "id": 18,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 86972,
+        "matched": true,
+        "latency_ms": 73
+      },
+      {
+        "id": 19,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 89948,
+        "matched": true,
+        "latency_ms": -26
+      },
+      {
+        "id": 20,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 97725,
+        "matched": true,
+        "latency_ms": 117
+      },
+      {
+        "id": 21,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 109140,
+        "matched": true,
+        "latency_ms": 206
+      },
+      {
+        "id": 22,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 112201,
+        "matched": true,
+        "latency_ms": 88
+      },
+      {
+        "id": 23,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 114099,
+        "matched": true,
+        "latency_ms": 85
+      },
+      {
+        "id": 24,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 116604,
+        "matched": true,
+        "latency_ms": 147
+      },
+      {
+        "id": 25,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 120297,
+        "matched": true,
+        "latency_ms": 127
+      },
+      {
+        "id": 26,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 124381,
+        "matched": true,
+        "latency_ms": 90
+      },
+      {
+        "id": 27,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 126617,
+        "matched": true,
+        "latency_ms": 104
+      },
+      {
+        "id": 28,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 130938,
+        "matched": true,
+        "latency_ms": 112
+      },
+      {
+        "id": 29,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "ENTER",
+        "truth_ms": 133068,
+        "matched": true,
+        "latency_ms": 161
+      },
+      {
+        "id": 30,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 136134,
+        "matched": true,
+        "latency_ms": 48
+      },
+      {
+        "id": 31,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 141948,
+        "matched": true,
+        "latency_ms": 110
+      },
+      {
+        "id": 32,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "EXIT",
+        "truth_ms": 145477,
+        "matched": true,
+        "latency_ms": 77
+      }
+    ],
+    "extra_outputs": [],
+    "event_time_differs_from_output_frame": [],
+    "consistency_errors": [],
+    "identity_source_resets": 0,
+    "event_contract_status": "PASS",
+    "preferred_latency_target_status": "PASS",
+    "wall_clock_latency_status": "NOT_EVALUATED",
+    "independent_video_generalization_status": "NOT_EVALUATED",
+    "full_system_acceptance": "NOT_ESTABLISHED",
+    "recording": "SISP_V5_3_DIFF_全程判定_工作标注32条_20261012_223502_015.json",
+    "source_sha256": "913107d269d4165da83f7b36d727d7166bc6d23f2a77fc15a57de602c8e9f7b3",
+    "frozen_truth_sha256": "c5ccf03445ab2f11b4043a15c712509d8cdcc5863871df40bd4e5ec151987988",
+    "scope": "same-scene supervised known-recording native replay"
+  },
+  {
+    "algorithm": "SceneTemporalV6-native",
+    "contract": {
+      "early_ms": 100,
+      "latest_ms": 1000,
+      "target_ms": 500,
+      "expected_labels": 32,
+      "timestamp_source": "containing frame.timeMs"
+    },
+    "contract_sha256": "7d2859ac23bd00c80649f294fc3ae52983c0fda1df4895166ed0e2152668b4a4",
+    "truth_sha256": "ceae8da4797cd14ed5dc145ec1a71a19488a8831156806054ec2b1d2fcfb4638",
+    "frames": 1681,
+    "measurements": 0,
+    "outputs": 32,
+    "labels": 32,
+    "hard_matches": 32,
+    "within500_matches": 32,
+    "unmatched_outputs": 0,
+    "missed_truth_ids": [],
+    "pairs": [
+      {
+        "truth_id": 1,
+        "output_index": 0,
+        "latency_ms": 99
+      },
+      {
+        "truth_id": 2,
+        "output_index": 1,
+        "latency_ms": 158
+      },
+      {
+        "truth_id": 3,
+        "output_index": 2,
+        "latency_ms": 177
+      },
+      {
+        "truth_id": 4,
+        "output_index": 3,
+        "latency_ms": 14
+      },
+      {
+        "truth_id": 5,
+        "output_index": 4,
+        "latency_ms": 153
+      },
+      {
+        "truth_id": 6,
+        "output_index": 5,
+        "latency_ms": 146
+      },
+      {
+        "truth_id": 7,
+        "output_index": 6,
+        "latency_ms": 148
+      },
+      {
+        "truth_id": 8,
+        "output_index": 7,
+        "latency_ms": 129
+      },
+      {
+        "truth_id": 9,
+        "output_index": 8,
+        "latency_ms": 162
+      },
+      {
+        "truth_id": 10,
+        "output_index": 9,
+        "latency_ms": 97
+      },
+      {
+        "truth_id": 11,
+        "output_index": 10,
+        "latency_ms": 461
+      },
+      {
+        "truth_id": 12,
+        "output_index": 11,
+        "latency_ms": 234
+      },
+      {
+        "truth_id": 13,
+        "output_index": 12,
+        "latency_ms": 116
+      },
+      {
+        "truth_id": 14,
+        "output_index": 13,
+        "latency_ms": 54
+      },
+      {
+        "truth_id": 15,
+        "output_index": 14,
+        "latency_ms": 121
+      },
+      {
+        "truth_id": 16,
+        "output_index": 15,
+        "latency_ms": 59
+      },
+      {
+        "truth_id": 17,
+        "output_index": 16,
+        "latency_ms": 47
+      },
+      {
+        "truth_id": 18,
+        "output_index": 17,
+        "latency_ms": 120
+      },
+      {
+        "truth_id": 19,
+        "output_index": 18,
+        "latency_ms": 13
+      },
+      {
+        "truth_id": 20,
+        "output_index": 19,
+        "latency_ms": 210
+      },
+      {
+        "truth_id": 21,
+        "output_index": 20,
+        "latency_ms": 94
+      },
+      {
+        "truth_id": 22,
+        "output_index": 21,
+        "latency_ms": 84
+      },
+      {
+        "truth_id": 23,
+        "output_index": 22,
+        "latency_ms": 48
+      },
+      {
+        "truth_id": 24,
+        "output_index": 23,
+        "latency_ms": 120
+      },
+      {
+        "truth_id": 25,
+        "output_index": 24,
+        "latency_ms": 68
+      },
+      {
+        "truth_id": 26,
+        "output_index": 25,
+        "latency_ms": 18
+      },
+      {
+        "truth_id": 27,
+        "output_index": 26,
+        "latency_ms": 91
+      },
+      {
+        "truth_id": 28,
+        "output_index": 27,
+        "latency_ms": 117
+      },
+      {
+        "truth_id": 29,
+        "output_index": 28,
+        "latency_ms": 105
+      },
+      {
+        "truth_id": 30,
+        "output_index": 29,
+        "latency_ms": 119
+      },
+      {
+        "truth_id": 31,
+        "output_index": 30,
+        "latency_ms": 125
+      },
+      {
+        "truth_id": 32,
+        "output_index": 31,
+        "latency_ms": 145
+      }
+    ],
+    "per_event": [
+      {
+        "id": 1,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 3823,
+        "matched": true,
+        "latency_ms": 99
+      },
+      {
+        "id": 2,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 6469,
+        "matched": true,
+        "latency_ms": 158
+      },
+      {
+        "id": 3,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 14867,
+        "matched": true,
+        "latency_ms": 177
+      },
+      {
+        "id": 4,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 21037,
+        "matched": true,
+        "latency_ms": 14
+      },
+      {
+        "id": 5,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 26656,
+        "matched": true,
+        "latency_ms": 153
+      },
+      {
+        "id": 6,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 31394,
+        "matched": true,
+        "latency_ms": 146
+      },
+      {
+        "id": 7,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 35912,
+        "matched": true,
+        "latency_ms": 148
+      },
+      {
+        "id": 8,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 37605,
+        "matched": true,
+        "latency_ms": 129
+      },
+      {
+        "id": 9,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 42021,
+        "matched": true,
+        "latency_ms": 162
+      },
+      {
+        "id": 10,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 50438,
+        "matched": true,
+        "latency_ms": 97
+      },
+      {
+        "id": 11,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 57243,
+        "matched": true,
+        "latency_ms": 461
+      },
+      {
+        "id": 12,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 62452,
+        "matched": true,
+        "latency_ms": 234
+      },
+      {
+        "id": 13,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 68567,
+        "matched": true,
+        "latency_ms": 116
+      },
+      {
+        "id": 14,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 71843,
+        "matched": true,
+        "latency_ms": 54
+      },
+      {
+        "id": 15,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 77252,
+        "matched": true,
+        "latency_ms": 121
+      },
+      {
+        "id": 16,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 81512,
+        "matched": true,
+        "latency_ms": 59
+      },
+      {
+        "id": 17,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 85179,
+        "matched": true,
+        "latency_ms": 47
+      },
+      {
+        "id": 18,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 86972,
+        "matched": true,
+        "latency_ms": 120
+      },
+      {
+        "id": 19,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 89948,
+        "matched": true,
+        "latency_ms": 13
+      },
+      {
+        "id": 20,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 97725,
+        "matched": true,
+        "latency_ms": 210
+      },
+      {
+        "id": 21,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 109140,
+        "matched": true,
+        "latency_ms": 94
+      },
+      {
+        "id": 22,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 112201,
+        "matched": true,
+        "latency_ms": 84
+      },
+      {
+        "id": 23,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 114099,
+        "matched": true,
+        "latency_ms": 48
+      },
+      {
+        "id": 24,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 116604,
+        "matched": true,
+        "latency_ms": 120
+      },
+      {
+        "id": 25,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 120297,
+        "matched": true,
+        "latency_ms": 68
+      },
+      {
+        "id": 26,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 124381,
+        "matched": true,
+        "latency_ms": 18
+      },
+      {
+        "id": 27,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 126617,
+        "matched": true,
+        "latency_ms": 91
+      },
+      {
+        "id": 28,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 130938,
+        "matched": true,
+        "latency_ms": 117
+      },
+      {
+        "id": 29,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "ENTER",
+        "truth_ms": 133068,
+        "matched": true,
+        "latency_ms": 105
+      },
+      {
+        "id": 30,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 136134,
+        "matched": true,
+        "latency_ms": 119
+      },
+      {
+        "id": 31,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 141948,
+        "matched": true,
+        "latency_ms": 125
+      },
+      {
+        "id": 32,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "EXIT",
+        "truth_ms": 145477,
+        "matched": true,
+        "latency_ms": 145
+      }
+    ],
+    "extra_outputs": [],
+    "event_time_differs_from_output_frame": [],
+    "consistency_errors": [],
+    "identity_source_resets": 0,
+    "event_contract_status": "PASS",
+    "preferred_latency_target_status": "PASS",
+    "wall_clock_latency_status": "NOT_EVALUATED",
+    "independent_video_generalization_status": "NOT_EVALUATED",
+    "full_system_acceptance": "NOT_ESTABLISHED",
+    "recording": "SISP_V5_4_FLOW_全程判定_工作标注32条_20261012_235434_681.json",
+    "source_sha256": "aefb76674bb7b815a844d2dd36569c2ff9641a7782464a47db4e81745f0efa6d",
+    "frozen_truth_sha256": "c5ccf03445ab2f11b4043a15c712509d8cdcc5863871df40bd4e5ec151987988",
+    "scope": "same-scene supervised known-recording native replay"
+  },
+  {
+    "algorithm": "SceneTemporalV6-native",
+    "contract": {
+      "early_ms": 100,
+      "latest_ms": 1000,
+      "target_ms": 500,
+      "expected_labels": 32,
+      "timestamp_source": "containing frame.timeMs"
+    },
+    "contract_sha256": "7d2859ac23bd00c80649f294fc3ae52983c0fda1df4895166ed0e2152668b4a4",
+    "truth_sha256": "ceae8da4797cd14ed5dc145ec1a71a19488a8831156806054ec2b1d2fcfb4638",
+    "frames": 1786,
+    "measurements": 0,
+    "outputs": 32,
+    "labels": 32,
+    "hard_matches": 32,
+    "within500_matches": 32,
+    "unmatched_outputs": 0,
+    "missed_truth_ids": [],
+    "pairs": [
+      {
+        "truth_id": 1,
+        "output_index": 0,
+        "latency_ms": 145
+      },
+      {
+        "truth_id": 2,
+        "output_index": 1,
+        "latency_ms": 166
+      },
+      {
+        "truth_id": 3,
+        "output_index": 2,
+        "latency_ms": 135
+      },
+      {
+        "truth_id": 4,
+        "output_index": 3,
+        "latency_ms": 112
+      },
+      {
+        "truth_id": 5,
+        "output_index": 4,
+        "latency_ms": 75
+      },
+      {
+        "truth_id": 6,
+        "output_index": 5,
+        "latency_ms": 112
+      },
+      {
+        "truth_id": 7,
+        "output_index": 6,
+        "latency_ms": 113
+      },
+      {
+        "truth_id": 8,
+        "output_index": 7,
+        "latency_ms": 111
+      },
+      {
+        "truth_id": 9,
+        "output_index": 8,
+        "latency_ms": 114
+      },
+      {
+        "truth_id": 10,
+        "output_index": 9,
+        "latency_ms": 105
+      },
+      {
+        "truth_id": 11,
+        "output_index": 10,
+        "latency_ms": 147
+      },
+      {
+        "truth_id": 12,
+        "output_index": 11,
+        "latency_ms": -13
+      },
+      {
+        "truth_id": 13,
+        "output_index": 12,
+        "latency_ms": 82
+      },
+      {
+        "truth_id": 14,
+        "output_index": 13,
+        "latency_ms": 88
+      },
+      {
+        "truth_id": 15,
+        "output_index": 14,
+        "latency_ms": 109
+      },
+      {
+        "truth_id": 16,
+        "output_index": 15,
+        "latency_ms": 101
+      },
+      {
+        "truth_id": 17,
+        "output_index": 16,
+        "latency_ms": 142
+      },
+      {
+        "truth_id": 18,
+        "output_index": 17,
+        "latency_ms": 68
+      },
+      {
+        "truth_id": 19,
+        "output_index": 18,
+        "latency_ms": 0
+      },
+      {
+        "truth_id": 20,
+        "output_index": 19,
+        "latency_ms": 251
+      },
+      {
+        "truth_id": 21,
+        "output_index": 20,
+        "latency_ms": 95
+      },
+      {
+        "truth_id": 22,
+        "output_index": 21,
+        "latency_ms": 51
+      },
+      {
+        "truth_id": 23,
+        "output_index": 22,
+        "latency_ms": 82
+      },
+      {
+        "truth_id": 24,
+        "output_index": 23,
+        "latency_ms": 59
+      },
+      {
+        "truth_id": 25,
+        "output_index": 24,
+        "latency_ms": 90
+      },
+      {
+        "truth_id": 26,
+        "output_index": 25,
+        "latency_ms": 80
+      },
+      {
+        "truth_id": 27,
+        "output_index": 26,
+        "latency_ms": 154
+      },
+      {
+        "truth_id": 28,
+        "output_index": 27,
+        "latency_ms": 98
+      },
+      {
+        "truth_id": 29,
+        "output_index": 28,
+        "latency_ms": 108
+      },
+      {
+        "truth_id": 30,
+        "output_index": 29,
+        "latency_ms": 64
+      },
+      {
+        "truth_id": 31,
+        "output_index": 30,
+        "latency_ms": 87
+      },
+      {
+        "truth_id": 32,
+        "output_index": 31,
+        "latency_ms": 115
+      }
+    ],
+    "per_event": [
+      {
+        "id": 1,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 3823,
+        "matched": true,
+        "latency_ms": 145
+      },
+      {
+        "id": 2,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 6469,
+        "matched": true,
+        "latency_ms": 166
+      },
+      {
+        "id": 3,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 14867,
+        "matched": true,
+        "latency_ms": 135
+      },
+      {
+        "id": 4,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 21037,
+        "matched": true,
+        "latency_ms": 112
+      },
+      {
+        "id": 5,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 26656,
+        "matched": true,
+        "latency_ms": 75
+      },
+      {
+        "id": 6,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 31394,
+        "matched": true,
+        "latency_ms": 112
+      },
+      {
+        "id": 7,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 35912,
+        "matched": true,
+        "latency_ms": 113
+      },
+      {
+        "id": 8,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 37605,
+        "matched": true,
+        "latency_ms": 111
+      },
+      {
+        "id": 9,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 42021,
+        "matched": true,
+        "latency_ms": 114
+      },
+      {
+        "id": 10,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 50438,
+        "matched": true,
+        "latency_ms": 105
+      },
+      {
+        "id": 11,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 57243,
+        "matched": true,
+        "latency_ms": 147
+      },
+      {
+        "id": 12,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 62452,
+        "matched": true,
+        "latency_ms": -13
+      },
+      {
+        "id": 13,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 68567,
+        "matched": true,
+        "latency_ms": 82
+      },
+      {
+        "id": 14,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 71843,
+        "matched": true,
+        "latency_ms": 88
+      },
+      {
+        "id": 15,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 77252,
+        "matched": true,
+        "latency_ms": 109
+      },
+      {
+        "id": 16,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 81512,
+        "matched": true,
+        "latency_ms": 101
+      },
+      {
+        "id": 17,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 85179,
+        "matched": true,
+        "latency_ms": 142
+      },
+      {
+        "id": 18,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 86972,
+        "matched": true,
+        "latency_ms": 68
+      },
+      {
+        "id": 19,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 89948,
+        "matched": true,
+        "latency_ms": 0
+      },
+      {
+        "id": 20,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 97725,
+        "matched": true,
+        "latency_ms": 251
+      },
+      {
+        "id": 21,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 109140,
+        "matched": true,
+        "latency_ms": 95
+      },
+      {
+        "id": 22,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 112201,
+        "matched": true,
+        "latency_ms": 51
+      },
+      {
+        "id": 23,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 114099,
+        "matched": true,
+        "latency_ms": 82
+      },
+      {
+        "id": 24,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 116604,
+        "matched": true,
+        "latency_ms": 59
+      },
+      {
+        "id": 25,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 120297,
+        "matched": true,
+        "latency_ms": 90
+      },
+      {
+        "id": 26,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 124381,
+        "matched": true,
+        "latency_ms": 80
+      },
+      {
+        "id": 27,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 126617,
+        "matched": true,
+        "latency_ms": 154
+      },
+      {
+        "id": 28,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 130938,
+        "matched": true,
+        "latency_ms": 98
+      },
+      {
+        "id": 29,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "ENTER",
+        "truth_ms": 133068,
+        "matched": true,
+        "latency_ms": 108
+      },
+      {
+        "id": 30,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 136134,
+        "matched": true,
+        "latency_ms": 64
+      },
+      {
+        "id": 31,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 141948,
+        "matched": true,
+        "latency_ms": 87
+      },
+      {
+        "id": 32,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "EXIT",
+        "truth_ms": 145477,
+        "matched": true,
+        "latency_ms": 115
+      }
+    ],
+    "extra_outputs": [],
+    "event_time_differs_from_output_frame": [],
+    "consistency_errors": [],
+    "identity_source_resets": 0,
+    "event_contract_status": "PASS",
+    "preferred_latency_target_status": "PASS",
+    "wall_clock_latency_status": "NOT_EVALUATED",
+    "independent_video_generalization_status": "NOT_EVALUATED",
+    "full_system_acceptance": "NOT_ESTABLISHED",
+    "recording": "SISP_V5_DIFF_全程判定_工作标注32条_20261012_141631_459.json",
+    "source_sha256": "c5ff9835c3afbebd0ae5793d65dc59ab4fa2f74d924b0b8668bfa27100b0b990",
+    "frozen_truth_sha256": "c5ccf03445ab2f11b4043a15c712509d8cdcc5863871df40bd4e5ec151987988",
+    "scope": "same-scene supervised known-recording native replay"
+  },
+  {
+    "algorithm": "SceneTemporalV6-native",
+    "contract": {
+      "early_ms": 100,
+      "latest_ms": 1000,
+      "target_ms": 500,
+      "expected_labels": 32,
+      "timestamp_source": "containing frame.timeMs"
+    },
+    "contract_sha256": "7d2859ac23bd00c80649f294fc3ae52983c0fda1df4895166ed0e2152668b4a4",
+    "truth_sha256": "ceae8da4797cd14ed5dc145ec1a71a19488a8831156806054ec2b1d2fcfb4638",
+    "frames": 1431,
+    "measurements": 0,
+    "outputs": 32,
+    "labels": 32,
+    "hard_matches": 32,
+    "within500_matches": 32,
+    "unmatched_outputs": 0,
+    "missed_truth_ids": [],
+    "pairs": [
+      {
+        "truth_id": 1,
+        "output_index": 0,
+        "latency_ms": 95
+      },
+      {
+        "truth_id": 2,
+        "output_index": 1,
+        "latency_ms": 273
+      },
+      {
+        "truth_id": 3,
+        "output_index": 2,
+        "latency_ms": 193
+      },
+      {
+        "truth_id": 4,
+        "output_index": 3,
+        "latency_ms": 84
+      },
+      {
+        "truth_id": 5,
+        "output_index": 4,
+        "latency_ms": 83
+      },
+      {
+        "truth_id": 6,
+        "output_index": 5,
+        "latency_ms": 240
+      },
+      {
+        "truth_id": 7,
+        "output_index": 6,
+        "latency_ms": 179
+      },
+      {
+        "truth_id": 8,
+        "output_index": 7,
+        "latency_ms": 105
+      },
+      {
+        "truth_id": 9,
+        "output_index": 8,
+        "latency_ms": 257
+      },
+      {
+        "truth_id": 10,
+        "output_index": 9,
+        "latency_ms": 105
+      },
+      {
+        "truth_id": 11,
+        "output_index": 10,
+        "latency_ms": 126
+      },
+      {
+        "truth_id": 12,
+        "output_index": 11,
+        "latency_ms": 104
+      },
+      {
+        "truth_id": 13,
+        "output_index": 12,
+        "latency_ms": 176
+      },
+      {
+        "truth_id": 14,
+        "output_index": 13,
+        "latency_ms": 109
+      },
+      {
+        "truth_id": 15,
+        "output_index": 14,
+        "latency_ms": 220
+      },
+      {
+        "truth_id": 16,
+        "output_index": 15,
+        "latency_ms": 104
+      },
+      {
+        "truth_id": 17,
+        "output_index": 16,
+        "latency_ms": 199
+      },
+      {
+        "truth_id": 18,
+        "output_index": 17,
+        "latency_ms": 82
+      },
+      {
+        "truth_id": 19,
+        "output_index": 18,
+        "latency_ms": 68
+      },
+      {
+        "truth_id": 20,
+        "output_index": 19,
+        "latency_ms": 378
+      },
+      {
+        "truth_id": 21,
+        "output_index": 20,
+        "latency_ms": 189
+      },
+      {
+        "truth_id": 22,
+        "output_index": 21,
+        "latency_ms": 84
+      },
+      {
+        "truth_id": 23,
+        "output_index": 22,
+        "latency_ms": 174
+      },
+      {
+        "truth_id": 24,
+        "output_index": 23,
+        "latency_ms": 90
+      },
+      {
+        "truth_id": 25,
+        "output_index": 24,
+        "latency_ms": 160
+      },
+      {
+        "truth_id": 26,
+        "output_index": 25,
+        "latency_ms": 109
+      },
+      {
+        "truth_id": 27,
+        "output_index": 26,
+        "latency_ms": 169
+      },
+      {
+        "truth_id": 28,
+        "output_index": 27,
+        "latency_ms": 375
+      },
+      {
+        "truth_id": 29,
+        "output_index": 28,
+        "latency_ms": 200
+      },
+      {
+        "truth_id": 30,
+        "output_index": 29,
+        "latency_ms": 153
+      },
+      {
+        "truth_id": 31,
+        "output_index": 30,
+        "latency_ms": 119
+      },
+      {
+        "truth_id": 32,
+        "output_index": 31,
+        "latency_ms": 225
+      }
+    ],
+    "per_event": [
+      {
+        "id": 1,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 3823,
+        "matched": true,
+        "latency_ms": 95
+      },
+      {
+        "id": 2,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 6469,
+        "matched": true,
+        "latency_ms": 273
+      },
+      {
+        "id": 3,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 14867,
+        "matched": true,
+        "latency_ms": 193
+      },
+      {
+        "id": 4,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 21037,
+        "matched": true,
+        "latency_ms": 84
+      },
+      {
+        "id": 5,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 26656,
+        "matched": true,
+        "latency_ms": 83
+      },
+      {
+        "id": 6,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 31394,
+        "matched": true,
+        "latency_ms": 240
+      },
+      {
+        "id": 7,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 35912,
+        "matched": true,
+        "latency_ms": 179
+      },
+      {
+        "id": 8,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 37605,
+        "matched": true,
+        "latency_ms": 105
+      },
+      {
+        "id": 9,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 42021,
+        "matched": true,
+        "latency_ms": 257
+      },
+      {
+        "id": 10,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 50438,
+        "matched": true,
+        "latency_ms": 105
+      },
+      {
+        "id": 11,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 57243,
+        "matched": true,
+        "latency_ms": 126
+      },
+      {
+        "id": 12,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 62452,
+        "matched": true,
+        "latency_ms": 104
+      },
+      {
+        "id": 13,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 68567,
+        "matched": true,
+        "latency_ms": 176
+      },
+      {
+        "id": 14,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 71843,
+        "matched": true,
+        "latency_ms": 109
+      },
+      {
+        "id": 15,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 77252,
+        "matched": true,
+        "latency_ms": 220
+      },
+      {
+        "id": 16,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 81512,
+        "matched": true,
+        "latency_ms": 104
+      },
+      {
+        "id": 17,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 85179,
+        "matched": true,
+        "latency_ms": 199
+      },
+      {
+        "id": 18,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 86972,
+        "matched": true,
+        "latency_ms": 82
+      },
+      {
+        "id": 19,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 89948,
+        "matched": true,
+        "latency_ms": 68
+      },
+      {
+        "id": 20,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 97725,
+        "matched": true,
+        "latency_ms": 378
+      },
+      {
+        "id": 21,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "ENTER",
+        "truth_ms": 109140,
+        "matched": true,
+        "latency_ms": 189
+      },
+      {
+        "id": 22,
+        "room": "60d4045e-7a03-4caf-930b-fb3680f83177",
+        "direction": "EXIT",
+        "truth_ms": 112201,
+        "matched": true,
+        "latency_ms": 84
+      },
+      {
+        "id": 23,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "ENTER",
+        "truth_ms": 114099,
+        "matched": true,
+        "latency_ms": 174
+      },
+      {
+        "id": 24,
+        "room": "a41c1aac-efee-4a12-8a84-cd976e9b4ca3",
+        "direction": "EXIT",
+        "truth_ms": 116604,
+        "matched": true,
+        "latency_ms": 90
+      },
+      {
+        "id": 25,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "ENTER",
+        "truth_ms": 120297,
+        "matched": true,
+        "latency_ms": 160
+      },
+      {
+        "id": 26,
+        "room": "af80da94-d18b-4684-8121-171ad528bd13",
+        "direction": "EXIT",
+        "truth_ms": 124381,
+        "matched": true,
+        "latency_ms": 109
+      },
+      {
+        "id": 27,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "ENTER",
+        "truth_ms": 126617,
+        "matched": true,
+        "latency_ms": 169
+      },
+      {
+        "id": 28,
+        "room": "c018e0d6-d54c-4201-9646-13a83b27c898",
+        "direction": "EXIT",
+        "truth_ms": 130938,
+        "matched": true,
+        "latency_ms": 375
+      },
+      {
+        "id": 29,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "ENTER",
+        "truth_ms": 133068,
+        "matched": true,
+        "latency_ms": 200
+      },
+      {
+        "id": 30,
+        "room": "e07d03fb-98e7-42ac-af88-38eda2e58d01",
+        "direction": "EXIT",
+        "truth_ms": 136134,
+        "matched": true,
+        "latency_ms": 153
+      },
+      {
+        "id": 31,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "ENTER",
+        "truth_ms": 141948,
+        "matched": true,
+        "latency_ms": 119
+      },
+      {
+        "id": 32,
+        "room": "7163ae79-e0e5-4faf-9c58-c4c3b7c340fb",
+        "direction": "EXIT",
+        "truth_ms": 145477,
+        "matched": true,
+        "latency_ms": 225
+      }
+    ],
+    "extra_outputs": [],
+    "event_time_differs_from_output_frame": [],
+    "consistency_errors": [],
+    "identity_source_resets": 0,
+    "event_contract_status": "PASS",
+    "preferred_latency_target_status": "PASS",
+    "wall_clock_latency_status": "NOT_EVALUATED",
+    "independent_video_generalization_status": "NOT_EVALUATED",
+    "full_system_acceptance": "NOT_ESTABLISHED",
+    "recording": "SISP_DIFFERENCE_全程判定_工作标注32条_20261012_001104_657.txt",
+    "source_sha256": "b31f4abb0b56ffa68613f81af33a93c279aebe52300463dea9be6b9f54051fd3",
+    "frozen_truth_sha256": "c5ccf03445ab2f11b4043a15c712509d8cdcc5863871df40bd4e5ec151987988",
+    "scope": "same-scene supervised known-recording native replay"
+  }
+]

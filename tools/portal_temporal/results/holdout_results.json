@@ -1,0 +1,125 @@
+{
+  "recording_holdout": [
+    {
+      "recording": 0,
+      "hits": 32,
+      "extras": 0,
+      "within500": 32,
+      "missed": [],
+      "model_sha256": "e52b04d0de872c97e378bc9d717a036f05238244fb8e548de4ad9675ca649c1d"
+    },
+    {
+      "recording": 1,
+      "hits": 32,
+      "extras": 0,
+      "within500": 32,
+      "missed": [],
+      "model_sha256": "d6d14e3a3a08b1efe14a373263a5f7fa4e7d12a8be65fb4a0b522b4138f269e8"
+    },
+    {
+      "recording": 2,
+      "hits": 32,
+      "extras": 0,
+      "within500": 32,
+      "missed": [],
+      "model_sha256": "17db692c4238465efb35b8da532c40de0299b8cf92e2661b81011ad865f2894c"
+    },
+    {
+      "recording": 3,
+      "hits": 31,
+      "extras": 0,
+      "within500": 31,
+      "missed": [
+        12
+      ],
+      "model_sha256": "fcbc87d894786676fd71f4774eedc05c039506d9670fd0642bbce39d98f74124"
+    },
+    {
+      "recording": 4,
+      "hits": 32,
+      "extras": 0,
+      "within500": 32,
+      "missed": [],
+      "model_sha256": "eeb4ad16ba87b43b4dc823554821e09a6c2e48b2e6f2548fdecd382d0582220a"
+    },
+    {
+      "recording": 5,
+      "hits": 32,
+      "extras": 0,
+      "within500": 32,
+      "missed": [],
+      "model_sha256": "99f78c305453a266749b7f8e20d5b4456630558c3158c14c936e19ab86e28076"
+    }
+  ],
+  "action_group_holdout": {
+    "excluded_training_time_ms": [
+      0,
+      54000
+    ],
+    "meaning": "The same first ten actions were excluded in ALL six recordings, not just one sampling",
+    "scores": [
+      {
+        "recording": 0,
+        "hits": 8,
+        "extras": 1,
+        "within500": 8,
+        "missed": [
+          1,
+          10
+        ]
+      },
+      {
+        "recording": 1,
+        "hits": 8,
+        "extras": 1,
+        "within500": 8,
+        "missed": [
+          1,
+          10
+        ]
+      },
+      {
+        "recording": 2,
+        "hits": 8,
+        "extras": 1,
+        "within500": 8,
+        "missed": [
+          1,
+          10
+        ]
+      },
+      {
+        "recording": 3,
+        "hits": 8,
+        "extras": 1,
+        "within500": 8,
+        "missed": [
+          1,
+          10
+        ]
+      },
+      {
+        "recording": 4,
+        "hits": 8,
+        "extras": 1,
+        "within500": 8,
+        "missed": [
+          1,
+          10
+        ]
+      },
+      {
+        "recording": 5,
+        "hits": 8,
+        "extras": 2,
+        "within500": 7,
+        "missed": [
+          1,
+          10
+        ]
+      }
+    ],
+    "status": "FAIL"
+  },
+  "whole_product_acceptance": "NOT_ESTABLISHED"
+}
